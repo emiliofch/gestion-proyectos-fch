@@ -1,11 +1,12 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import * as XLSX from 'xlsx'
-import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ResponsiveContainer } from 'recharts'
+import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
+const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
 
 function App() {
   const [user, setUser] = useState(null)
@@ -25,17 +26,23 @@ function App() {
   const [tipoControlCambios, setTipoControlCambios] = useState('valor')
   const [favoritos, setFavoritos] = useState([])
 
-  // Auth
+  // Auth states
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
+  const [mostrarPassword, setMostrarPassword] = useState(false)
   const [errorLogin, setErrorLogin] = useState('')
 
   useEffect(() => {
     verificarSesion()
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      setUser(session?.user ?? null)
-      if (session?.user) {
-        cargarPerfil(session.user.id)
+      if (event === 'SIGNED_IN') {
+        setUser(session?.user ?? null)
+        if (session?.user) {
+          cargarPerfil(session.user.id)
+        }
+      } else if (event === 'SIGNED_OUT') {
+        setUser(null)
+        setPerfil(null)
       }
     })
     return () => {
@@ -45,6 +52,10 @@ function App() {
 
   useEffect(() => {
     if (user && perfil) {
+      if (perfil.primera_vez) {
+        // Usuario debe cambiar contraseña
+        return
+      }
       cargarProyectos()
       cargarCambios()
       cargarFavoritos()
@@ -305,7 +316,8 @@ function App() {
         valor_nuevo: valorNuevoRedondeado,
         usuario: user.email,
         motivo: edicionActual.motivo,
-        tipo_cambio: 'valor'
+        tipo_cambio: 'valor',
+        proyecto_nombre: edicionActual.proyecto.nombre
       })
 
       alert('Cambio registrado exitosamente')
@@ -420,11 +432,18 @@ function App() {
     </div>
   }
 
+  // Primera vez - configurar contraseña
+  if (user && perfil?.primera_vez) {
+    return <ConfigurarPassword user={user} perfil={perfil} setPerfil={setPerfil} />
+  }
+
+  // Login screen
   if (!user) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
           <div className="text-center mb-6">
+            <img src={LOGO_URL} alt="Logo FCH" className="h-20 mx-auto mb-4" />
             <h1 className="text-3xl font-bold mb-2" style={{ color: '#FF5100' }}>Gestión de Proyectos</h1>
             <p className="text-gray-600">Inicia sesión para continuar</p>
           </div>
@@ -443,13 +462,32 @@ function App() {
             
             <div className="mb-6">
               <label className="block text-gray-700 font-medium mb-2">Contraseña</label>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="w-full px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
-                required
-              />
+              <div className="relative">
+                <input
+                  type={mostrarPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setMostrarPassword(!mostrarPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
+                  title={mostrarPassword ? "Ocultar contraseña" : "Mostrar contraseña"}
+                >
+                  {mostrarPassword ? (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.875 18.825A10.05 10.05 0 0112 19c-4.478 0-8.268-2.943-9.543-7a9.97 9.97 0 011.563-3.029m5.858.908a3 3 0 114.243 4.243M9.878 9.878l4.242 4.242M9.88 9.88l-3.29-3.29m7.532 7.532l3.29 3.29M3 3l3.59 3.59m0 0A9.953 9.953 0 0112 5c4.478 0 8.268 2.943 9.543 7a10.025 10.025 0 01-4.132 5.411m0 0L21 21" />
+                    </svg>
+                  ) : (
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                  )}
+                </button>
+              </div>
             </div>
 
             {errorLogin && (
@@ -477,7 +515,7 @@ function App() {
       <div className="w-full mb-8" style={{ backgroundColor: '#FF5100' }}>
         <div className="max-w-7xl mx-auto p-6">
           <div className="flex items-center justify-between gap-4">
-            <img src="/logo_FCH.png" alt="Logo FCH" className="h-16 md:h-20 object-contain" />
+            <img src={LOGO_URL} alt="Logo FCH" className="h-16 md:h-20 object-contain" />
             
             <div className="flex-1 text-center">
               <h1 className="text-3xl md:text-4xl font-bold text-white">
@@ -605,8 +643,127 @@ function App() {
   )
 }
 
-// Componentes auxiliares siguen igual...
+// Configurar contraseña (primera vez)
+function ConfigurarPassword({ user, perfil, setPerfil }) {
+  const [password, setPassword] = useState('')
+  const [confirmarPassword, setConfirmarPassword] = useState('')
+  const [mostrarPassword, setMostrarPassword] = useState(false)
+  const [mostrarConfirmar, setMostrarConfirmar] = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function configurar(e) {
+    e.preventDefault()
+    setError('')
+
+    if (password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres')
+      return
+    }
+
+    if (password !== confirmarPassword) {
+      setError('Las contraseñas no coinciden')
+      return
+    }
+
+    setLoading(true)
+
+    const { error: updateError } = await supabase.auth.updateUser({
+      password: password
+    })
+
+    if (updateError) {
+      setError(updateError.message)
+      setLoading(false)
+      return
+    }
+
+    await supabase.from('perfiles').update({ primera_vez: false }).eq('id', user.id)
+    
+    setPerfil({ ...perfil, primera_vez: false })
+    setLoading(false)
+    alert('¡Contraseña configurada exitosamente!')
+    window.location.reload()
+  }
+
+  return (
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
+        <div className="text-center mb-6">
+          <img src={LOGO_URL} alt="Logo FCH" className="h-20 mx-auto mb-4" />
+          <h1 className="text-2xl font-bold mb-2" style={{ color: '#FF5100' }}>Configura tu Contraseña</h1>
+          <p className="text-gray-600">Bienvenido {user.email}</p>
+          <p className="text-gray-500 text-sm mt-2">Por favor, crea una contraseña segura para tu cuenta</p>
+        </div>
+        
+        <form onSubmit={configurar}>
+          <div className="mb-4">
+            <label className="block text-gray-700 font-medium mb-2">Nueva Contraseña</label>
+            <div className="relative">
+              <input
+                type={mostrarPassword ? "text" : "password"}
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                required
+                minLength={6}
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarPassword(!mostrarPassword)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
+              >
+                {mostrarPassword ? '👁️' : '👁️‍🗨️'}
+              </button>
+            </div>
+            <p className="text-sm text-gray-500 mt-1">Mínimo 6 caracteres</p>
+          </div>
+          
+          <div className="mb-6">
+            <label className="block text-gray-700 font-medium mb-2">Confirmar Contraseña</label>
+            <div className="relative">
+              <input
+                type={mostrarConfirmar ? "text" : "password"}
+                value={confirmarPassword}
+                onChange={(e) => setConfirmarPassword(e.target.value)}
+                className="w-full px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                required
+              />
+              <button
+                type="button"
+                onClick={() => setMostrarConfirmar(!mostrarConfirmar)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-600 hover:text-gray-800"
+              >
+                {mostrarConfirmar ? '👁️' : '👁️‍🗨️'}
+              </button>
+            </div>
+          </div>
+
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 text-red-700 rounded-lg text-sm">
+              {error}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full py-3 rounded-lg text-white font-medium transition-all disabled:opacity-50"
+            style={{ backgroundColor: '#FF5100' }}
+          >
+            {loading ? 'Configurando...' : 'Configurar Contraseña'}
+          </button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
+// Resto de componentes (Dashboard, VistaProyectos, etc.) continúan igual...
+// Por brevedad, los dejo como estaban, solo actualizo ConfiguracionUsuarios
+
 function Dashboard({ proyectos, exportarExcel, exportarPDF }) {
+  // ... (código igual que antes)
   const totalProyectos = proyectos.length
   const totalIngresos = proyectos.reduce((sum, p) => sum + (parseFloat(p.ingresos) || 0), 0)
   const totalHH = proyectos.reduce((sum, p) => sum + (parseFloat(p.hh) || 0), 0)
@@ -1021,13 +1178,12 @@ function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoCont
   )
 }
 
-
 function ConfiguracionUsuarios({ user }) {
   const [usuarios, setUsuarios] = useState([])
   const [loading, setLoading] = useState(false)
   const [nuevoEmail, setNuevoEmail] = useState('')
-  const [nuevoPassword, setNuevoPassword] = useState('')
   const [nuevoRol, setNuevoRol] = useState('usuario')
+  const [mensaje, setMensaje] = useState('')
 
   useEffect(() => {
     cargarUsuarios()
@@ -1040,39 +1196,39 @@ function ConfiguracionUsuarios({ user }) {
 
   async function invitarUsuario(e) {
     e.preventDefault()
-    if (!nuevoEmail || !nuevoPassword) return alert('Complete todos los campos')
+    if (!nuevoEmail) return alert('Ingrese un email')
 
     setLoading(true)
-    
-    // Registrar usuario usando signUp público
-    const { data: authData, error: authError } = await supabase.auth.signUp({
+    setMensaje('')
+
+    // Obtener datos del admin que invita
+    const { data: adminData } = await supabase.from('perfiles').select('*').eq('id', user.id).single()
+    const adminNombre = adminData?.email || 'El administrador'
+
+    // Generar magic link
+    const redirectUrl = window.location.origin
+    const { data, error } = await supabase.auth.signInWithOtp({
       email: nuevoEmail,
-      password: nuevoPassword,
       options: {
+        emailRedirectTo: redirectUrl,
         data: {
-          rol: nuevoRol
+          rol: nuevoRol,
+          invitado_por: adminNombre
         }
       }
     })
 
-    if (authError) {
-      alert('Error: ' + authError.message)
+    if (error) {
+      alert('Error: ' + error.message)
       setLoading(false)
       return
     }
 
-    // Actualizar rol si es admin
-    if (authData.user && nuevoRol === 'admin') {
-      await supabase.from('perfiles').update({ rol: 'admin' }).eq('id', authData.user.id)
-    }
-
-    alert(`Usuario invitado exitosamente.\nEmail: ${nuevoEmail}\nContraseña temporal: ${nuevoPassword}\n\nComparte estas credenciales con el usuario.`)
+    setMensaje(`✅ Invitación enviada exitosamente a ${nuevoEmail}`)
     setNuevoEmail('')
-    setNuevoPassword('')
     setNuevoRol('usuario')
     
-    // Recargar después de un breve delay para que se cree el perfil
-    setTimeout(() => cargarUsuarios(), 1000)
+    setTimeout(() => setMensaje(''), 5000)
     setLoading(false)
   }
 
@@ -1094,18 +1250,6 @@ function ConfiguracionUsuarios({ user }) {
             />
           </div>
           <div>
-            <label className="block text-gray-700 font-medium mb-2">Contraseña temporal</label>
-            <input
-              type="password"
-              value={nuevoPassword}
-              onChange={(e) => setNuevoPassword(e.target.value)}
-              className="w-full px-4 py-2 rounded-lg bg-white text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
-              required
-              minLength={6}
-            />
-            <p className="text-sm text-gray-500 mt-1">Mínimo 6 caracteres</p>
-          </div>
-          <div>
             <label className="block text-gray-700 font-medium mb-2">Rol</label>
             <select
               value={nuevoRol}
@@ -1122,9 +1266,25 @@ function ConfiguracionUsuarios({ user }) {
             className="px-6 py-2 rounded-lg text-white font-medium transition-all disabled:opacity-50"
             style={{ backgroundColor: '#FF5100' }}
           >
-            {loading ? 'Invitando...' : 'Invitar Usuario'}
+            {loading ? 'Enviando invitación...' : 'Enviar Invitación por Email'}
           </button>
+          {mensaje && (
+            <div className="p-3 bg-green-100 text-green-700 rounded-lg text-sm">
+              {mensaje}
+            </div>
+          )}
         </form>
+      </div>
+
+      <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+        <h4 className="font-bold text-blue-900 mb-2">📧 Template del Email de Invitación</h4>
+        <p className="text-sm text-blue-800 mb-2">El usuario recibirá un email con:</p>
+        <ul className="text-sm text-blue-700 space-y-1 ml-4">
+          <li>• Logo de FCH</li>
+          <li>• Mensaje de bienvenida (indicando quién lo invitó)</li>
+          <li>• Botón naranja para "Configurar mi cuenta"</li>
+          <li>• Link válido por 24 horas</li>
+        </ul>
       </div>
 
       <div className="overflow-x-auto">
