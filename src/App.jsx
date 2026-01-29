@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
+import { ToastContainer, toast } from 'react-toastify'
+import 'react-toastify/dist/ReactToastify.css'
 import * as XLSX from 'xlsx'
 import jsPDF from 'jspdf'
 import autoTable from 'jspdf-autotable'
@@ -135,9 +137,9 @@ function App() {
     })
 
     if (error) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     } else {
-      alert('Sugerencia enviada')
+      toast.success('Sugerencia enviada')
       cargarSugerencias()
     }
     setLoading(false)
@@ -168,8 +170,9 @@ function App() {
     const { error } = await supabase.from('sugerencias').update({ estado: nuevoEstado }).eq('id', sugerenciaId)
 
     if (error) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     } else {
+      toast.success('Estado actualizado')
       cargarSugerencias()
     }
     setLoading(false)
@@ -229,11 +232,11 @@ function App() {
           }
         }
 
-        alert(`Importación completada:\n✓ ${insertados} proyectos importados\n✗ ${errores} errores`)
+        toast.success(`Importación completada: ✓ ${insertados} ✗ ${errores}`)
         cargarProyectos()
         cargarCambios()
       } catch (error) {
-        alert('Error al procesar el archivo: ' + error.message)
+        toast.error('Error al procesar el archivo: ' + error.message)
       }
       setLoading(false)
     }
@@ -250,13 +253,22 @@ function App() {
     if (!jefe) return
     
     const ingresos = prompt('Estimación ingresos:')
-    if (!ingresos || isNaN(ingresos)) return alert('Debe ser número')
+    if (!ingresos || isNaN(ingresos)) {
+      toast.error('Debe ser número')
+      return
+    }
     
     const gastos = prompt('Estimación GGOO:')
-    if (!gastos || isNaN(gastos)) return alert('Debe ser número')
+    if (!gastos || isNaN(gastos)) {
+      toast.error('Debe ser número')
+      return
+    }
     
     const hh = prompt('HH del proyecto:')
-    if (!hh || isNaN(hh)) return alert('Debe ser número')
+    if (!hh || isNaN(hh)) {
+      toast.error('Debe ser número')
+      return
+    }
 
     setLoading(true)
     const { data: nuevoProyecto, error } = await supabase.from('proyectos').insert({
@@ -269,7 +281,7 @@ function App() {
     }).select().single()
     
     if (error) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     } else {
       await supabase.from('cambios').insert({
         proyecto_id: nuevoProyecto.id,
@@ -280,7 +292,7 @@ function App() {
         motivo: `Proyecto creado: ${nombre}`,
         tipo_cambio: 'proyecto'
       })
-      alert('Proyecto creado')
+      toast.success('Proyecto creado')
       cargarProyectos()
       cargarCambios()
     }
@@ -305,9 +317,9 @@ function App() {
     await supabase.from('cambios').delete().eq('proyecto_id', proyecto.id).neq('tipo_cambio', 'proyecto')
     const { error } = await supabase.from('proyectos').delete().eq('id', proyecto.id)
     
-    if (error) alert('Error: ' + error.message)
+    if (error) toast.error('Error: ' + error.message)
     else {
-      alert('Proyecto eliminado')
+      toast.success('Proyecto eliminado')
       cargarProyectos()
       cargarCambios()
     }
@@ -322,7 +334,7 @@ function App() {
     await supabase.from('cambios').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     await supabase.from('proyectos').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     
-    alert('Todos los proyectos fueron eliminados')
+    toast.success('Todos los proyectos fueron eliminados')
     cargarProyectos()
     cargarCambios()
     setLoading(false)
@@ -341,7 +353,7 @@ function App() {
 
   async function guardarCambioIndividual() {
     if (!edicionActual.valorNuevo || isNaN(edicionActual.valorNuevo)) {
-      alert('Debe ser un número válido')
+      toast.error('Debe ser un número válido')
       return
     }
 
@@ -349,13 +361,13 @@ function App() {
     const valorActualRedondeado = parseFloat(parseFloat(edicionActual.valorActual).toFixed(1))
 
     if (valorNuevoRedondeado === valorActualRedondeado) {
-      alert('El valor no ha cambiado')
+      toast.warning('El valor no ha cambiado')
       setModalAbierto(false)
       return
     }
 
     if (!edicionActual.motivo.trim()) {
-      alert('Debe ingresar un motivo del cambio')
+      toast.warning('Debe ingresar un motivo del cambio')
       return
     }
 
@@ -377,11 +389,11 @@ function App() {
         proyecto_nombre: edicionActual.proyecto.nombre
       })
 
-      alert('Cambio registrado exitosamente')
+      toast.success('Cambio registrado exitosamente')
       cargarProyectos()
       cargarCambios()
     } else {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
     }
 
     setLoading(false)
@@ -501,6 +513,19 @@ function App() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      <ToastContainer
+        position="top-right"
+        autoClose={3000}
+        hideProgressBar={false}
+        newestOnTop={true}
+        closeOnClick
+        rtl={false}
+        pauseOnFocusLoss
+        draggable
+        pauseOnHover
+        theme="light"
+      />
+      
       {/* Header Fixed */}
       <div className="fixed top-0 left-0 right-0 z-40 w-full" style={{ backgroundColor: '#FF5100' }}>
         <div className="max-w-7xl mx-auto p-6">
