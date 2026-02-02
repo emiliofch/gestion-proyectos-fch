@@ -180,6 +180,28 @@ export default function VistaSolicitudOC({ user, perfil }) {
   async function enviarCorreos(solicitud, archivosInfo) {
     const proyecto = proyectos.find(p => p.id === proyectoId)
 
+    console.log('=== DEBUG: Generando URLs de descarga ===')
+
+    // Generar URLs firmadas para cada archivo (válidas por 7 días)
+    const archivosConUrls = await Promise.all(
+      archivosInfo.map(async (archivo) => {
+        const { data, error } = await supabase.storage
+          .from('oc-adjuntos')
+          .createSignedUrl(archivo.path, 604800) // 7 días en segundos
+
+        if (error) {
+          console.error('Error generando URL para:', archivo.nombre, error)
+          return { ...archivo, url: null }
+        }
+
+        console.log('✓ URL generada para:', archivo.nombre)
+        return { ...archivo, url: data.signedUrl }
+      })
+    )
+
+    console.log('URLs generadas:', archivosConUrls)
+    console.log('====================================')
+
     const payload = {
       tipo: tiposDocumento.find(t => t.value === tipo)?.label || tipo,
       proveedor,
@@ -190,7 +212,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
       glosa,
       valor: parseFloat(valor),
       detalle,
-      archivosAdjuntos: archivosInfo,
+      archivosAdjuntos: archivosConUrls,
       usuarioEmail: user.email
     }
 

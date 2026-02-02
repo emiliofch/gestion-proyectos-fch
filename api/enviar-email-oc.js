@@ -59,12 +59,26 @@ export default async function handler(req, res) {
               ${data.detalle ? `<div class="field"><span class="label">📄 Detalle:</span><div style="margin-top: 5px; padding: 10px; background: white; border-radius: 4px;">${data.detalle}</div></div>` : ''}
               ${data.archivosAdjuntos && data.archivosAdjuntos.length > 0 ? `
               <div style="background: white; padding: 15px; border-radius: 4px; margin-top: 15px;">
-                <div class="label">📎 Archivos adjuntos (${data.archivosAdjuntos.length}):</div>
+                <div class="label" style="margin-bottom: 10px;">📎 Archivos adjuntos (${data.archivosAdjuntos.length}):</div>
                 ${data.archivosAdjuntos.map((archivo, idx) => `
-                  <div style="padding: 8px; margin: 5px 0; background: #e3f2fd; border-radius: 4px;">
-                    ${idx + 1}. ${archivo.nombre || 'Archivo adjunto'}
+                  <div style="padding: 10px; margin: 8px 0; background: #e3f2fd; border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
+                    <div style="flex: 1;">
+                      <div style="font-weight: 500; color: #1976d2;">📄 ${archivo.nombre || 'Archivo adjunto'}</div>
+                      <div style="font-size: 11px; color: #666; margin-top: 2px;">
+                        ${(archivo.size / 1024 / 1024).toFixed(2)} MB
+                      </div>
+                    </div>
+                    ${archivo.url ? `
+                      <a href="${archivo.url}"
+                         style="background: #FF5100; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-weight: 500; font-size: 13px; margin-left: 10px; white-space: nowrap;">
+                        ⬇️ Descargar
+                      </a>
+                    ` : ''}
                   </div>
                 `).join('')}
+                <div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 11px; color: #856404;">
+                  ℹ️ Los enlaces de descarga son válidos por 7 días
+                </div>
               </div>
               ` : ''}
             </div>
