@@ -105,16 +105,17 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    // Enviar a todos los destinatarios en un solo correo (todos visibles)
+    // TEMPORAL: Enviar solo al usuario que crea la solicitud
+    // TODO: Agregar fabiola.gonzalez@fch.cl y emilio.lopez@fch.cl cuando se verifique el dominio
     console.log('📧 Preparando envío de correo...');
     console.log('From:', process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>');
-    console.log('To:', [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']);
+    console.log('To:', [data.usuarioEmail]);
     console.log('Subject:', `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`);
     console.log('Attachments:', attachments.length);
 
     const emailResponse = await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
-      to: [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
+      to: [data.usuarioEmail], // TEMPORAL: solo al usuario
       subject: `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
       attachments: attachments.length > 0 ? attachments : undefined
@@ -127,7 +128,7 @@ export default async function handler(req, res) {
     return res.status(200).json({
       success: true,
       emailId: emailResponse.data?.id,
-      recipients: [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']
+      recipients: [data.usuarioEmail] // TEMPORAL: solo al usuario
     });
 
   } catch (error) {
