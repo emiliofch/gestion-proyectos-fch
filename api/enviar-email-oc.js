@@ -105,28 +105,17 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    // Enviar a usuario
+    // Enviar a todos los destinatarios en un solo correo (todos visibles)
     await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
-      to: data.usuarioEmail,
-      subject: `Confirmación: Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
-      html: htmlContent,
-      attachments: attachments.length > 0 ? attachments : undefined
-    });
-
-    console.log('✓ Correo enviado a usuario:', data.usuarioEmail);
-
-    // Enviar a destinatarios fijos
-    await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
-      to: ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
+      to: [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
       subject: `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
       attachments: attachments.length > 0 ? attachments : undefined
     });
 
-    console.log('✓ Correo enviado a destinatarios fijos');
-    console.log('✅ Todos los correos enviados exitosamente');
+    console.log('✓ Correo enviado a:', [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']);
+    console.log('✅ Correo enviado exitosamente');
 
     return res.status(200).json({ success: true });
 
