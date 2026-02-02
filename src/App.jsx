@@ -29,6 +29,7 @@ function App() {
   const [cambios, setCambios] = useState([])
   const [vista, setVista] = useState('ajustes')
   const [menuAbierto, setMenuAbierto] = useState(false)
+  const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [filtroJefe, setFiltroJefe] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [ordenColumna, setOrdenColumna] = useState('nombre')
@@ -587,14 +588,14 @@ function App() {
         <div className="max-w-7xl mx-auto p-6">
           <div className="flex items-center justify-between gap-4">
             <img src={LOGO_URL} alt="Logo FCH" className="h-16 md:h-20 object-contain" />
-            
-            <div className="flex-1 text-center">
-              <h1 className="text-3xl md:text-4xl font-bold text-white">
-                Gestión de Proyectos
+
+            <div className="absolute left-1/2 transform -translate-x-1/2 text-center">
+              <h1 className="text-3xl md:text-4xl font-bold text-white whitespace-nowrap">
+                DeskFlow
               </h1>
-              <p className="text-white text-sm mt-1">{user.email} • {perfil?.rol}</p>
+              <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} • {perfil?.rol}</p>
             </div>
-            
+
             <button
               onClick={() => setMenuAbierto(!menuAbierto)}
               className="p-2 rounded-lg hover:bg-white/20 transition-all"
@@ -621,47 +622,53 @@ function App() {
       )}
 
       {/* Menú Lateral */}
-      <div className={`fixed top-32 right-0 h-screen w-64 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out ${
+      <div className={`fixed top-32 right-0 h-screen w-72 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out overflow-y-auto ${
         menuAbierto ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="p-4 space-y-2">
-          <button
-            onClick={() => { setVista('ajustes'); setMenuAbierto(false); setFiltroJefe(''); setBusqueda('') }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'ajustes' ? '#FF5100' : '#374151', backgroundColor: vista === 'ajustes' ? '#FFF5F0' : 'transparent' }}
-          >
-            ⚙️ Proyectos y Ajustes
-          </button>
-          <button
-            onClick={() => { setVista('cambios'); setMenuAbierto(false) }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'cambios' ? '#FF5100' : '#374151', backgroundColor: vista === 'cambios' ? '#FFF5F0' : 'transparent' }}
-          >
-            📝 Control de Cambios
-          </button>
-          <button
-            onClick={() => { setVista('dashboard'); setMenuAbierto(false) }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'dashboard' ? '#FF5100' : '#374151', backgroundColor: vista === 'dashboard' ? '#FFF5F0' : 'transparent' }}
-          >
-            📊 Dashboard
-          </button>
-          {perfil?.rol === 'admin' && (
+
+          {/* 1. Estimación de cierre (con submenú) */}
+          <div>
             <button
-              onClick={() => { setVista('usuarios'); setMenuAbierto(false) }}
-              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-              style={{ color: vista === 'usuarios' ? '#FF5100' : '#374151', backgroundColor: vista === 'usuarios' ? '#FFF5F0' : 'transparent' }}
+              onClick={() => setSubmenuEstimacion(!submenuEstimacion)}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
+              style={{ color: ['ajustes', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['ajustes', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
-              👥 Configuración
+              <span>📊 Estimación de cierre</span>
+              <svg className={`w-5 h-5 transition-transform ${submenuEstimacion ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
             </button>
-          )}
-          <button
-            onClick={() => { setVista('sugerencias'); setMenuAbierto(false) }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'sugerencias' ? '#FF5100' : '#374151', backgroundColor: vista === 'sugerencias' ? '#FFF5F0' : 'transparent' }}
-          >
-            💡 Sugerencias
-          </button>
+
+            {/* Submenú */}
+            {submenuEstimacion && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('ajustes'); setMenuAbierto(false); setFiltroJefe(''); setBusqueda('') }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'ajustes' ? '#FF5100' : '#374151', backgroundColor: vista === 'ajustes' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📁 Oportunidades
+                </button>
+                <button
+                  onClick={() => { setVista('cambios'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'cambios' ? '#FF5100' : '#374151', backgroundColor: vista === 'cambios' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📝 Control de cambios
+                </button>
+                <button
+                  onClick={() => { setVista('dashboard'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'dashboard' ? '#FF5100' : '#374151', backgroundColor: vista === 'dashboard' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📈 Dashboard
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 2. Solicitud OC */}
           <button
             onClick={() => { setVista('solicitud-oc'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
@@ -669,12 +676,53 @@ function App() {
           >
             🧾 Solicitud OC
           </button>
+
+          {/* 3. Solicitud egreso */}
+          <button
+            onClick={() => { setVista('solicitud-egreso'); setMenuAbierto(false) }}
+            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+            style={{ color: vista === 'solicitud-egreso' ? '#FF5100' : '#374151', backgroundColor: vista === 'solicitud-egreso' ? '#FFF5F0' : 'transparent' }}
+          >
+            💸 Solicitud egreso
+          </button>
+
+          {/* 4. Ingreso HH */}
+          <button
+            onClick={() => { setVista('ingreso-hh'); setMenuAbierto(false) }}
+            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+            style={{ color: vista === 'ingreso-hh' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-hh' ? '#FFF5F0' : 'transparent' }}
+          >
+            ⏱️ Ingreso HH
+          </button>
+
+          {/* 5. Config (solo admin) */}
+          {perfil?.rol === 'admin' && (
+            <button
+              onClick={() => { setVista('usuarios'); setMenuAbierto(false) }}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+              style={{ color: vista === 'usuarios' ? '#FF5100' : '#374151', backgroundColor: vista === 'usuarios' ? '#FFF5F0' : 'transparent' }}
+            >
+              ⚙️ Config
+            </button>
+          )}
+
+          {/* 6. Sugerencias */}
+          <button
+            onClick={() => { setVista('sugerencias'); setMenuAbierto(false) }}
+            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+            style={{ color: vista === 'sugerencias' ? '#FF5100' : '#374151', backgroundColor: vista === 'sugerencias' ? '#FFF5F0' : 'transparent' }}
+          >
+            💡 Sugerencias
+          </button>
+
           <hr className="my-2" />
+
+          {/* 7. Cerrar sesión */}
           <button
             onClick={logout}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-red-50 text-red-600"
           >
-            🚪 Cerrar Sesión
+            🚪 Cerrar sesión
           </button>
         </div>
       </div>
@@ -745,6 +793,30 @@ function App() {
 
             {vista === 'solicitud-oc' && (
               <VistaSolicitudOC user={user} perfil={perfil} />
+            )}
+
+            {vista === 'solicitud-egreso' && (
+              <div>
+                <h2 className="text-2xl font-bold mb-6" style={{ color: '#FF5100' }}>
+                  💸 Solicitud de Egreso
+                </h2>
+                <div className="bg-gray-50 rounded-lg p-12 text-center">
+                  <p className="text-gray-600 text-lg mb-4">Esta funcionalidad estará disponible próximamente.</p>
+                  <p className="text-gray-500 text-sm">Aquí podrás crear y gestionar solicitudes de egreso.</p>
+                </div>
+              </div>
+            )}
+
+            {vista === 'ingreso-hh' && (
+              <div>
+                <h2 className="text-2xl font-bold mb-6" style={{ color: '#FF5100' }}>
+                  ⏱️ Ingreso de Horas Hombre
+                </h2>
+                <div className="bg-gray-50 rounded-lg p-12 text-center">
+                  <p className="text-gray-600 text-lg mb-4">Esta funcionalidad estará disponible próximamente.</p>
+                  <p className="text-gray-500 text-sm">Aquí podrás registrar y gestionar las horas hombre de tus proyectos.</p>
+                </div>
+              </div>
             )}
           </div>
         </div>
