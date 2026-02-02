@@ -81,7 +81,7 @@ export default async function handler(req, res) {
         <body>
           <div class="container">
             <div class="header">
-              <h2>🧾 Nueva Solicitud de Orden de Compra</h2>
+              <h2>🧾 Nueva Solicitud de Orden de Compra #${data.idCorrelativo}</h2>
             </div>
             <div class="content">
               <div class="field"><span class="label">📋 Tipo:</span><span class="value">${data.tipo}</span></div>
@@ -95,22 +95,6 @@ export default async function handler(req, res) {
                 <div class="field"><span class="label">💰 Valor:</span><span class="value" style="font-size: 18px; font-weight: bold;">${valorFormateado}</span></div>
               </div>
               ${data.detalle ? `<div class="field"><span class="label">📄 Detalle:</span><div style="margin-top: 5px; padding: 10px; background: white; border-radius: 4px;">${data.detalle}</div></div>` : ''}
-              ${attachments.length > 0 ? `
-              <div style="background: white; padding: 15px; border-radius: 4px; margin-top: 15px;">
-                <div class="label" style="margin-bottom: 10px;">📎 Archivos adjuntos (${attachments.length}):</div>
-                ${attachments.map((archivo) => `
-                  <div style="padding: 10px; margin: 8px 0; background: #e8f5e9; border-radius: 6px; border-left: 3px solid #4caf50;">
-                    <div style="font-weight: 500; color: #2e7d32;">📄 ${archivo.filename}</div>
-                    <div style="font-size: 11px; color: #666; margin-top: 2px;">
-                      ✓ Incluido como archivo adjunto en este correo
-                    </div>
-                  </div>
-                `).join('')}
-                <div style="margin-top: 10px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 11px; color: #2e7d32;">
-                  ℹ️ Los archivos están adjuntos a este correo. Puede descargarlos directamente desde su cliente de correo.
-                </div>
-              </div>
-              ` : ''}
             </div>
             <div class="footer">
               <p>Solicitud enviada por: <strong>${data.usuarioEmail}</strong></p>
@@ -125,7 +109,7 @@ export default async function handler(req, res) {
     await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
       to: data.usuarioEmail,
-      subject: `Confirmación: Solicitud OC - ${data.proveedor} (${valorFormateado})`,
+      subject: `Confirmación: Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
       attachments: attachments.length > 0 ? attachments : undefined
     });
@@ -136,7 +120,7 @@ export default async function handler(req, res) {
     await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
       to: ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
-      subject: `Nueva Solicitud OC - ${data.proveedor} (${valorFormateado})`,
+      subject: `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
       attachments: attachments.length > 0 ? attachments : undefined
     });
