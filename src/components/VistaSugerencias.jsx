@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { toast } from 'react-toastify'
 
 export default function VistaSugerencias({
   sugerencias,
@@ -8,6 +9,7 @@ export default function VistaSugerencias({
   crearSugerencia,
   votarSugerencia,
   cambiarEstadoSugerencia,
+  borrarSugerencia,
   perfil,
   user,
   loading
@@ -34,7 +36,7 @@ export default function VistaSugerencias({
 
   async function enviarSugerencia() {
     if (!nuevaSugerencia.trim()) {
-      alert('La sugerencia no puede estar vacía')
+      toast.warning('La sugerencia no puede estar vacía')
       return
     }
     await crearSugerencia(nuevaSugerencia)
@@ -165,18 +167,28 @@ export default function VistaSugerencias({
 
                     {/* Cambiar estado - solo admin */}
                     {perfil?.rol === 'admin' && (
-                      <select
-                        value={sugerencia.estado}
-                        onChange={(e) => cambiarEstadoSugerencia(sugerencia.id, e.target.value)}
-                        className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        disabled={loading}
-                      >
-                        {estados.map(estado => (
-                          <option key={estado} value={estado} className="capitalize">
-                            {estado}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="flex gap-2">
+                        <select
+                          value={sugerencia.estado}
+                          onChange={(e) => cambiarEstadoSugerencia(sugerencia.id, e.target.value)}
+                          className="px-3 py-2 border border-gray-300 rounded-lg text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={loading}
+                        >
+                          {estados.map(estado => (
+                            <option key={estado} value={estado} className="capitalize">
+                              {estado}
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          onClick={() => borrarSugerencia(sugerencia.id)}
+                          className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-all disabled:opacity-50 font-medium"
+                          disabled={loading}
+                          title="Eliminar sugerencia"
+                        >
+                          🗑️
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

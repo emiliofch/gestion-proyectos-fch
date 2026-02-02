@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
+import { toast } from 'react-toastify'
 
 export default function ConfiguracionUsuarios({ user }) {
   const [usuarios, setUsuarios] = useState([])
@@ -19,7 +20,7 @@ export default function ConfiguracionUsuarios({ user }) {
 
   async function invitarUsuario(e) {
     e.preventDefault()
-    if (!nuevoEmail) return alert('Ingrese un email')
+    if (!nuevoEmail) return toast.warning('Ingrese un email')
 
     setLoading(true)
     setMensaje('')
@@ -42,7 +43,7 @@ export default function ConfiguracionUsuarios({ user }) {
     })
 
     if (error) {
-      alert('Error: ' + error.message)
+      toast.error('Error: ' + error.message)
       setLoading(false)
       return
     }

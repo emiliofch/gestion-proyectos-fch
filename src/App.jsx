@@ -13,6 +13,8 @@ import VistaControlCambios from './components/VistaControlCambios'
 import ConfiguracionUsuarios from './components/ConfiguracionUsuarios'
 import ModalEdicion from './components/ModalEdicion'
 import VistaSugerencias from './components/VistaSugerencias'
+import ConfirmModal from './components/ConfirmModal'
+import VistaSolicitudOC from './components/VistaSolicitudOC'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
@@ -21,7 +23,9 @@ function App() {
   const [user, setUser] = useState(null)
   const [perfil, setPerfil] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [procesando, setProcesando] = useState(false)
   const [proyectos, setProyectos] = useState([])
+  const [confirmacion, setConfirmacion] = useState(null)
   const [cambios, setCambios] = useState([])
   const [vista, setVista] = useState('ajustes')
   const [menuAbierto, setMenuAbierto] = useState(false)
@@ -128,7 +132,8 @@ function App() {
   async function crearSugerencia(texto) {
     if (!texto.trim()) return
 
-    setLoading(true)
+    console.log('🔵 crearSugerencia llamada con:', texto)
+    setProcesando(true)
     const { error } = await supabase.from('sugerencias').insert({
       texto,
       usuario: user.email,
@@ -137,12 +142,14 @@ function App() {
     })
 
     if (error) {
+      console.error('❌ Error en sugerencia:', error)
       toast.error('Error: ' + error.message)
     } else {
+      console.log('✅ Sugerencia creada exitosamente')
       toast.success('Sugerencia enviada')
       cargarSugerencias()
     }
-    setLoading(false)
+    setProcesando(false)
   }
 
   async function votarSugerencia(sugerenciaId) {
@@ -166,7 +173,7 @@ function App() {
   }
 
   async function cambiarEstadoSugerencia(sugerenciaId, nuevoEstado) {
-    setLoading(true)
+    setProcesando(true)
     const { error } = await supabase.from('sugerencias').update({ estado: nuevoEstado }).eq('id', sugerenciaId)
 
     if (error) {
@@ -175,14 +182,46 @@ function App() {
       toast.success('Estado actualizado')
       cargarSugerencias()
     }
-    setLoading(false)
+    setProcesando(false)
+  }
+
+  async function borrarSugerencia(sugerenciaId) {
+    setConfirmacion({
+      mensaje: '¿Estás seguro de que deseas eliminar esta sugerencia?',
+      tipo: 'danger',
+      onConfirmar: async () => {
+        setProcesando(true)
+        console.log('🔵 borrarSugerencia llamada con ID:', sugerenciaId)
+        
+        let { error, data } = await supabase.from('sugerencias').delete().eq('id', sugerenciaId).select()
+
+        console.log('📤 Respuesta delete:', { error, data })
+
+        if (!error && (!data || data.length === 0)) {
+          console.warn('⚠️ Delete ejecutado pero sin datos eliminados - posible problema RLS')
+          
+          const { data: checkData } = await supabase.from('sugerencias').select('id').eq('id', sugerenciaId).single()
+          console.log('🔍 Sugerencia existe después de delete:', checkData)
+        }
+
+        if (error) {
+          console.error('❌ Error eliminando sugerencia:', error)
+          toast.error('Error: ' + error.message)
+        } else {
+          console.log('✅ Sugerencia eliminada exitosamente')
+          toast.success('Sugerencia eliminada')
+          await cargarSugerencias()
+        }
+        setProcesando(false)
+      }
+    })
   }
 
   async function importarExcel(e) {
     const file = e.target.files[0]
     if (!file) return
 
-    setLoading(true)
+    setProcesando(true)
     const reader = new FileReader()
     
     reader.onload = async (event) => {
@@ -238,7 +277,7 @@ function App() {
       } catch (error) {
         toast.error('Error al procesar el archivo: ' + error.message)
       }
-      setLoading(false)
+      setProcesando(false)
     }
 
     reader.readAsBinaryString(file)
@@ -254,23 +293,27 @@ function App() {
     
     const ingresos = prompt('Estimación ingresos:')
     if (!ingresos || isNaN(ingresos)) {
+      console.log('❌ Ingresos no válido:', ingresos)
       toast.error('Debe ser número')
       return
     }
     
     const gastos = prompt('Estimación GGOO:')
     if (!gastos || isNaN(gastos)) {
+      console.log('❌ Gastos no válido:', gastos)
       toast.error('Debe ser número')
       return
     }
     
     const hh = prompt('HH del proyecto:')
     if (!hh || isNaN(hh)) {
+      console.log('❌ HH no válido:', hh)
       toast.error('Debe ser número')
       return
     }
 
-    setLoading(true)
+    console.log('🔵 crearProyecto llamada:', { nombre, jefe, ingresos, gastos, hh })
+    setProcesando(true)
     const { data: nuevoProyecto, error } = await supabase.from('proyectos').insert({
       nombre,
       jefe,
@@ -281,8 +324,10 @@ function App() {
     }).select().single()
     
     if (error) {
+      console.error('❌ Error creando proyecto:', error)
       toast.error('Error: ' + error.message)
     } else {
+      console.log('✅ Proyecto creado:', nuevoProyecto.id)
       await supabase.from('cambios').insert({
         proyecto_id: nuevoProyecto.id,
         campo: 'PROYECTO CREADO',
@@ -296,48 +341,55 @@ function App() {
       cargarProyectos()
       cargarCambios()
     }
-    setLoading(false)
+    setProcesando(false)
   }
 
   async function borrarProyecto(proyecto) {
-    if (!confirm(`¿Seguro que deseas eliminar el proyecto "${proyecto.nombre}"?`)) return
-
-    setLoading(true)
+    setConfirmacion({
+      mensaje: `¿Seguro que deseas eliminar el proyecto "${proyecto.nombre}"?`,
+      tipo: 'danger',
+      onConfirmar: async () => {
+        setProcesando(true)
     
-    await supabase.from('cambios').insert({
-      proyecto_id: proyecto.id,
-      campo: 'PROYECTO ELIMINADO',
-      valor_anterior: 0,
-      valor_nuevo: 0,
-      usuario: user.email,
-      motivo: `Proyecto eliminado: ${proyecto.nombre}`,
-      tipo_cambio: 'proyecto'
+        await supabase.from('cambios').insert({
+          proyecto_id: proyecto.id,
+          campo: 'PROYECTO ELIMINADO',
+          valor_anterior: 0,
+          valor_nuevo: 0,
+          usuario: user.email,
+          motivo: `Proyecto eliminado: ${proyecto.nombre}`,
+          tipo_cambio: 'proyecto'
+        })
+        
+        await supabase.from('cambios').delete().eq('proyecto_id', proyecto.id).neq('tipo_cambio', 'proyecto')
+        const { error } = await supabase.from('proyectos').delete().eq('id', proyecto.id)
+        
+        if (error) toast.error('Error: ' + error.message)
+        else {
+          toast.success('Proyecto eliminado')
+          cargarProyectos()
+          cargarCambios()
+        }
+        setProcesando(false)
+      }
     })
-    
-    await supabase.from('cambios').delete().eq('proyecto_id', proyecto.id).neq('tipo_cambio', 'proyecto')
-    const { error } = await supabase.from('proyectos').delete().eq('id', proyecto.id)
-    
-    if (error) toast.error('Error: ' + error.message)
-    else {
-      toast.success('Proyecto eliminado')
-      cargarProyectos()
-      cargarCambios()
-    }
-    setLoading(false)
   }
 
   async function borrarTodosProyectos() {
-    if (!confirm('⚠️ ¿Estás SEGURO de eliminar TODOS los proyectos?')) return
-    if (!confirm('Última confirmación: ¿Eliminar TODOS los proyectos?')) return
-
-    setLoading(true)
-    await supabase.from('cambios').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    await supabase.from('proyectos').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    
-    toast.success('Todos los proyectos fueron eliminados')
-    cargarProyectos()
-    cargarCambios()
-    setLoading(false)
+    setConfirmacion({
+      mensaje: '⚠️ ¿Estás SEGURO de eliminar TODOS los proyectos? Esta acción es irreversible.',
+      tipo: 'danger',
+      onConfirmar: async () => {
+        setProcesando(true)
+        await supabase.from('cambios').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+        await supabase.from('proyectos').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+        
+        toast.success('Todos los proyectos fueron eliminados')
+        cargarProyectos()
+        cargarCambios()
+        setProcesando(false)
+      }
+    })
   }
 
   function abrirModalEdicion(proyecto, campo, valorActual) {
@@ -371,7 +423,7 @@ function App() {
       return
     }
 
-    setLoading(true)
+    setProcesando(true)
 
     const { error } = await supabase.from('proyectos').update({
       [edicionActual.campo]: valorNuevoRedondeado
@@ -396,7 +448,7 @@ function App() {
       toast.error('Error: ' + error.message)
     }
 
-    setLoading(false)
+    setProcesando(false)
     setModalAbierto(false)
     setEdicionActual(null)
   }
@@ -512,7 +564,7 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <>
       <ToastContainer
         position="top-right"
         autoClose={3000}
@@ -523,8 +575,12 @@ function App() {
         pauseOnFocusLoss
         draggable
         pauseOnHover
-        theme="light"
+        style={{ zIndex: 99999 }}
       />
+      
+      <div className="min-h-screen bg-gray-50">
+      
+      {console.log('📱 App renderizado - User:', user?.email, 'Perfil:', perfil?.rol)}
       
       {/* Header Fixed */}
       <div className="fixed top-0 left-0 right-0 z-40 w-full" style={{ backgroundColor: '#FF5100' }}>
@@ -606,6 +662,13 @@ function App() {
           >
             💡 Sugerencias
           </button>
+          <button
+            onClick={() => { setVista('solicitud-oc'); setMenuAbierto(false) }}
+            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+            style={{ color: vista === 'solicitud-oc' ? '#FF5100' : '#374151', backgroundColor: vista === 'solicitud-oc' ? '#FFF5F0' : 'transparent' }}
+          >
+            🧾 Solicitud OC
+          </button>
           <hr className="my-2" />
           <button
             onClick={logout}
@@ -673,14 +736,28 @@ function App() {
                 crearSugerencia={crearSugerencia}
                 votarSugerencia={votarSugerencia}
                 cambiarEstadoSugerencia={cambiarEstadoSugerencia}
+                borrarSugerencia={borrarSugerencia}
                 perfil={perfil}
                 user={user}
                 loading={loading}
               />
             )}
+
+            {vista === 'solicitud-oc' && (
+              <VistaSolicitudOC user={user} perfil={perfil} />
+            )}
           </div>
         </div>
       </div>
+
+      {confirmacion && (
+        <ConfirmModal
+          mensaje={confirmacion.mensaje}
+          tipo={confirmacion.tipo}
+          onConfirmar={confirmacion.onConfirmar}
+          onCancelar={() => setConfirmacion(null)}
+        />
+      )}
 
       {modalAbierto && edicionActual && (
         <ModalEdicion
@@ -692,6 +769,7 @@ function App() {
         />
       )}
     </div>
+    </>
   )
 }
 

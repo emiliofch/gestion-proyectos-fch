@@ -1,0 +1,67 @@
+/* Estilos personalizados para react-toastify */
+
+.Toastify__toast-container {
+  z-index: 9999 !important;
+  width: auto !important;
+  max-width: 400px;
+}
+
+.Toastify__toast {
+  z-index: 9999 !important;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  border-radius: 8px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-bottom: 10px;
+}
+
+.Toastify__toast--success {
+  background-color: #10b981;
+  color: white;
+}
+
+.Toastify__toast--error {
+  background-color: #ef4444;
+  color: white;
+}
+
+.Toastify__toast--warning {
+  background-color: #f59e0b;
+  color: white;
+}
+
+.Toastify__toast--info {
+  background-color: #3b82f6;
+  color: white;
+}
+
+.Toastify__close-button {
+  color: white !important;
+  opacity: 0.8;
+}
+
+.Toastify__close-button:hover {
+  opacity: 1;
+}
+
+.Toastify__progress-bar {
+  height: 3px;
+}
+
+.Toastify__progress-bar--success {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.Toastify__progress-bar--error {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.Toastify__progress-bar--warning {
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.Toastify__progress-bar--info {
+  background: rgba(255, 255, 255, 0.7);
+}

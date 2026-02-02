@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { supabase } from '../supabaseClient'
+import { toast } from 'react-toastify'
 
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
 
@@ -41,7 +42,7 @@ export default function ConfigurarPassword({ user, perfil, setPerfil }) {
     
     setPerfil({ ...perfil, primera_vez: false })
     setLoading(false)
-    alert('¡Contraseña configurada exitosamente!')
+    toast.success('¡Contraseña configurada exitosamente!')
     window.location.reload()
   }
 
