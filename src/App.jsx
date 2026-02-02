@@ -15,6 +15,7 @@ import ModalEdicion from './components/ModalEdicion'
 import VistaSugerencias from './components/VistaSugerencias'
 import ConfirmModal from './components/ConfirmModal'
 import VistaSolicitudOC from './components/VistaSolicitudOC'
+import AdministracionOC from './components/AdministracionOC'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
@@ -30,6 +31,7 @@ function App() {
   const [vista, setVista] = useState('ajustes')
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
+  const [submenuOC, setSubmenuOC] = useState(false)
   const [filtroJefe, setFiltroJefe] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [ordenColumna, setOrdenColumna] = useState('nombre')
@@ -668,14 +670,41 @@ function App() {
             )}
           </div>
 
-          {/* 2. Solicitud OC */}
-          <button
-            onClick={() => { setVista('solicitud-oc'); setMenuAbierto(false) }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'solicitud-oc' ? '#FF5100' : '#374151', backgroundColor: vista === 'solicitud-oc' ? '#FFF5F0' : 'transparent' }}
-          >
-            🧾 Solicitud OC
-          </button>
+          {/* 2. OC (con submenú) */}
+          <div>
+            <button
+              onClick={() => setSubmenuOC(!submenuOC)}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
+              style={{ color: ['solicitud-oc', 'admin-oc'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['solicitud-oc', 'admin-oc'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+            >
+              <span>🧾 OC</span>
+              <svg className={`w-5 h-5 transition-transform ${submenuOC ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {/* Submenú OC */}
+            {submenuOC && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('solicitud-oc'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'solicitud-oc' ? '#FF5100' : '#374151', backgroundColor: vista === 'solicitud-oc' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📝 Solicitud OC
+                </button>
+                {perfil?.rol === 'admin' && (
+                  <button
+                    onClick={() => { setVista('admin-oc'); setMenuAbierto(false) }}
+                    className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                    style={{ color: vista === 'admin-oc' ? '#FF5100' : '#374151', backgroundColor: vista === 'admin-oc' ? '#FFF5F0' : 'transparent' }}
+                  >
+                    🔧 Administración de OC
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
 
           {/* 3. Solicitud egreso */}
           <button
@@ -793,6 +822,10 @@ function App() {
 
             {vista === 'solicitud-oc' && (
               <VistaSolicitudOC user={user} perfil={perfil} />
+            )}
+
+            {vista === 'admin-oc' && perfil?.rol === 'admin' && (
+              <AdministracionOC />
             )}
 
             {vista === 'solicitud-egreso' && (

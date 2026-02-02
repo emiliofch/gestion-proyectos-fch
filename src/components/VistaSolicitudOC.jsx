@@ -60,6 +60,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
     const { data } = await supabase
       .from('solicitudes_oc')
       .select('*, proyectos(nombre)')
+      .eq('usuario_id', user.id)  // Filtrar solo solicitudes del usuario actual
       .order('fecha_creacion', { ascending: false })
 
     setSolicitudes(data || [])
@@ -531,7 +532,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
       </form>
 
       {/* Historial de solicitudes */}
-      <div className="bg-white rounded-lg shadow-lg p-6">
+      <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
         <h3 className="text-xl font-bold text-gray-800 mb-4">Mis Solicitudes</h3>
 
         {solicitudes.length === 0 ? (
@@ -541,37 +542,46 @@ export default function VistaSolicitudOC({ user, perfil }) {
             <table className="w-full">
               <thead>
                 <tr className="border-b-2 border-gray-300 bg-gray-50">
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Fecha</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Tipo</th>
+                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">ID</th>
                   <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proveedor</th>
+                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Glosa</th>
                   <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</th>
                   <th className="text-left py-3 px-4 text-gray-800 font-semibold">Valor</th>
+                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Fecha</th>
                   <th className="text-left py-3 px-4 text-gray-800 font-semibold">Estado</th>
+                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Sol. NetSuite</th>
                 </tr>
               </thead>
               <tbody>
-                {solicitudes.map(s => (
+                {solicitudes.map((s, index) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-gray-800 text-sm">
-                      {new Date(s.fecha_creacion).toLocaleDateString('es-CL')}
-                    </td>
-                    <td className="py-3 px-4 text-gray-800 capitalize">
-                      {s.tipo.replace('_', ' ')}
+                    <td className="py-3 px-4 text-gray-800 font-medium">
+                      {index + 1}
                     </td>
                     <td className="py-3 px-4 text-gray-800">{s.proveedor}</td>
-                    <td className="py-3 px-4 text-gray-800">{s.proyecto_nombre}</td>
+                    <td className="py-3 px-4 text-gray-800">{s.glosa}</td>
+                    <td className="py-3 px-4 text-gray-800 text-sm">{s.proyecto_nombre}</td>
                     <td className="py-3 px-4 text-gray-800 font-semibold">
                       {formatearValor(s.valor)}
                     </td>
+                    <td className="py-3 px-4 text-gray-800 text-sm">
+                      {new Date(s.fecha_creacion).toLocaleDateString('es-CL')}
+                    </td>
                     <td className="py-3 px-4">
-                      <span className={`px-3 py-1 rounded-full text-sm font-medium ${
+                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                         s.estado === 'enviada' ? 'bg-blue-100 text-blue-800' :
-                        s.estado === 'aprobada' ? 'bg-green-100 text-green-800' :
-                        s.estado === 'rechazada' ? 'bg-red-100 text-red-800' :
+                        s.estado === 'procesada' ? 'bg-purple-100 text-purple-800' :
+                        s.estado === 'en adquisiciones' ? 'bg-yellow-100 text-yellow-800' :
+                        s.estado === 'ok adquisiciones' ? 'bg-green-100 text-green-800' :
+                        s.estado === 'finalizado flujo' ? 'bg-green-200 text-green-900' :
+                        s.estado === 'anulada' ? 'bg-red-100 text-red-800' :
                         'bg-gray-100 text-gray-800'
                       }`}>
-                        {s.estado.charAt(0).toUpperCase() + s.estado.slice(1)}
+                        {s.estado}
                       </span>
+                    </td>
+                    <td className="py-3 px-4 text-gray-800 text-sm">
+                      {s.sol_netsuite || '-'}
                     </td>
                   </tr>
                 ))}
