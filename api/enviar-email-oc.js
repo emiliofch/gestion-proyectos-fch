@@ -18,6 +18,44 @@ export default async function handler(req, res) {
     const resend = new Resend(process.env.RESEND_API_KEY);
     const data = req.body;
 
+    // Descargar archivos desde Supabase Storage y convertir a base64
+    const attachments = [];
+
+    if (data.archivosAdjuntos && data.archivosAdjuntos.length > 0) {
+      console.log('📎 Descargando', data.archivosAdjuntos.length, 'archivos desde Supabase Storage...');
+
+      for (const archivo of data.archivosAdjuntos) {
+        if (archivo.url) {
+          try {
+            console.log('⬇️ Descargando:', archivo.nombre);
+
+            // Descargar el archivo desde la URL firmada
+            const response = await fetch(archivo.url);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status} al descargar ${archivo.nombre}`);
+            }
+
+            // Obtener el buffer del archivo
+            const arrayBuffer = await response.arrayBuffer();
+            const buffer = Buffer.from(arrayBuffer);
+
+            console.log('✓ Descargado:', archivo.nombre, '-', (buffer.length / 1024 / 1024).toFixed(2), 'MB');
+
+            // Agregar a attachments
+            attachments.push({
+              filename: archivo.nombre,
+              content: buffer
+            });
+          } catch (error) {
+            console.error('❌ Error descargando archivo:', archivo.nombre, error);
+            // Continuar con los otros archivos aunque uno falle
+          }
+        }
+      }
+
+      console.log('✓ Total archivos adjuntos preparados:', attachments.length);
+    }
+
     const valorFormateado = new Intl.NumberFormat('es-CL', {
       style: 'currency',
       currency: 'CLP'
@@ -57,27 +95,19 @@ export default async function handler(req, res) {
                 <div class="field"><span class="label">💰 Valor:</span><span class="value" style="font-size: 18px; font-weight: bold;">${valorFormateado}</span></div>
               </div>
               ${data.detalle ? `<div class="field"><span class="label">📄 Detalle:</span><div style="margin-top: 5px; padding: 10px; background: white; border-radius: 4px;">${data.detalle}</div></div>` : ''}
-              ${data.archivosAdjuntos && data.archivosAdjuntos.length > 0 ? `
+              ${attachments.length > 0 ? `
               <div style="background: white; padding: 15px; border-radius: 4px; margin-top: 15px;">
-                <div class="label" style="margin-bottom: 10px;">📎 Archivos adjuntos (${data.archivosAdjuntos.length}):</div>
-                ${data.archivosAdjuntos.map((archivo, idx) => `
-                  <div style="padding: 10px; margin: 8px 0; background: #e3f2fd; border-radius: 6px; display: flex; align-items: center; justify-content: space-between;">
-                    <div style="flex: 1;">
-                      <div style="font-weight: 500; color: #1976d2;">📄 ${archivo.nombre || 'Archivo adjunto'}</div>
-                      <div style="font-size: 11px; color: #666; margin-top: 2px;">
-                        ${(archivo.size / 1024 / 1024).toFixed(2)} MB
-                      </div>
+                <div class="label" style="margin-bottom: 10px;">📎 Archivos adjuntos (${attachments.length}):</div>
+                ${attachments.map((archivo) => `
+                  <div style="padding: 10px; margin: 8px 0; background: #e8f5e9; border-radius: 6px; border-left: 3px solid #4caf50;">
+                    <div style="font-weight: 500; color: #2e7d32;">📄 ${archivo.filename}</div>
+                    <div style="font-size: 11px; color: #666; margin-top: 2px;">
+                      ✓ Incluido como archivo adjunto en este correo
                     </div>
-                    ${archivo.url ? `
-                      <a href="${archivo.url}"
-                         style="background: #FF5100; color: white; padding: 8px 16px; text-decoration: none; border-radius: 4px; font-weight: 500; font-size: 13px; margin-left: 10px; white-space: nowrap;">
-                        ⬇️ Descargar
-                      </a>
-                    ` : ''}
                   </div>
                 `).join('')}
-                <div style="margin-top: 10px; padding: 8px; background: #fff3cd; border-radius: 4px; font-size: 11px; color: #856404;">
-                  ℹ️ Los enlaces de descarga son válidos por 7 días
+                <div style="margin-top: 10px; padding: 8px; background: #e8f5e9; border-radius: 4px; font-size: 11px; color: #2e7d32;">
+                  ℹ️ Los archivos están adjuntos a este correo. Puede descargarlos directamente desde su cliente de correo.
                 </div>
               </div>
               ` : ''}
@@ -97,7 +127,10 @@ export default async function handler(req, res) {
       to: data.usuarioEmail,
       subject: `Confirmación: Solicitud OC - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
+      attachments: attachments.length > 0 ? attachments : undefined
     });
+
+    console.log('✓ Correo enviado a usuario:', data.usuarioEmail);
 
     // Enviar a destinatarios fijos
     await resend.emails.send({
@@ -105,7 +138,11 @@ export default async function handler(req, res) {
       to: ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
       subject: `Nueva Solicitud OC - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
+      attachments: attachments.length > 0 ? attachments : undefined
     });
+
+    console.log('✓ Correo enviado a destinatarios fijos');
+    console.log('✅ Todos los correos enviados exitosamente');
 
     return res.status(200).json({ success: true });
 
