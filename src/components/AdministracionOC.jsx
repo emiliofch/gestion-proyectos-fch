@@ -95,7 +95,7 @@ export default function AdministracionOC() {
                 {solicitudes.map((s, index) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.usuario_email}</td>
-                    <td className="py-3 px-4 text-gray-800 font-medium">{index + 1}</td>
+                    <td className="py-3 px-4 text-gray-800 font-medium">{s.id_correlativo || '-'}</td>
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.proveedor}</td>
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.glosa}</td>
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.subproyecto || '-'}</td>

@@ -106,7 +106,13 @@ export default async function handler(req, res) {
     `;
 
     // Enviar a todos los destinatarios en un solo correo (todos visibles)
-    await resend.emails.send({
+    console.log('📧 Preparando envío de correo...');
+    console.log('From:', process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>');
+    console.log('To:', [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']);
+    console.log('Subject:', `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`);
+    console.log('Attachments:', attachments.length);
+
+    const emailResponse = await resend.emails.send({
       from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
       to: [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'],
       subject: `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
@@ -114,10 +120,15 @@ export default async function handler(req, res) {
       attachments: attachments.length > 0 ? attachments : undefined
     });
 
-    console.log('✓ Correo enviado a:', [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']);
     console.log('✅ Correo enviado exitosamente');
+    console.log('Response de Resend:', JSON.stringify(emailResponse, null, 2));
+    console.log('ID del correo:', emailResponse.data?.id);
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({
+      success: true,
+      emailId: emailResponse.data?.id,
+      recipients: [data.usuarioEmail, 'fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']
+    });
 
   } catch (error) {
     console.error('Error:', error);

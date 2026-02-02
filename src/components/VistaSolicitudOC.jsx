@@ -181,16 +181,8 @@ export default function VistaSolicitudOC({ user, perfil }) {
   async function enviarCorreos(solicitud, archivosInfo) {
     const proyecto = proyectos.find(p => p.id === proyectoId)
 
-    // Obtener el ID correlativo (contar todas las solicitudes hasta esta)
-    const { count } = await supabase
-      .from('solicitudes_oc')
-      .select('*', { count: 'exact', head: true })
-      .lte('fecha_creacion', solicitud.fecha_creacion)
-
-    const idCorrelativo = count || 1
-
     console.log('=== DEBUG: Generando URLs de descarga ===')
-    console.log('ID Correlativo:', idCorrelativo)
+    console.log('ID Correlativo:', solicitud.id_correlativo)
 
     // Generar URLs firmadas para cada archivo (válidas por 7 días)
     const archivosConUrls = await Promise.all(
@@ -213,7 +205,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
     console.log('====================================')
 
     const payload = {
-      idCorrelativo,
+      idCorrelativo: solicitud.id_correlativo,
       tipo: tiposDocumento.find(t => t.value === tipo)?.label || tipo,
       proveedor,
       rut,
@@ -566,7 +558,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
                 {solicitudes.map((s, index) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-800 font-medium">
-                      {index + 1}
+                      {s.id_correlativo || '-'}
                     </td>
                     <td className="py-3 px-4 text-gray-800">{s.proveedor}</td>
                     <td className="py-3 px-4 text-gray-800">{s.glosa}</td>
