@@ -16,6 +16,8 @@ import VistaSugerencias from './components/VistaSugerencias'
 import ConfirmModal from './components/ConfirmModal'
 import VistaSolicitudOC from './components/VistaSolicitudOC'
 import AdministracionOC from './components/AdministracionOC'
+import VistaProyectosBase from './components/VistaProyectosBase'
+import VistaOportunidades from './components/VistaOportunidades'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
@@ -28,7 +30,7 @@ function App() {
   const [proyectos, setProyectos] = useState([])
   const [confirmacion, setConfirmacion] = useState(null)
   const [cambios, setCambios] = useState([])
-  const [vista, setVista] = useState('ajustes')
+  const [vista, setVista] = useState('oportunidades')
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [submenuOC, setSubmenuOC] = useState(false)
@@ -689,7 +691,7 @@ function App() {
             <button
               onClick={() => setSubmenuEstimacion(!submenuEstimacion)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['ajustes', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['ajustes', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['proyectos-base', 'oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['proyectos-base', 'oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>📊 Estimación de cierre</span>
               <svg className={`w-5 h-5 transition-transform ${submenuEstimacion ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -701,9 +703,16 @@ function App() {
             {submenuEstimacion && (
               <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
                 <button
-                  onClick={() => { setVista('ajustes'); setMenuAbierto(false); setFiltroJefe(''); setBusqueda('') }}
+                  onClick={() => { setVista('proyectos-base'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
-                  style={{ color: vista === 'ajustes' ? '#FF5100' : '#374151', backgroundColor: vista === 'ajustes' ? '#FFF5F0' : 'transparent' }}
+                  style={{ color: vista === 'proyectos-base' ? '#FF5100' : '#374151', backgroundColor: vista === 'proyectos-base' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📂 Proyectos
+                </button>
+                <button
+                  onClick={() => { setVista('oportunidades'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'oportunidades' ? '#FF5100' : '#374151', backgroundColor: vista === 'oportunidades' ? '#FFF5F0' : 'transparent' }}
                 >
                   📁 Oportunidades
                 </button>
@@ -820,31 +829,12 @@ function App() {
               <Dashboard proyectos={proyectos} exportarExcel={exportarExcel} exportarPDF={exportarPDF} />
             )}
 
-            {vista === 'ajustes' && (
-              <VistaProyectos
-                proyectos={proyectosFiltrados}
-                jefes={jefes}
-                filtroJefe={filtroJefe}
-                setFiltroJefe={setFiltroJefe}
-                busqueda={busqueda}
-                setBusqueda={setBusqueda}
-                mostrarInstrucciones={mostrarInstrucciones}
-                setMostrarInstrucciones={setMostrarInstrucciones}
-                importarExcel={importarExcel}
-                crearProyecto={crearProyecto}
-                borrarTodosProyectos={borrarTodosProyectos}
-                abrirModalEdicion={abrirModalEdicion}
-                borrarProyecto={borrarProyecto}
-                totales={totales}
-                loading={loading}
-                ordenarPor={ordenarPor}
-                ordenColumna={ordenColumna}
-                ordenDireccion={ordenDireccion}
-                favoritos={favoritos}
-                toggleFavorito={toggleFavorito}
-                exportarExcel={exportarExcel}
-                exportarPDF={exportarPDF}
-              />
+            {vista === 'proyectos-base' && (
+              <VistaProyectosBase />
+            )}
+
+            {vista === 'oportunidades' && (
+              <VistaOportunidades user={user} />
             )}
 
             {vista === 'cambios' && (
