@@ -655,7 +655,7 @@ function App() {
 
             <div className="absolute left-1/2 transform -translate-x-1/2 text-center">
               <h1 className="text-3xl md:text-4xl font-bold text-white whitespace-nowrap">
-                DeskFlow GCV
+                DeskFlow CGV
               </h1>
               <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} • {perfil?.rol}</p>
             </div>

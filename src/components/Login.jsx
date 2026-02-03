@@ -88,7 +88,7 @@ export default function Login({ loading, setLoading }) {
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
         <div className="text-center mb-6">
           <img src={LOGO_URL} alt="Logo FCH" className="h-20 mx-auto mb-4" />
-          <h1 className="text-3xl font-bold mb-2" style={{ color: '#FF5100' }}>DeskFlow GCV</h1>
+          <h1 className="text-3xl font-bold mb-2" style={{ color: '#FF5100' }}>DeskFlow CGV</h1>
           <p className="text-gray-600">
             {modo === 'login' && 'Inicia sesión para continuar'}
             {modo === 'signup' && 'Crea tu cuenta'}

@@ -69,17 +69,10 @@ export default function AdministracionOC() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-800" style={{ color: '#FF5100' }}>
-          🔧 Administración de OC
+          Administracion de OC
         </h2>
-        <button
-          onClick={cargarTodasLasSolicitudes}
-          className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all"
-          disabled={loading}
-        >
-          {loading ? 'Cargando...' : '🔄 Actualizar'}
-        </button>
       </div>
 
       {solicitudes.length === 0 ? (
