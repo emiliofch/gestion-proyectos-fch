@@ -20,7 +20,7 @@ import VistaProyectosBase from './components/VistaProyectosBase'
 import VistaOportunidades from './components/VistaOportunidades'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
-const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/logo%20FCH.png'
+const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
 
 function App() {
   const [user, setUser] = useState(null)
