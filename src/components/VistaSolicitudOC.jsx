@@ -1,6 +1,15 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
+import emailjs from '@emailjs/browser'
+
+// Configuración EmailJS
+const EMAILJS_SERVICE_ID = 'service_732p59im'
+const EMAILJS_TEMPLATE_ID = 'template_4zako1l'
+const EMAILJS_PUBLIC_KEY = '3AHDlztkU53CpjF3N'
+
+// Destinatarios de correo
+const DESTINATARIOS_OC = ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']
 
 export default function VistaSolicitudOC({ user, perfil }) {
   // Estados del formulario
@@ -204,33 +213,80 @@ export default function VistaSolicitudOC({ user, perfil }) {
     console.log('URLs generadas:', archivosConUrls)
     console.log('====================================')
 
-    const payload = {
-      idCorrelativo: solicitud.id_correlativo,
-      tipo: tiposDocumento.find(t => t.value === tipo)?.label || tipo,
-      proveedor,
-      rut,
-      proyectoNombre: proyecto?.nombre || 'Sin proyecto',
-      subproyecto,
-      ceco,
-      glosa,
-      valor: parseFloat(valor),
-      detalle,
-      archivosAdjuntos: archivosConUrls,
-      usuarioEmail: user.email
+    // Formatear valor
+    const valorFormateado = new Intl.NumberFormat('es-CL', {
+      style: 'currency',
+      currency: 'CLP'
+    }).format(parseFloat(valor))
+
+    // Generar lista de archivos HTML
+    const archivosHtml = archivosConUrls.length > 0
+      ? archivosConUrls.map((archivo, idx) =>
+          `<div style="padding: 8px; margin: 5px 0; background: #e3f2fd; border-radius: 4px;">
+            ${idx + 1}. <a href="${archivo.url}" style="color: #1976d2;">${archivo.nombre}</a>
+          </div>`
+        ).join('')
+      : '<p>Sin archivos adjuntos</p>'
+
+    // Generar contenido HTML del correo
+    const htmlContent = `
+      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+        <div style="background: #FF5100; color: white; padding: 20px; text-align: center; border-radius: 8px 8px 0 0;">
+          <h2 style="margin: 0;">🧾 Nueva Solicitud de Orden de Compra #${solicitud.id_correlativo}</h2>
+        </div>
+        <div style="background: #f9f9f9; padding: 30px; border: 1px solid #ddd;">
+          <p><strong>📋 Tipo:</strong> ${tiposDocumento.find(t => t.value === tipo)?.label || tipo}</p>
+          <p><strong>🏢 Proveedor:</strong> ${proveedor}</p>
+          <p><strong>🆔 RUT:</strong> ${rut}</p>
+          <p><strong>📁 Proyecto:</strong> ${proyecto?.nombre || 'Sin proyecto'}</p>
+          ${subproyecto ? `<p><strong>📂 Subproyecto:</strong> ${subproyecto}</p>` : ''}
+          <p><strong>🏷️ CECO:</strong> ${ceco}</p>
+          <p><strong>📝 Glosa:</strong> ${glosa}</p>
+          <div style="background: #fff3cd; padding: 15px; border-left: 4px solid #ffc107; margin: 15px 0;">
+            <p style="margin: 0;"><strong>💰 Valor:</strong> <span style="font-size: 18px; font-weight: bold;">${valorFormateado}</span></p>
+          </div>
+          ${detalle ? `<p><strong>📄 Detalle:</strong></p><div style="background: white; padding: 10px; border-radius: 4px;">${detalle}</div>` : ''}
+          <div style="margin-top: 20px;">
+            <p><strong>📎 Archivos adjuntos (${archivosConUrls.length}):</strong></p>
+            ${archivosHtml}
+          </div>
+        </div>
+        <div style="background: #f0f0f0; padding: 15px; border-radius: 0 0 8px 8px; text-align: center; font-size: 12px; color: #666;">
+          <p>Solicitud enviada por: <strong>${user.email}</strong></p>
+          <p>Fecha: ${new Date().toLocaleString('es-CL')}</p>
+        </div>
+      </div>
+    `
+
+    // Enviar a todos los destinatarios (usuario + admins)
+    const todosDestinatarios = [user.email, ...DESTINATARIOS_OC]
+
+    console.log('📧 Enviando correo via EmailJS...')
+    console.log('Destinatarios:', todosDestinatarios)
+
+    // EmailJS: enviar a cada destinatario
+    for (const destinatario of todosDestinatarios) {
+      const templateParams = {
+        to_email: destinatario,
+        subject: `Nueva Solicitud OC #${solicitud.id_correlativo} - ${proveedor} (${valorFormateado})`,
+        html_content: htmlContent
+      }
+
+      try {
+        const result = await emailjs.send(
+          EMAILJS_SERVICE_ID,
+          EMAILJS_TEMPLATE_ID,
+          templateParams,
+          EMAILJS_PUBLIC_KEY
+        )
+        console.log(`✅ Correo enviado a ${destinatario}:`, result.text)
+      } catch (error) {
+        console.error(`❌ Error enviando a ${destinatario}:`, error)
+        // Continuar con los demás destinatarios
+      }
     }
 
-    const response = await fetch('/api/enviar-email-oc', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    })
-
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Error al enviar correos')
-    }
-
-    return response.json()
+    return { success: true }
   }
 
   async function handleSubmit(e) {
