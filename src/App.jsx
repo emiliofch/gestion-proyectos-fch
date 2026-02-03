@@ -113,7 +113,7 @@ function App() {
   }
 
   async function cargarProyectos() {
-    const { data } = await supabase.from('proyectos').select('*').order('fecha', { ascending: false })
+    const { data } = await supabase.from('proyectos').select('*').order('nombre')
     setProyectos(data || [])
   }
 
