@@ -258,32 +258,30 @@ export default function VistaSolicitudOC({ user, perfil }) {
       </div>
     `
 
-    // Enviar a todos los destinatarios (usuario + admins)
+    // Enviar un solo correo a todos los destinatarios
     const todosDestinatarios = [user.email, ...DESTINATARIOS_OC]
+    const destinatariosUnicos = [...new Set(todosDestinatarios)] // Eliminar duplicados
 
     console.log('📧 Enviando correo via EmailJS...')
-    console.log('Destinatarios:', todosDestinatarios)
+    console.log('Destinatarios:', destinatariosUnicos)
 
-    // EmailJS: enviar a cada destinatario
-    for (const destinatario of todosDestinatarios) {
-      const templateParams = {
-        to_email: destinatario,
-        subject: `Nueva Solicitud OC #${solicitud.id_correlativo} - ${proveedor} (${valorFormateado})`,
-        html_content: htmlContent
-      }
+    const templateParams = {
+      to_email: destinatariosUnicos.join(', '),
+      subject: `Nueva Solicitud OC #${solicitud.id_correlativo} - ${proveedor} (${valorFormateado})`,
+      html_content: htmlContent
+    }
 
-      try {
-        const result = await emailjs.send(
-          EMAILJS_SERVICE_ID,
-          EMAILJS_TEMPLATE_ID,
-          templateParams,
-          EMAILJS_PUBLIC_KEY
-        )
-        console.log(`✅ Correo enviado a ${destinatario}:`, result.text)
-      } catch (error) {
-        console.error(`❌ Error enviando a ${destinatario}:`, error)
-        // Continuar con los demás destinatarios
-      }
+    try {
+      const result = await emailjs.send(
+        EMAILJS_SERVICE_ID,
+        EMAILJS_TEMPLATE_ID,
+        templateParams,
+        EMAILJS_PUBLIC_KEY
+      )
+      console.log('✅ Correo enviado a todos:', result.text)
+    } catch (error) {
+      console.error('❌ Error enviando correo:', error)
+      throw new Error('Error al enviar correo de notificación')
     }
 
     return { success: true }
