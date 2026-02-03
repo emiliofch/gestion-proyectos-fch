@@ -20,6 +20,18 @@ export default async function handler(req, res) {
   try {
     const data = req.body;
 
+    // Verificar credenciales
+    console.log('🔐 Verificando credenciales Gmail...');
+    console.log('GMAIL_USER configurado:', !!process.env.GMAIL_USER);
+    console.log('GMAIL_APP_PASSWORD configurado:', !!process.env.GMAIL_APP_PASSWORD);
+
+    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
+      console.error('❌ Faltan credenciales de Gmail');
+      return res.status(500).json({
+        error: 'Credenciales de Gmail no configuradas en el servidor'
+      });
+    }
+
     // Configurar transporter de Gmail
     const transporter = nodemailer.createTransport({
       service: 'gmail',
