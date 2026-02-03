@@ -871,7 +871,7 @@ function App() {
             )}
 
             {vista === 'solicitud-oc' && (
-              <VistaSolicitudOC user={user} perfil={perfil} />
+              <VistaSolicitudOC key={Date.now()} user={user} perfil={perfil} />
             )}
 
             {vista === 'admin-oc' && perfil?.rol === 'admin' && (
