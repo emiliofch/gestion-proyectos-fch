@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import emailjs from '@emailjs/browser'
 
 // Configuración EmailJS
-const EMAILJS_SERVICE_ID = 'service_732p59im'
+const EMAILJS_SERVICE_ID = 'service_732p59i'
 const EMAILJS_TEMPLATE_ID = 'template_4zako1l'
 const EMAILJS_PUBLIC_KEY = '3AHDlztkU53CpjF3N'
 
