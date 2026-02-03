@@ -541,7 +541,15 @@ export default function VistaSolicitudOC({ user, perfil }) {
 
       {/* Historial de solicitudes */}
       <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">Mis Solicitudes</h3>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-xl font-bold text-gray-800">Mis Solicitudes</h3>
+          <button
+            onClick={cargarSolicitudes}
+            className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all text-sm"
+          >
+            Actualizar
+          </button>
+        </div>
 
         {solicitudes.length === 0 ? (
           <p className="text-gray-600 text-center py-8">No hay solicitudes registradas</p>
