@@ -229,40 +229,68 @@ function App() {
 
     reader.onload = async (event) => {
       try {
+        console.log('=== INICIO IMPORTACIÓN EXCEL ===')
         const workbook = XLSX.read(event.target.result, { type: 'binary' })
         const sheetName = workbook.SheetNames[0]
+        console.log('Hoja:', sheetName)
         const worksheet = workbook.Sheets[sheetName]
         const data = XLSX.utils.sheet_to_json(worksheet)
+        console.log('Total filas:', data.length)
+        console.log('Primera fila:', JSON.stringify(data[0]))
+        console.log('Columnas detectadas:', Object.keys(data[0] || {}))
 
         let insertados = 0
         let errores = 0
         let noEncontrados = []
 
-        for (let row of data) {
-          const proyectoNombre = row.PROYECTO || row.proyecto
-          const jefe = row['JEFE PROYECTO'] || row['JEFE'] || row.jefe || null
-          const ingresos = parseFloat(row.INGRESOS || row.ingresos || 0)
-          const hh = parseFloat(row.HH || row.hh || 0)
-          const gastos = parseFloat(row.GGOO || row.ggoo || row.GASTOS || row.gastos || 0)
+        // Función para parsear números con coma decimal
+        const parseNumero = (val) => {
+          if (val === null || val === undefined || val === '') return 0
+          if (typeof val === 'number') return val
+          return parseFloat(String(val).replace(',', '.')) || 0
+        }
 
-          if (!proyectoNombre) {
+        for (let i = 0; i < data.length; i++) {
+          const row = data[i]
+          console.log(`--- Fila ${i + 1} ---`)
+          console.log('Row:', JSON.stringify(row))
+
+          const proyectoNombre = row.PROYECTO || row.proyecto || row['PROYECTO '] || ''
+          const jefe = row['JEFE PROYECTO'] || row['JEFE'] || row.jefe || row['JEFE PROYECTO '] || null
+          const ingresos = parseNumero(row.INGRESOS || row.ingresos)
+          const hh = parseNumero(row.HH || row.hh)
+          const gastos = parseNumero(row.GGOO || row.ggoo || row.GASTOS || row.gastos)
+
+          console.log('Parsed:', { proyectoNombre, jefe, ingresos, hh, gastos })
+
+          if (!proyectoNombre || proyectoNombre.trim() === '') {
+            console.log('⚠️ Proyecto vacío')
             errores++
             continue
           }
 
-          // Buscar el proyecto por nombre (búsqueda flexible)
-          const { data: proyectoExistente, error: errorBusqueda } = await supabase
+          // Extraer código del proyecto para búsqueda más flexible
+          const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
+          const codigoBusqueda = codigoMatch ? codigoMatch[0] : proyectoNombre.trim()
+          console.log('Buscando código:', codigoBusqueda)
+
+          // Buscar el proyecto por código
+          const { data: proyectosEncontrados, error: errorBusqueda } = await supabase
             .from('proyectos')
             .select('id, nombre')
-            .ilike('nombre', `%${proyectoNombre.trim()}%`)
-            .limit(1)
-            .single()
+            .ilike('nombre', `${codigoBusqueda}%`)
 
-          if (errorBusqueda || !proyectoExistente) {
+          console.log('Resultado búsqueda:', { encontrados: proyectosEncontrados?.length, error: errorBusqueda })
+
+          if (errorBusqueda || !proyectosEncontrados || proyectosEncontrados.length === 0) {
+            console.log('❌ NO encontrado:', proyectoNombre)
             errores++
             noEncontrados.push(proyectoNombre)
             continue
           }
+
+          const proyectoExistente = proyectosEncontrados[0]
+          console.log('✓ Encontrado:', proyectoExistente.nombre)
 
           // Actualizar jefe del proyecto si viene en el Excel
           if (jefe) {
@@ -283,11 +311,11 @@ function App() {
           })
 
           if (errorInsert) {
-            console.error('Error insertando oportunidad:', errorInsert)
+            console.error('❌ Error insert:', errorInsert)
             errores++
           } else {
+            console.log('✓ Oportunidad creada')
             insertados++
-            // Registrar en cambios
             await supabase.from('cambios').insert({
               proyecto_id: proyectoExistente.id,
               campo: 'OPORTUNIDAD CREADA',
@@ -301,17 +329,20 @@ function App() {
           }
         }
 
+        console.log('=== RESUMEN ===')
+        console.log('Insertados:', insertados, 'Errores:', errores)
+        console.log('No encontrados:', noEncontrados)
+
         if (noEncontrados.length > 0) {
-          console.warn('Proyectos no encontrados:', noEncontrados)
-          toast.warning(`${noEncontrados.length} proyectos no encontrados`)
+          toast.warning(`${noEncontrados.length} proyectos no encontrados. Ver consola F12.`)
         }
 
-        toast.success(`Importación completada: ✓ ${insertados} oportunidades ✗ ${errores} errores`)
+        toast.success(`Importación: ✓ ${insertados} oportunidades ✗ ${errores} errores`)
         cargarProyectos()
         cargarCambios()
       } catch (error) {
-        toast.error('Error al procesar el archivo: ' + error.message)
-        console.error('Error importación:', error)
+        toast.error('Error: ' + error.message)
+        console.error('❌ Error importación:', error)
       }
       setProcesando(false)
     }
