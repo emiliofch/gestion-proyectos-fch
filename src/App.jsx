@@ -226,7 +226,7 @@ function App() {
 
     setProcesando(true)
     const reader = new FileReader()
-    
+
     reader.onload = async (event) => {
       try {
         const workbook = XLSX.read(event.target.result, { type: 'binary' })
@@ -236,49 +236,82 @@ function App() {
 
         let insertados = 0
         let errores = 0
+        let noEncontrados = []
 
         for (let row of data) {
-          const proyecto = row.PROYECTO || row.proyecto
-          const jefe = row['JEFE PROYECTO'] || row['JEFE'] || row.jefe || 'Sin asignar'
-          const ingresos = parseFloat(row.INGRESOS || row.ingresos || 0).toFixed(1)
-          const hh = parseFloat(row.HH || row.hh || 0).toFixed(1)
-          const gastos = parseFloat(row.GGOO || row.ggoo || 0).toFixed(1)
+          const proyectoNombre = row.PROYECTO || row.proyecto
+          const jefe = row['JEFE PROYECTO'] || row['JEFE'] || row.jefe || null
+          const ingresos = parseFloat(row.INGRESOS || row.ingresos || 0)
+          const hh = parseFloat(row.HH || row.hh || 0)
+          const gastos = parseFloat(row.GGOO || row.ggoo || row.GASTOS || row.gastos || 0)
 
-          if (!proyecto) {
+          if (!proyectoNombre) {
             errores++
             continue
           }
 
-          const { data: nuevoProyecto, error } = await supabase.from('proyectos').insert({
-            nombre: proyecto,
-            jefe,
-            ingresos: parseFloat(ingresos),
-            hh: parseFloat(hh),
-            gastos: parseFloat(gastos),
-            creador: user.email
-          }).select().single()
+          // Buscar el proyecto por nombre (búsqueda flexible)
+          const { data: proyectoExistente, error: errorBusqueda } = await supabase
+            .from('proyectos')
+            .select('id, nombre')
+            .ilike('nombre', `%${proyectoNombre.trim()}%`)
+            .limit(1)
+            .single()
 
-          if (error) {
+          if (errorBusqueda || !proyectoExistente) {
+            errores++
+            noEncontrados.push(proyectoNombre)
+            continue
+          }
+
+          // Actualizar jefe del proyecto si viene en el Excel
+          if (jefe) {
+            await supabase
+              .from('proyectos')
+              .update({ jefe })
+              .eq('id', proyectoExistente.id)
+          }
+
+          // Insertar oportunidad vinculada al proyecto
+          const { error: errorInsert } = await supabase.from('oportunidades').insert({
+            proyecto_id: proyectoExistente.id,
+            ingresos,
+            hh,
+            gastos,
+            creador: user.email,
+            estado: 'abierta'
+          })
+
+          if (errorInsert) {
+            console.error('Error insertando oportunidad:', errorInsert)
             errores++
           } else {
             insertados++
+            // Registrar en cambios
             await supabase.from('cambios').insert({
-              proyecto_id: nuevoProyecto.id,
-              campo: 'PROYECTO CREADO',
-              valor_anterior: 0,
-              valor_nuevo: 0,
+              proyecto_id: proyectoExistente.id,
+              campo: 'OPORTUNIDAD CREADA',
+              valor_anterior: '0',
+              valor_nuevo: ingresos.toString(),
               usuario: user.email,
-              motivo: `Proyecto importado desde Excel`,
-              tipo_cambio: 'proyecto'
+              motivo: 'Oportunidad importada desde Excel',
+              tipo_cambio: 'oportunidad',
+              proyecto_nombre: proyectoExistente.nombre
             })
           }
         }
 
-        toast.success(`Importación completada: ✓ ${insertados} ✗ ${errores}`)
+        if (noEncontrados.length > 0) {
+          console.warn('Proyectos no encontrados:', noEncontrados)
+          toast.warning(`${noEncontrados.length} proyectos no encontrados`)
+        }
+
+        toast.success(`Importación completada: ✓ ${insertados} oportunidades ✗ ${errores} errores`)
         cargarProyectos()
         cargarCambios()
       } catch (error) {
         toast.error('Error al procesar el archivo: ' + error.message)
+        console.error('Error importación:', error)
       }
       setProcesando(false)
     }

@@ -87,8 +87,9 @@ export default function VistaProyectos({
 
       {mostrarInstrucciones && (
         <div className="mb-6 p-4 rounded-lg bg-blue-50 border border-blue-200">
-          <h3 className="text-gray-800 font-bold mb-2">📋 Formato Excel:</h3>
-          <p className="text-gray-700 text-sm">PROYECTO | JEFE PROYECTO | INGRESOS | HH | GGOO</p>
+          <h3 className="text-gray-800 font-bold mb-2">📋 Formato Excel para importar Oportunidades:</h3>
+          <p className="text-gray-700 text-sm mb-2">PROYECTO | JEFE PROYECTO | INGRESOS | HH | GGOO</p>
+          <p className="text-gray-500 text-xs">⚠️ El nombre del proyecto debe coincidir con uno existente en el sistema</p>
         </div>
       )}
 
