@@ -605,7 +605,12 @@ function App() {
   }
   totales.margen = totales.ingresos - totales.hh - totales.gastos
 
-  const cambiosFiltrados = cambios.filter(c => c.tipo_cambio === tipoControlCambios)
+  const cambiosFiltrados = cambios.filter(c => {
+    if (tipoControlCambios === 'valor') {
+      return c.tipo_cambio === 'valor' || c.tipo_cambio === 'oportunidad'
+    }
+    return c.tipo_cambio === tipoControlCambios
+  })
 
   if (loading) {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -826,11 +831,11 @@ function App() {
           <div className="bg-white rounded-lg shadow-lg p-6 md:p-8">
             
             {vista === 'dashboard' && (
-              <Dashboard proyectos={proyectos} exportarExcel={exportarExcel} exportarPDF={exportarPDF} />
+              <Dashboard />
             )}
 
             {vista === 'proyectos-base' && (
-              <VistaProyectosBase />
+              <VistaProyectosBase user={user} />
             )}
 
             {vista === 'oportunidades' && (

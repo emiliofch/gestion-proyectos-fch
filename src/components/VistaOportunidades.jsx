@@ -11,6 +11,11 @@ export default function VistaOportunidades({ user }) {
   const [busqueda, setBusqueda] = useState('')
   const [mostrarInstrucciones, setMostrarInstrucciones] = useState(false)
 
+  // Estado para edición
+  const [modalEdicion, setModalEdicion] = useState(null)
+  const [valorEditando, setValorEditando] = useState('')
+  const [motivoCambio, setMotivoCambio] = useState('')
+
   useEffect(() => {
     cargarDatos()
   }, [])
@@ -18,14 +23,12 @@ export default function VistaOportunidades({ user }) {
   async function cargarDatos() {
     setLoading(true)
 
-    // Cargar proyectos para referencia
     const { data: proyectosData } = await supabase
       .from('proyectos')
       .select('id, nombre, ceco, jefe')
 
     setProyectos(proyectosData || [])
 
-    // Cargar oportunidades con join a proyectos
     const { data: oportunidadesData, error } = await supabase
       .from('oportunidades')
       .select(`
@@ -40,6 +43,70 @@ export default function VistaOportunidades({ user }) {
       setOportunidades(oportunidadesData || [])
     }
     setLoading(false)
+  }
+
+  function abrirModalEdicion(oportunidad, campo, valorActual) {
+    setModalEdicion({ oportunidad, campo })
+    setValorEditando(valorActual?.toString() || '0')
+    setMotivoCambio('')
+  }
+
+  async function guardarEdicion() {
+    if (!modalEdicion) return
+
+    const { oportunidad, campo } = modalEdicion
+    const valorAnterior = oportunidad[campo]
+    const valorNuevo = parseFloat(valorEditando) || 0
+
+    if (valorAnterior === valorNuevo) {
+      setModalEdicion(null)
+      return
+    }
+
+    if (!motivoCambio.trim()) {
+      toast.error('Debes ingresar un motivo para el cambio')
+      return
+    }
+
+    // Actualizar oportunidad
+    const { error } = await supabase
+      .from('oportunidades')
+      .update({ [campo]: valorNuevo })
+      .eq('id', oportunidad.id)
+
+    if (error) {
+      toast.error('Error al actualizar')
+      return
+    }
+
+    // Registrar en control de cambios
+    console.log('=== REGISTRANDO CAMBIO ===')
+    console.log('Usuario:', user?.email)
+    console.log('Campo:', campo)
+    console.log('Valor anterior:', valorAnterior)
+    console.log('Valor nuevo:', valorNuevo)
+
+    const { error: errorCambio } = await supabase.from('cambios').insert({
+      proyecto_id: oportunidad.proyecto_id,
+      campo: campo.toUpperCase(),
+      valor_anterior: valorAnterior?.toString() || '0',
+      valor_nuevo: valorNuevo.toString(),
+      usuario: user?.email || 'sistema',
+      motivo: motivoCambio,
+      tipo_cambio: 'oportunidad',
+      proyecto_nombre: oportunidad.proyectos?.nombre
+    })
+
+    if (errorCambio) {
+      console.error('Error registrando cambio:', errorCambio)
+      toast.warning('Valor actualizado pero no se registro el cambio: ' + errorCambio.message)
+    } else {
+      console.log('Cambio registrado correctamente')
+    }
+
+    toast.success('Valor actualizado')
+    setModalEdicion(null)
+    cargarDatos()
   }
 
   async function importarExcel(e) {
@@ -82,11 +149,9 @@ export default function VistaOportunidades({ user }) {
             continue
           }
 
-          // Extraer código del proyecto
           const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
           const codigoBusqueda = codigoMatch ? codigoMatch[0] : proyectoNombre.trim()
 
-          // Buscar proyecto
           const { data: encontrados } = await supabase
             .from('proyectos')
             .select('id, nombre')
@@ -101,7 +166,6 @@ export default function VistaOportunidades({ user }) {
 
           const proyecto = encontrados[0]
 
-          // Insertar oportunidad
           const { error: errorInsert } = await supabase.from('oportunidades').insert({
             proyecto_id: proyecto.id,
             ingresos,
@@ -186,6 +250,12 @@ export default function VistaOportunidades({ user }) {
 
   totales.margen = totales.ingresos - totales.hh - totales.gastos
 
+  const campoLabels = {
+    ingresos: 'Ingresos',
+    hh: 'HH',
+    gastos: 'GGOO'
+  }
+
   return (
     <div>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
@@ -265,9 +335,33 @@ export default function VistaOportunidades({ user }) {
                 return (
                   <tr key={o.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                     <td className="py-3 px-4 text-gray-800">{o.proyectos?.nombre || 'Sin proyecto'}</td>
-                    <td className="py-3 px-4 text-right text-gray-800">{parseFloat(o.ingresos || 0).toFixed(1)}</td>
-                    <td className="py-3 px-4 text-right text-gray-800">{parseFloat(o.hh || 0).toFixed(1)}</td>
-                    <td className="py-3 px-4 text-right text-gray-800">{parseFloat(o.gastos || 0).toFixed(1)}</td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => abrirModalEdicion(o, 'ingresos', o.ingresos)}
+                        className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 min-w-[80px]"
+                        title="Click para editar"
+                      >
+                        {parseFloat(o.ingresos || 0).toFixed(1)}
+                      </button>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => abrirModalEdicion(o, 'hh', o.hh)}
+                        className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 min-w-[80px]"
+                        title="Click para editar"
+                      >
+                        {parseFloat(o.hh || 0).toFixed(1)}
+                      </button>
+                    </td>
+                    <td className="py-3 px-4 text-right">
+                      <button
+                        onClick={() => abrirModalEdicion(o, 'gastos', o.gastos)}
+                        className="px-2 py-1 rounded bg-gray-100 hover:bg-gray-200 text-gray-800 border border-gray-300 min-w-[80px]"
+                        title="Click para editar"
+                      >
+                        {parseFloat(o.gastos || 0).toFixed(1)}
+                      </button>
+                    </td>
                     <td className={`py-3 px-4 text-right font-bold ${margen >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                       {margen.toFixed(1)}
                     </td>
@@ -295,6 +389,63 @@ export default function VistaOportunidades({ user }) {
               </tr>
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* Modal de edición */}
+      {modalEdicion && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
+            <h3 className="text-xl font-bold text-gray-800 mb-4">
+              Editar {campoLabels[modalEdicion.campo]}
+            </h3>
+            <p className="text-sm text-gray-600 mb-4">
+              Proyecto: {modalEdicion.oportunidad.proyectos?.nombre}
+            </p>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Nuevo valor
+              </label>
+              <input
+                type="number"
+                step="0.1"
+                value={valorEditando}
+                onChange={(e) => setValorEditando(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                autoFocus
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Motivo del cambio *
+              </label>
+              <textarea
+                value={motivoCambio}
+                onChange={(e) => setMotivoCambio(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                rows={3}
+                placeholder="Explica el motivo del cambio..."
+              />
+            </div>
+
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setModalEdicion(null)}
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={guardarEdicion}
+                className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
+                style={{ backgroundColor: '#FF5100' }}
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>
