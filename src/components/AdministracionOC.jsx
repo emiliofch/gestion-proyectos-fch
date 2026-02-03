@@ -32,15 +32,28 @@ export default function AdministracionOC() {
   }
 
   async function actualizarSolicitud(id, campo, valor) {
-    const { error } = await supabase
+    console.log('=== ACTUALIZANDO SOLICITUD ===')
+    console.log('ID:', id)
+    console.log('Campo:', campo)
+    console.log('Valor:', valor)
+
+    const { data, error } = await supabase
       .from('solicitudes_oc')
       .update({ [campo]: valor })
       .eq('id', id)
+      .select()
+
+    console.log('Respuesta data:', data)
+    console.log('Respuesta error:', error)
 
     if (error) {
       console.error('Error actualizando solicitud:', error)
       toast.error('Error al actualizar: ' + error.message)
+    } else if (!data || data.length === 0) {
+      console.error('No se actualizó ningún registro - posible problema de RLS')
+      toast.error('No se pudo actualizar. Verifica permisos.')
     } else {
+      console.log('Actualización exitosa:', data)
       toast.success('Solicitud actualizada')
       cargarTodasLasSolicitudes()
       setEditando(null)
