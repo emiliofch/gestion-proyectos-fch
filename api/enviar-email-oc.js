@@ -1,4 +1,7 @@
-import { Resend } from 'resend';
+import nodemailer from 'nodemailer';
+
+// Destinatarios fijos
+const DESTINATARIOS_OC = ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'];
 
 export default async function handler(req, res) {
   // CORS
@@ -15,45 +18,48 @@ export default async function handler(req, res) {
   }
 
   try {
-    const resend = new Resend(process.env.RESEND_API_KEY);
     const data = req.body;
 
-    // Descargar archivos desde Supabase Storage y convertir a base64
+    // Configurar transporter de Gmail
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_APP_PASSWORD
+      }
+    });
+
+    // Descargar archivos desde Supabase Storage
     const attachments = [];
 
     if (data.archivosAdjuntos && data.archivosAdjuntos.length > 0) {
-      console.log('📎 Descargando', data.archivosAdjuntos.length, 'archivos desde Supabase Storage...');
+      console.log('📎 Descargando', data.archivosAdjuntos.length, 'archivos...');
 
       for (const archivo of data.archivosAdjuntos) {
         if (archivo.url) {
           try {
             console.log('⬇️ Descargando:', archivo.nombre);
-
-            // Descargar el archivo desde la URL firmada
             const response = await fetch(archivo.url);
+
             if (!response.ok) {
-              throw new Error(`HTTP ${response.status} al descargar ${archivo.nombre}`);
+              throw new Error(`HTTP ${response.status}`);
             }
 
-            // Obtener el buffer del archivo
             const arrayBuffer = await response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
 
             console.log('✓ Descargado:', archivo.nombre, '-', (buffer.length / 1024 / 1024).toFixed(2), 'MB');
 
-            // Agregar a attachments
             attachments.push({
               filename: archivo.nombre,
               content: buffer
             });
           } catch (error) {
-            console.error('❌ Error descargando archivo:', archivo.nombre, error);
-            // Continuar con los otros archivos aunque uno falle
+            console.error('❌ Error descargando:', archivo.nombre, error.message);
           }
         }
       }
-
-      console.log('✓ Total archivos adjuntos preparados:', attachments.length);
+      console.log('✓ Total adjuntos:', attachments.length);
     }
 
     const valorFormateado = new Intl.NumberFormat('es-CL', {
@@ -105,34 +111,35 @@ export default async function handler(req, res) {
       </html>
     `;
 
-    // TEMPORAL: Enviar solo al usuario que crea la solicitud
-    // TODO: Agregar fabiola.gonzalez@fch.cl y emilio.lopez@fch.cl cuando se verifique el dominio
-    console.log('📧 Preparando envío de correo...');
-    console.log('From:', process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>');
-    console.log('To:', [data.usuarioEmail]);
-    console.log('Subject:', `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`);
+    // Combinar destinatarios (usuario + admins) y eliminar duplicados
+    const todosDestinatarios = [data.usuarioEmail, ...DESTINATARIOS_OC];
+    const destinatariosUnicos = [...new Set(todosDestinatarios)];
+
+    console.log('📧 Enviando correo via Gmail...');
+    console.log('From:', process.env.GMAIL_USER);
+    console.log('To:', destinatariosUnicos);
     console.log('Attachments:', attachments.length);
 
-    const emailResponse = await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'Sistema FCH <noreply@fch.cl>',
-      to: [data.usuarioEmail], // TEMPORAL: solo al usuario
+    const mailOptions = {
+      from: `DeskFlow FCH <${process.env.GMAIL_USER}>`,
+      to: destinatariosUnicos.join(', '),
       subject: `Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
       html: htmlContent,
-      attachments: attachments.length > 0 ? attachments : undefined
-    });
+      attachments: attachments
+    };
 
-    console.log('✅ Correo enviado exitosamente');
-    console.log('Response de Resend:', JSON.stringify(emailResponse, null, 2));
-    console.log('ID del correo:', emailResponse.data?.id);
+    const info = await transporter.sendMail(mailOptions);
+
+    console.log('✅ Correo enviado:', info.messageId);
 
     return res.status(200).json({
       success: true,
-      emailId: emailResponse.data?.id,
-      recipients: [data.usuarioEmail] // TEMPORAL: solo al usuario
+      messageId: info.messageId,
+      recipients: destinatariosUnicos
     });
 
   } catch (error) {
-    console.error('Error:', error);
+    console.error('❌ Error:', error);
     return res.status(500).json({ error: error.message });
   }
 }
