@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
-import { toast } from 'react-hot-toast'
+import { toast } from 'react-toastify'
 
 export default function VistaOportunidades({ user }) {
   const [oportunidades, setOportunidades] = useState([])
