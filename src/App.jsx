@@ -256,12 +256,11 @@ function App() {
           console.log('Row:', JSON.stringify(row))
 
           const proyectoNombre = row.PROYECTO || row.proyecto || row['PROYECTO '] || ''
-          const jefe = row['JEFE PROYECTO'] || row['JEFE'] || row.jefe || row['JEFE PROYECTO '] || null
           const ingresos = parseNumero(row.INGRESOS || row.ingresos)
           const hh = parseNumero(row.HH || row.hh)
           const gastos = parseNumero(row.GGOO || row.ggoo || row.GASTOS || row.gastos)
 
-          console.log('Parsed:', { proyectoNombre, jefe, ingresos, hh, gastos })
+          console.log('Parsed:', { proyectoNombre, ingresos, hh, gastos })
 
           if (!proyectoNombre || proyectoNombre.trim() === '') {
             console.log('⚠️ Proyecto vacío')
@@ -292,15 +291,7 @@ function App() {
           const proyectoExistente = proyectosEncontrados[0]
           console.log('✓ Encontrado:', proyectoExistente.nombre)
 
-          // Actualizar jefe del proyecto si viene en el Excel
-          if (jefe) {
-            await supabase
-              .from('proyectos')
-              .update({ jefe })
-              .eq('id', proyectoExistente.id)
-          }
-
-          // Insertar oportunidad vinculada al proyecto
+          // Insertar oportunidad vinculada al proyecto (NO modificamos tabla proyectos)
           const { error: errorInsert } = await supabase.from('oportunidades').insert({
             proyecto_id: proyectoExistente.id,
             ingresos,
