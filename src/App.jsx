@@ -655,9 +655,9 @@ function App() {
 
             <div className="absolute left-1/2 transform -translate-x-1/2 text-center">
               <h1 className="text-3xl md:text-4xl font-bold text-white whitespace-nowrap">
-                DeskFlow CGV
+                DeskFlow {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
               </h1>
-              <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} • {perfil?.rol}</p>
+              <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} • {perfil?.rol} • {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</p>
             </div>
 
             <button
@@ -875,7 +875,7 @@ function App() {
             )}
 
             {vista === 'admin-oc' && perfil?.rol === 'admin' && (
-              <AdministracionOC />
+              <AdministracionOC perfil={perfil} />
             )}
 
             {vista === 'solicitud-egreso' && (

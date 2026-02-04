@@ -2,10 +2,12 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 
-export default function AdministracionOC() {
+export default function AdministracionOC({ perfil }) {
   const [solicitudes, setSolicitudes] = useState([])
   const [loading, setLoading] = useState(false)
   const [editando, setEditando] = useState(null)
+
+  const empresaUsuario = perfil?.empresa || 'CGV'
 
   const estadosDisponibles = [
     'enviada',
@@ -18,13 +20,14 @@ export default function AdministracionOC() {
 
   useEffect(() => {
     cargarTodasLasSolicitudes()
-  }, [])
+  }, [empresaUsuario])
 
   async function cargarTodasLasSolicitudes() {
     setLoading(true)
     const { data } = await supabase
       .from('solicitudes_oc')
       .select('*, proyectos(nombre)')
+      .eq('empresa', empresaUsuario)
       .order('fecha_creacion', { ascending: false })
 
     setSolicitudes(data || [])
@@ -71,7 +74,7 @@ export default function AdministracionOC() {
     <div>
       <div className="mb-6">
         <h2 className="text-2xl font-bold text-gray-800" style={{ color: '#FF5100' }}>
-          Administracion de OC
+          Administracion de OC - {empresaUsuario === 'HUB_MET' ? 'HUB MET' : 'CGV'}
         </h2>
       </div>
 

@@ -8,6 +8,7 @@ export default function Login({ loading, setLoading }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const [empresa, setEmpresa] = useState('CGV')
   const [mostrarPassword, setMostrarPassword] = useState(false)
   const [errorLogin, setErrorLogin] = useState('')
   const [modo, setModo] = useState('login') // 'login', 'signup', 'forgot'
@@ -45,7 +46,8 @@ export default function Login({ loading, setLoading }) {
       password,
       options: {
         data: {
-          primera_vez: true
+          primera_vez: true,
+          empresa: empresa
         }
       }
     })
@@ -59,6 +61,7 @@ export default function Login({ loading, setLoading }) {
       setEmail('')
       setPassword('')
       setConfirmPassword('')
+      setEmpresa('CGV')
       setLoading(false)
     }
   }
@@ -219,7 +222,7 @@ export default function Login({ loading, setLoading }) {
               </div>
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4">
               <label className="block text-gray-700 font-medium mb-2">Confirmar Contraseña</label>
               <input
                 type={mostrarPassword ? "text" : "password"}
@@ -229,6 +232,19 @@ export default function Login({ loading, setLoading }) {
                 required
                 minLength={6}
               />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-gray-700 font-medium mb-2">Empresa</label>
+              <select
+                value={empresa}
+                onChange={(e) => setEmpresa(e.target.value)}
+                className="w-full px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                required
+              >
+                <option value="CGV">CGV</option>
+                <option value="HUB_MET">HUB MET</option>
+              </select>
             </div>
 
             {errorLogin && (
@@ -249,7 +265,7 @@ export default function Login({ loading, setLoading }) {
             <div className="text-center">
               <button
                 type="button"
-                onClick={() => { setModo('login'); setErrorLogin(''); setEmail(''); setPassword(''); setConfirmPassword('') }}
+                onClick={() => { setModo('login'); setErrorLogin(''); setEmail(''); setPassword(''); setConfirmPassword(''); setEmpresa('CGV') }}
                 className="text-sm text-gray-600 hover:text-gray-800"
               >
                 ¿Ya tienes cuenta? <span className="text-orange-600 font-medium">Inicia sesión</span>

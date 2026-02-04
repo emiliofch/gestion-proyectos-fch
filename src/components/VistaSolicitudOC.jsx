@@ -57,10 +57,12 @@ export default function VistaSolicitudOC({ user, perfil }) {
   }
 
   async function cargarSolicitudes() {
+    const empresaUsuario = perfil?.empresa || 'CGV'
     const { data } = await supabase
       .from('solicitudes_oc')
       .select('*, proyectos(nombre)')
-      .eq('usuario_id', user.id)  // Filtrar solo solicitudes del usuario actual
+      .eq('usuario_id', user.id)
+      .eq('empresa', empresaUsuario)
       .order('fecha_creacion', { ascending: false })
 
     setSolicitudes(data || [])
@@ -217,7 +219,8 @@ export default function VistaSolicitudOC({ user, perfil }) {
       valor: parseFloat(valor),
       detalle,
       archivosAdjuntos: archivosConUrls,
-      usuarioEmail: user.email
+      usuarioEmail: user.email,
+      empresa: perfil?.empresa || 'CGV'
     }
 
     console.log('📧 Enviando correo via API...')
@@ -248,8 +251,31 @@ export default function VistaSolicitudOC({ user, perfil }) {
 
     try {
       const proyecto = proyectos.find(p => p.id === proyectoId)
+      const empresaUsuario = perfil?.empresa || 'CGV'
 
-      // Debug: Log de datos antes de insertar
+      // Obtener el siguiente ID correlativo para esta empresa
+      const secuencia = empresaUsuario === 'HUB_MET'
+        ? 'solicitudes_oc_correlativo_hubmet_seq'
+        : 'solicitudes_oc_correlativo_cgv_seq'
+
+      const { data: seqData, error: seqError } = await supabase
+        .rpc('nextval_seq', { seq_name: secuencia })
+
+      let idCorrelativo = 1
+      if (!seqError && seqData) {
+        idCorrelativo = seqData
+      } else {
+        // Fallback: obtener el máximo + 1
+        const { data: maxData } = await supabase
+          .from('solicitudes_oc')
+          .select('id_correlativo')
+          .eq('empresa', empresaUsuario)
+          .order('id_correlativo', { ascending: false })
+          .limit(1)
+
+        idCorrelativo = (maxData?.[0]?.id_correlativo || 0) + 1
+      }
+
       const datosParaInsertar = {
         tipo,
         proveedor,
@@ -263,7 +289,9 @@ export default function VistaSolicitudOC({ user, perfil }) {
         detalle: detalle || null,
         archivos_adjuntos: [],
         usuario_id: user.id,
-        usuario_email: user.email
+        usuario_email: user.email,
+        empresa: empresaUsuario,
+        id_correlativo: idCorrelativo
       }
 
       console.log('=== DEBUG: Datos a insertar ===')
@@ -541,7 +569,9 @@ export default function VistaSolicitudOC({ user, perfil }) {
 
       {/* Historial de solicitudes */}
       <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">Mis Solicitudes</h3>
+        <h3 className="text-xl font-bold text-gray-800 mb-4">
+          Mis Solicitudes - {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
+        </h3>
 
         {solicitudes.length === 0 ? (
           <p className="text-gray-600 text-center py-8">No hay solicitudes registradas</p>
