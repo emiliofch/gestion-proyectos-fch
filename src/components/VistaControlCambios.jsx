@@ -1,3 +1,11 @@
+import ResizableTh from './ResizableTh'
+
+function fmtVal(v) {
+  if (v === null || v === undefined || v === '') return '-'
+  const n = parseFloat(v)
+  return isNaN(n) ? v : n.toFixed(1)
+}
+
 export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoControlCambios }) {
   return (
     <div>
@@ -23,22 +31,22 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
         </div>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full">
+        <table className="w-full" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
               {tipoControlCambios === 'valor' && (
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</th>
+                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '160px' }}>Proyecto</ResizableTh>
               )}
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Fecha</th>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Campo</th>
+              <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '150px' }}>Fecha</ResizableTh>
+              <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '130px' }}>Campo</ResizableTh>
               {tipoControlCambios === 'valor' && (
                 <>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Anterior</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Nuevo</th>
+                  <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '110px' }}>Anterior</ResizableTh>
+                  <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '110px' }}>Nuevo</ResizableTh>
                 </>
               )}
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Usuario</th>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Motivo</th>
+              <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '160px' }}>Usuario</ResizableTh>
+              <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold">Motivo</ResizableTh>
             </tr>
           </thead>
           <tbody>
@@ -51,8 +59,8 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 <td className="py-3 px-4 text-gray-800">{c.campo}</td>
                 {tipoControlCambios === 'valor' && (
                   <>
-                    <td className="py-3 px-4 text-gray-800">{parseFloat(c.valor_anterior).toFixed(1)}</td>
-                    <td className="py-3 px-4 text-gray-800">{parseFloat(c.valor_nuevo).toFixed(1)}</td>
+                    <td className="py-3 px-4 text-gray-800">{fmtVal(c.valor_anterior)}</td>
+                    <td className="py-3 px-4 text-gray-800">{fmtVal(c.valor_nuevo)}</td>
                   </>
                 )}
                 <td className="py-3 px-4 text-gray-800">{c.usuario}</td>

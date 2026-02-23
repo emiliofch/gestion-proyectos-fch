@@ -28,8 +28,6 @@ export default async function handler(req, res) {
     const data = req.body;
     const empresa = data.empresa || 'CGV';
 
-    console.log('🏢 Empresa del usuario:', empresa);
-
     // Obtener lista de correos desde la BD
     let destinatariosConfig = [];
     const { data: configData, error: configError } = await supabase
@@ -39,17 +37,11 @@ export default async function handler(req, res) {
       .single();
 
     if (configError || !configData) {
-      console.log('⚠️ No se encontró config para', empresa, '- usando fallback');
+      console.warn('⚠️ No se encontró config de correos para', empresa, '- usando fallback');
       destinatariosConfig = empresa === 'HUB_MET' ? FALLBACK_HUBMET : FALLBACK_CGV;
     } else {
       destinatariosConfig = configData.correos || [];
-      console.log('✓ Correos desde BD:', destinatariosConfig);
     }
-
-    // Verificar credenciales Gmail
-    console.log('🔐 Verificando credenciales Gmail...');
-    console.log('GMAIL_USER configurado:', !!process.env.GMAIL_USER);
-    console.log('GMAIL_APP_PASSWORD configurado:', !!process.env.GMAIL_APP_PASSWORD);
 
     if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
       console.error('❌ Faltan credenciales de Gmail');
@@ -71,12 +63,9 @@ export default async function handler(req, res) {
     const attachments = [];
 
     if (data.archivosAdjuntos && data.archivosAdjuntos.length > 0) {
-      console.log('📎 Descargando', data.archivosAdjuntos.length, 'archivos...');
-
       for (const archivo of data.archivosAdjuntos) {
         if (archivo.url) {
           try {
-            console.log('⬇️ Descargando:', archivo.nombre);
             const response = await fetch(archivo.url);
 
             if (!response.ok) {
@@ -86,18 +75,15 @@ export default async function handler(req, res) {
             const arrayBuffer = await response.arrayBuffer();
             const buffer = Buffer.from(arrayBuffer);
 
-            console.log('✓ Descargado:', archivo.nombre, '-', (buffer.length / 1024 / 1024).toFixed(2), 'MB');
-
             attachments.push({
               filename: archivo.nombre,
               content: buffer
             });
           } catch (error) {
-            console.error('❌ Error descargando:', archivo.nombre, error.message);
+            console.error('❌ Error descargando adjunto:', archivo.nombre, error.message);
           }
         }
       }
-      console.log('✓ Total adjuntos:', attachments.length);
     }
 
     const valorFormateado = new Intl.NumberFormat('es-CL', {
@@ -156,12 +142,6 @@ export default async function handler(req, res) {
     // Combinar destinatarios (usuario + lista configurada) y eliminar duplicados
     const todosDestinatarios = [data.usuarioEmail, ...destinatariosConfig];
     const destinatariosUnicos = [...new Set(todosDestinatarios)];
-
-    console.log('📧 Enviando correo via Gmail...');
-    console.log('From:', process.env.GMAIL_USER);
-    console.log('To:', destinatariosUnicos);
-    console.log('Empresa:', empresa);
-    console.log('Attachments:', attachments.length);
 
     const mailOptions = {
       from: `DeskFlow ${empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'} <${process.env.GMAIL_USER}>`,

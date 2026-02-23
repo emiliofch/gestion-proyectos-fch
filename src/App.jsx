@@ -18,6 +18,7 @@ import VistaSolicitudOC from './components/VistaSolicitudOC'
 import AdministracionOC from './components/AdministracionOC'
 import VistaProyectosBase from './components/VistaProyectosBase'
 import VistaOportunidades from './components/VistaOportunidades'
+import VistaColaboradores from './components/VistaColaboradores'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -34,6 +35,7 @@ function App() {
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [submenuOC, setSubmenuOC] = useState(false)
+  const [submenuTablas, setSubmenuTablas] = useState(false)
   const [filtroJefe, setFiltroJefe] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [ordenColumna, setOrdenColumna] = useState('nombre')
@@ -137,7 +139,6 @@ function App() {
   async function crearSugerencia(texto) {
     if (!texto.trim()) return
 
-    console.log('🔵 crearSugerencia llamada con:', texto)
     setProcesando(true)
     const { error } = await supabase.from('sugerencias').insert({
       texto,
@@ -150,7 +151,6 @@ function App() {
       console.error('❌ Error en sugerencia:', error)
       toast.error('Error: ' + error.message)
     } else {
-      console.log('✅ Sugerencia creada exitosamente')
       toast.success('Sugerencia enviada')
       cargarSugerencias()
     }
@@ -196,24 +196,16 @@ function App() {
       tipo: 'danger',
       onConfirmar: async () => {
         setProcesando(true)
-        console.log('🔵 borrarSugerencia llamada con ID:', sugerenciaId)
-        
         let { error, data } = await supabase.from('sugerencias').delete().eq('id', sugerenciaId).select()
-
-        console.log('📤 Respuesta delete:', { error, data })
 
         if (!error && (!data || data.length === 0)) {
           console.warn('⚠️ Delete ejecutado pero sin datos eliminados - posible problema RLS')
-          
-          const { data: checkData } = await supabase.from('sugerencias').select('id').eq('id', sugerenciaId).single()
-          console.log('🔍 Sugerencia existe después de delete:', checkData)
         }
 
         if (error) {
           console.error('❌ Error eliminando sugerencia:', error)
           toast.error('Error: ' + error.message)
         } else {
-          console.log('✅ Sugerencia eliminada exitosamente')
           toast.success('Sugerencia eliminada')
           await cargarSugerencias()
         }
@@ -231,15 +223,10 @@ function App() {
 
     reader.onload = async (event) => {
       try {
-        console.log('=== INICIO IMPORTACIÓN EXCEL ===')
         const workbook = XLSX.read(event.target.result, { type: 'binary' })
         const sheetName = workbook.SheetNames[0]
-        console.log('Hoja:', sheetName)
         const worksheet = workbook.Sheets[sheetName]
         const data = XLSX.utils.sheet_to_json(worksheet)
-        console.log('Total filas:', data.length)
-        console.log('Primera fila:', JSON.stringify(data[0]))
-        console.log('Columnas detectadas:', Object.keys(data[0] || {}))
 
         let insertados = 0
         let errores = 0
@@ -262,10 +249,7 @@ function App() {
           const hh = parseNumero(row.HH || row.hh)
           const gastos = parseNumero(row.GGOO || row.ggoo || row.GASTOS || row.gastos)
 
-          console.log('Parsed:', { proyectoNombre, ingresos, hh, gastos })
-
           if (!proyectoNombre || proyectoNombre.trim() === '') {
-            console.log('⚠️ Proyecto vacío')
             errores++
             continue
           }
@@ -273,7 +257,6 @@ function App() {
           // Extraer código del proyecto para búsqueda más flexible
           const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
           const codigoBusqueda = codigoMatch ? codigoMatch[0] : proyectoNombre.trim()
-          console.log('Buscando código:', codigoBusqueda)
 
           // Buscar el proyecto por código
           const { data: proyectosEncontrados, error: errorBusqueda } = await supabase
@@ -281,17 +264,13 @@ function App() {
             .select('id, nombre')
             .ilike('nombre', `${codigoBusqueda}%`)
 
-          console.log('Resultado búsqueda:', { encontrados: proyectosEncontrados?.length, error: errorBusqueda })
-
           if (errorBusqueda || !proyectosEncontrados || proyectosEncontrados.length === 0) {
-            console.log('❌ NO encontrado:', proyectoNombre)
             errores++
             noEncontrados.push(proyectoNombre)
             continue
           }
 
           const proyectoExistente = proyectosEncontrados[0]
-          console.log('✓ Encontrado:', proyectoExistente.nombre)
 
           // Insertar oportunidad vinculada al proyecto (NO modificamos tabla proyectos)
           const { error: errorInsert } = await supabase.from('oportunidades').insert({
@@ -307,7 +286,6 @@ function App() {
             console.error('❌ Error insert:', errorInsert)
             errores++
           } else {
-            console.log('✓ Oportunidad creada')
             insertados++
             await supabase.from('cambios').insert({
               proyecto_id: proyectoExistente.id,
@@ -321,10 +299,6 @@ function App() {
             })
           }
         }
-
-        console.log('=== RESUMEN ===')
-        console.log('Insertados:', insertados, 'Errores:', errores)
-        console.log('No encontrados:', noEncontrados)
 
         if (noEncontrados.length > 0) {
           toast.warning(`${noEncontrados.length} proyectos no encontrados. Ver consola F12.`)
@@ -353,26 +327,22 @@ function App() {
     
     const ingresos = prompt('Estimación ingresos:')
     if (!ingresos || isNaN(ingresos)) {
-      console.log('❌ Ingresos no válido:', ingresos)
-      toast.error('Debe ser número')
-      return
-    }
-    
-    const gastos = prompt('Estimación GGOO:')
-    if (!gastos || isNaN(gastos)) {
-      console.log('❌ Gastos no válido:', gastos)
-      toast.error('Debe ser número')
-      return
-    }
-    
-    const hh = prompt('HH del proyecto:')
-    if (!hh || isNaN(hh)) {
-      console.log('❌ HH no válido:', hh)
       toast.error('Debe ser número')
       return
     }
 
-    console.log('🔵 crearProyecto llamada:', { nombre, jefe, ingresos, gastos, hh })
+    const gastos = prompt('Estimación GGOO:')
+    if (!gastos || isNaN(gastos)) {
+      toast.error('Debe ser número')
+      return
+    }
+
+    const hh = prompt('HH del proyecto:')
+    if (!hh || isNaN(hh)) {
+      toast.error('Debe ser número')
+      return
+    }
+
     setProcesando(true)
     const { data: nuevoProyecto, error } = await supabase.from('proyectos').insert({
       nombre,
@@ -387,7 +357,6 @@ function App() {
       console.error('❌ Error creando proyecto:', error)
       toast.error('Error: ' + error.message)
     } else {
-      console.log('✅ Proyecto creado:', nuevoProyecto.id)
       await supabase.from('cambios').insert({
         proyecto_id: nuevoProyecto.id,
         campo: 'PROYECTO CREADO',
@@ -644,9 +613,7 @@ function App() {
       />
       
       <div className="min-h-screen bg-gray-50">
-      
-      {console.log('📱 App renderizado - User:', user?.email, 'Perfil:', perfil?.rol)}
-      
+
       {/* Header Fixed */}
       <div className="fixed top-0 left-0 right-0 z-40 w-full" style={{ backgroundColor: '#FF5100' }}>
         <div className="max-w-7xl mx-auto p-6">
@@ -696,7 +663,7 @@ function App() {
             <button
               onClick={() => setSubmenuEstimacion(!submenuEstimacion)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['proyectos-base', 'oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['proyectos-base', 'oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>📊 Estimación de cierre</span>
               <svg className={`w-5 h-5 transition-transform ${submenuEstimacion ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -707,13 +674,6 @@ function App() {
             {/* Submenú */}
             {submenuEstimacion && (
               <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                <button
-                  onClick={() => { setVista('proyectos-base'); setMenuAbierto(false) }}
-                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
-                  style={{ color: vista === 'proyectos-base' ? '#FF5100' : '#374151', backgroundColor: vista === 'proyectos-base' ? '#FFF5F0' : 'transparent' }}
-                >
-                  📂 Proyectos
-                </button>
                 <button
                   onClick={() => { setVista('oportunidades'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
@@ -739,7 +699,40 @@ function App() {
             )}
           </div>
 
-          {/* 2. OC (con submenú) */}
+          {/* 2. Tablas (con submenú) */}
+          <div>
+            <button
+              onClick={() => setSubmenuTablas(!submenuTablas)}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
+              style={{ color: ['proyectos-base', 'colaboradores'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['proyectos-base', 'colaboradores'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+            >
+              <span>🗂 Tablas</span>
+              <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {submenuTablas && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('proyectos-base'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'proyectos-base' ? '#FF5100' : '#374151', backgroundColor: vista === 'proyectos-base' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📂 Proyectos
+                </button>
+                <button
+                  onClick={() => { setVista('colaboradores'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'colaboradores' ? '#FF5100' : '#374151', backgroundColor: vista === 'colaboradores' ? '#FFF5F0' : 'transparent' }}
+                >
+                  👥 Colaboradores
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 3. OC (con submenú) */}
           <div>
             <button
               onClick={() => setSubmenuOC(!submenuOC)}
@@ -775,7 +768,7 @@ function App() {
             )}
           </div>
 
-          {/* 3. Solicitud egreso */}
+          {/* 4. Solicitud egreso */}
           <button
             onClick={() => { setVista('solicitud-egreso'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
@@ -835,7 +828,11 @@ function App() {
             )}
 
             {vista === 'proyectos-base' && (
-              <VistaProyectosBase user={user} />
+              <VistaProyectosBase user={user} perfil={perfil} />
+            )}
+
+            {vista === 'colaboradores' && (
+              <VistaColaboradores user={user} perfil={perfil} />
             )}
 
             {vista === 'oportunidades' && (

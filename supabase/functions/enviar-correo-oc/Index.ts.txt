@@ -1,0 +1,216 @@
+// supabase/functions/enviar-correo-oc/index.ts
+import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { Resend } from 'npm:resend@2.0.0'
+
+const resend = new Resend(Deno.env.get('RESEND_API_KEY'))
+
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
+}
+
+serve(async (req) => {
+  // Handle CORS preflight requests
+  if (req.method === 'OPTIONS') {
+    return new Response('ok', { headers: corsHeaders })
+  }
+
+  try {
+    const { solicitud } = await req.json()
+
+    // Formatear el tipo de documento
+    const tipoDocumentoMap = {
+      'factura': 'Factura',
+      'factura_exenta': 'Factura Exenta',
+      'boleta_honorarios': 'Boleta de Honorarios',
+      'invoice': 'Invoice',
+      'otro': 'Otro'
+    }
+
+    const tipoFormateado = tipoDocumentoMap[solicitud.tipo] || solicitud.tipo
+
+    // Crear HTML del correo
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+          }
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 10px 10px 0 0;
+            text-align: center;
+          }
+          .content {
+            background: #f9f9f9;
+            padding: 30px;
+            border-radius: 0 0 10px 10px;
+          }
+          .field {
+            margin-bottom: 15px;
+            padding: 10px;
+            background: white;
+            border-radius: 5px;
+          }
+          .label {
+            font-weight: bold;
+            color: #667eea;
+            display: block;
+            margin-bottom: 5px;
+          }
+          .value {
+            color: #333;
+          }
+          .footer {
+            margin-top: 30px;
+            text-align: center;
+            color: #666;
+            font-size: 12px;
+          }
+          .highlight {
+            background: #fff3cd;
+            padding: 15px;
+            border-left: 4px solid #ffc107;
+            margin: 20px 0;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="header">
+          <h1>📋 Nueva Solicitud de Orden de Compra</h1>
+        </div>
+        
+        <div class="content">
+          <p>Se ha creado una nueva solicitud de OC con los siguientes detalles:</p>
+          
+          <div class="field">
+            <span class="label">Tipo de Documento:</span>
+            <span class="value">${tipoFormateado}</span>
+          </div>
+          
+          <div class="field">
+            <span class="label">Proveedor:</span>
+            <span class="value">${solicitud.proveedor}</span>
+          </div>
+          
+          <div class="field">
+            <span class="label">RUT:</span>
+            <span class="value">${solicitud.rut}</span>
+          </div>
+          
+          <div class="field">
+            <span class="label">Proyecto:</span>
+            <span class="value">${solicitud.proyecto}</span>
+          </div>
+          
+          ${solicitud.subproyecto ? `
+          <div class="field">
+            <span class="label">Subproyecto:</span>
+            <span class="value">${solicitud.subproyecto}</span>
+          </div>
+          ` : ''}
+          
+          ${solicitud.ceco ? `
+          <div class="field">
+            <span class="label">Centro de Costo (CECO):</span>
+            <span class="value">${solicitud.ceco}</span>
+          </div>
+          ` : ''}
+          
+          <div class="field">
+            <span class="label">Glosa:</span>
+            <span class="value">${solicitud.glosa}</span>
+          </div>
+          
+          <div class="highlight">
+            <span class="label">Valor:</span>
+            <span class="value" style="font-size: 24px; font-weight: bold;">
+              $${Number(solicitud.valor).toLocaleString('es-CL')} CLP
+            </span>
+          </div>
+          
+          ${solicitud.detalle ? `
+          <div class="field">
+            <span class="label">Detalle:</span>
+            <span class="value">${solicitud.detalle}</span>
+          </div>
+          ` : ''}
+          
+          <div class="field">
+            <span class="label">Archivos Adjuntos:</span>
+            <span class="value">${solicitud.adjuntos.length} archivo(s)</span>
+            ${solicitud.adjuntos.map((adj, idx) => `
+              <div style="margin-left: 20px; margin-top: 5px;">
+                ${idx + 1}. ${adj.nombre}
+              </div>
+            `).join('')}
+          </div>
+          
+          <div class="field">
+            <span class="label">Solicitante:</span>
+            <span class="value">${solicitud.solicitante_email}</span>
+          </div>
+          
+          <div class="field">
+            <span class="label">Fecha de Solicitud:</span>
+            <span class="value">${new Date(solicitud.created_at).toLocaleString('es-CL')}</span>
+          </div>
+        </div>
+        
+        <div class="footer">
+          <p>Este es un correo automático generado por el Sistema de Gestión de Proyectos FCH</p>
+          <p>Por favor no responder a este correo</p>
+        </div>
+      </body>
+      </html>
+    `
+
+    // Enviar correo al solicitante
+    const emailSolicitante = await resend.emails.send({
+      from: 'Sistema FCH <noreply@fundacionchile.cl>',
+      to: [solicitud.solicitante_email],
+      subject: `Confirmación de Solicitud OC - ${tipoFormateado}`,
+      html: htmlContent,
+    })
+
+    // Enviar correo al receptor fijo
+    const emailReceptor = await resend.emails.send({
+      from: 'Sistema FCH <noreply@fundacionchile.cl>',
+      to: [solicitud.email_receptor_fijo],
+      subject: `Nueva Solicitud OC - ${tipoFormateado} - ${solicitud.proveedor}`,
+      html: htmlContent,
+    })
+
+    return new Response(
+      JSON.stringify({
+        success: true,
+        emailSolicitante: emailSolicitante,
+        emailReceptor: emailReceptor,
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 200,
+      }
+    )
+  } catch (error) {
+    return new Response(
+      JSON.stringify({
+        error: error.message,
+      }),
+      {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        status: 500,
+      }
+    )
+  }
+})

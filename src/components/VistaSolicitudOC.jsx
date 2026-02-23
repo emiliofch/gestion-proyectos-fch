@@ -134,38 +134,19 @@ export default function VistaSolicitudOC({ user, perfil }) {
   async function subirArchivos(solicitudId) {
     const archivosSubidos = []
 
-    console.log('=== DEBUG: Subiendo archivos ===')
-    console.log('Solicitud ID:', solicitudId)
-    console.log('User ID:', user.id)
-    console.log('Total archivos:', archivos.length)
-
     for (let i = 0; i < archivos.length; i++) {
       const archivo = archivos[i]
       const extension = archivo.name.split('.').pop()
       const nombreArchivo = `${user.id}/${solicitudId}/${Date.now()}_${i}.${extension}`
-
-      console.log(`\n--- Subiendo archivo ${i + 1}/${archivos.length} ---`)
-      console.log('Nombre original:', archivo.name)
-      console.log('Path destino:', nombreArchivo)
-      console.log('Tamaño:', (archivo.size / 1024 / 1024).toFixed(2), 'MB')
-      console.log('Tipo:', archivo.type)
 
       const { data, error } = await supabase.storage
         .from('oc-adjuntos')
         .upload(nombreArchivo, archivo)
 
       if (error) {
-        console.error('❌ ERROR SUBIENDO ARCHIVO:')
-        console.error('Error completo:', error)
-        console.error('Mensaje:', error.message)
-        console.error('Status:', error.statusCode)
-        console.error('Código:', error.error)
-        console.error('Detalles:', error.details || error.hint)
-        console.error('=================================')
+        console.error('❌ Error subiendo archivo:', archivo.name, error.message)
         throw new Error(`Error al subir ${archivo.name}: ${error.message}`)
       }
-
-      console.log('✓ Archivo subido exitosamente:', data.path)
 
       archivosSubidos.push({
         nombre: archivo.name,
@@ -175,16 +156,11 @@ export default function VistaSolicitudOC({ user, perfil }) {
       })
     }
 
-    console.log('\n✓ Todos los archivos subidos exitosamente')
-    console.log('================================')
     return archivosSubidos
   }
 
   async function enviarCorreos(solicitud, archivosInfo) {
     const proyecto = proyectos.find(p => p.id === proyectoId)
-
-    console.log('=== DEBUG: Generando URLs de descarga ===')
-    console.log('ID Correlativo:', solicitud.id_correlativo)
 
     // Generar URLs firmadas para cada archivo (válidas por 7 días)
     const archivosConUrls = await Promise.all(
@@ -198,13 +174,9 @@ export default function VistaSolicitudOC({ user, perfil }) {
           return { ...archivo, url: null }
         }
 
-        console.log('✓ URL generada para:', archivo.nombre)
         return { ...archivo, url: data.signedUrl }
       })
     )
-
-    console.log('URLs generadas:', archivosConUrls)
-    console.log('====================================')
 
     // Enviar via API (Nodemailer/Gmail)
     const payload = {
@@ -223,8 +195,6 @@ export default function VistaSolicitudOC({ user, perfil }) {
       empresa: perfil?.empresa || 'CGV'
     }
 
-    console.log('📧 Enviando correo via API...')
-
     const response = await fetch('/api/enviar-email-oc', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -236,10 +206,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
       throw new Error(error.error || 'Error al enviar correos')
     }
 
-    const result = await response.json()
-    console.log('✅ Correo enviado:', result)
-
-    return result
+    return await response.json()
   }
 
   async function handleSubmit(e) {
@@ -294,12 +261,6 @@ export default function VistaSolicitudOC({ user, perfil }) {
         id_correlativo: idCorrelativo
       }
 
-      console.log('=== DEBUG: Datos a insertar ===')
-      console.log('CECO length:', ceco?.length, 'caracteres')
-      console.log('CECO value:', ceco)
-      console.log('Todos los datos:', datosParaInsertar)
-      console.log('===============================')
-
       // 1. Crear solicitud en BD
       const { data: solicitud, error: errorSolicitud } = await supabase
         .from('solicitudes_oc')
@@ -308,12 +269,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
         .single()
 
       if (errorSolicitud) {
-        console.error('=== ERROR DE SUPABASE ===')
-        console.error('Error completo:', errorSolicitud)
-        console.error('Código:', errorSolicitud.code)
-        console.error('Mensaje:', errorSolicitud.message)
-        console.error('Detalles:', errorSolicitud.details)
-        console.error('========================')
+        console.error('Error creando solicitud OC:', errorSolicitud.message)
         throw errorSolicitud
       }
 

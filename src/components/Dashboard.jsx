@@ -2,9 +2,14 @@ import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { PieChart, Pie, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ResponsiveContainer } from 'recharts'
 
+function fmt(val) {
+  return '$ ' + Math.round(parseFloat(val) || 0).toLocaleString('es-CL')
+}
+
 export default function Dashboard() {
   const [oportunidades, setOportunidades] = useState([])
   const [loading, setLoading] = useState(true)
+  const [filtroLinea, setFiltroLinea] = useState('')
 
   useEffect(() => {
     cargarOportunidades()
@@ -16,7 +21,7 @@ export default function Dashboard() {
       .from('oportunidades')
       .select(`
         *,
-        proyectos:proyecto_id (nombre, ceco, jefe)
+        proyectos:proyecto_id (nombre, ceco, colaboradores:jefe_id(colaborador))
       `)
 
     if (error) {
@@ -27,15 +32,21 @@ export default function Dashboard() {
     setLoading(false)
   }
 
-  const totalOportunidades = oportunidades.length
-  const totalIngresos = oportunidades.reduce((sum, o) => sum + (parseFloat(o.ingresos) || 0), 0)
-  const totalHH = oportunidades.reduce((sum, o) => sum + (parseFloat(o.hh) || 0), 0)
-  const totalGastos = oportunidades.reduce((sum, o) => sum + (parseFloat(o.gastos) || 0), 0)
+  const lineas = [...new Set(oportunidades.map(o => o.proyectos?.ceco).filter(Boolean))].sort()
+
+  const filtradas = filtroLinea
+    ? oportunidades.filter(o => o.proyectos?.ceco === filtroLinea)
+    : oportunidades
+
+  const totalOportunidades = filtradas.length
+  const totalIngresos = filtradas.reduce((sum, o) => sum + (parseFloat(o.ingresos) || 0), 0)
+  const totalHH = filtradas.reduce((sum, o) => sum + (parseFloat(o.hh) || 0), 0)
+  const totalGastos = filtradas.reduce((sum, o) => sum + (parseFloat(o.gastos) || 0), 0)
   const margenTotal = totalIngresos - totalHH - totalGastos
   const margenPromedio = totalOportunidades > 0 ? margenTotal / totalOportunidades : 0
   const roi = totalIngresos > 0 ? ((margenTotal / totalIngresos) * 100) : 0
 
-  const oportunidadesPositivas = oportunidades.filter(o => {
+  const oportunidadesPositivas = filtradas.filter(o => {
     const margen = (parseFloat(o.ingresos) || 0) - (parseFloat(o.hh) || 0) - (parseFloat(o.gastos) || 0)
     return margen >= 0
   }).length
@@ -47,7 +58,7 @@ export default function Dashboard() {
     { name: 'Negativos', value: oportunidadesNegativas }
   ]
 
-  const topOportunidades = [...oportunidades]
+  const topOportunidades = [...filtradas]
     .map(o => ({
       nombre: o.proyectos?.nombre || 'Sin proyecto',
       nombreCorto: (o.proyectos?.nombre || 'Sin proyecto').length > 15
@@ -58,8 +69,7 @@ export default function Dashboard() {
     .sort((a, b) => b.margen - a.margen)
     .slice(0, 5)
 
-  // Datos de distribución de HH por proyecto
-  const hhDistribucion = [...oportunidades]
+  const hhDistribucion = [...filtradas]
     .map(o => ({
       nombre: o.proyectos?.nombre || 'Sin proyecto',
       nombreCorto: (o.proyectos?.nombre || 'Sin proyecto').length > 15
@@ -70,37 +80,31 @@ export default function Dashboard() {
     .sort((a, b) => b.hh - a.hh)
     .slice(0, 5)
 
-  // Datos de desempeño por jefe
   const jefeStats = {}
-  oportunidades.forEach(o => {
-    const jefe = o.proyectos?.jefe || 'Sin asignar'
+  filtradas.forEach(o => {
+    const jefe = o.proyectos?.colaboradores?.colaborador || 'Sin asignar'
     if (!jefeStats[jefe]) {
-      jefeStats[jefe] = {
-        total: 0,
-        suma_margen: 0,
-        cantidad: 0
-      }
+      jefeStats[jefe] = { suma_margen: 0, cantidad: 0 }
     }
     const margen = (parseFloat(o.ingresos) || 0) - (parseFloat(o.hh) || 0) - (parseFloat(o.gastos) || 0)
     jefeStats[jefe].suma_margen += margen
     jefeStats[jefe].cantidad += 1
-    jefeStats[jefe].total = (jefeStats[jefe].suma_margen / jefeStats[jefe].cantidad).toFixed(1)
   })
 
   const jefeData = Object.entries(jefeStats)
     .map(([jefe, stats]) => ({
       jefe: jefe.length > 15 ? jefe.substring(0, 15) + '...' : jefe,
       jefe_completo: jefe,
-      margen_promedio: parseFloat(stats.total),
+      margen_promedio: stats.cantidad > 0 ? stats.suma_margen / stats.cantidad : 0,
       cantidad: stats.cantidad
     }))
     .sort((a, b) => b.margen_promedio - a.margen_promedio)
 
   const getColorByMargen = (margen) => {
-    if (margen >= 50) return '#10B981' // Verde oscuro
-    if (margen >= 20) return '#86EFAC' // Verde claro
-    if (margen >= 0) return '#FBBF24' // Amarillo
-    return '#EF4444' // Rojo
+    if (margen >= 50) return '#10B981'
+    if (margen >= 20) return '#86EFAC'
+    if (margen >= 0) return '#FBBF24'
+    return '#EF4444'
   }
 
   if (loading) {
@@ -114,7 +118,7 @@ export default function Dashboard() {
   if (oportunidades.length === 0) {
     return (
       <div>
-        <h2 className="text-2xl font-bold text-gray-800 mb-6">Dashboard</h2>
+        <h2 className="text-2xl font-bold text-gray-800 mb-6">Dashboard Oportunidades</h2>
         <div className="text-center py-12 bg-gray-50 rounded-lg">
           <p className="text-gray-500 text-lg mb-2">No hay oportunidades registradas</p>
           <p className="text-gray-400 text-sm">Importa oportunidades desde la seccion Oportunidades para ver las estadisticas</p>
@@ -125,8 +129,22 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Dashboard</h2>
+      <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
+        <h2 className="text-2xl font-bold text-gray-800">Dashboard Oportunidades</h2>
+        <div className="flex items-center gap-2">
+          <label className="text-sm font-medium text-gray-600">Línea:</label>
+          <select
+            value={filtroLinea}
+            onChange={e => setFiltroLinea(e.target.value)}
+            className="border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-800 bg-white focus:outline-none focus:ring-2"
+            style={{ focusRingColor: '#FF5100' }}
+          >
+            <option value="">Todas</option>
+            {lineas.map(l => (
+              <option key={l} value={l}>{l}</option>
+            ))}
+          </select>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-8">
@@ -137,22 +155,22 @@ export default function Dashboard() {
 
         <div className="bg-gradient-to-br from-green-500 to-green-600 rounded-lg p-6 text-white">
           <div className="text-sm opacity-90">Ingresos Totales</div>
-          <div className="text-3xl font-bold mt-2">{totalIngresos.toFixed(1)}</div>
+          <div className="text-3xl font-bold mt-2">{fmt(totalIngresos)}</div>
         </div>
 
         <div className="bg-gradient-to-br from-purple-500 to-purple-600 rounded-lg p-6 text-white">
           <div className="text-sm opacity-90">Margen Total</div>
-          <div className="text-3xl font-bold mt-2">{margenTotal.toFixed(1)}</div>
+          <div className="text-3xl font-bold mt-2">{fmt(margenTotal)}</div>
         </div>
 
         <div className="bg-gradient-to-br from-orange-500 to-orange-600 rounded-lg p-6 text-white">
           <div className="text-sm opacity-90">Margen Promedio</div>
-          <div className="text-3xl font-bold mt-2">{margenPromedio.toFixed(1)}</div>
+          <div className="text-3xl font-bold mt-2">{fmt(margenPromedio)}</div>
         </div>
 
         <div className={`bg-gradient-to-br rounded-lg p-6 text-white font-bold text-center ${roi >= 20 ? 'from-emerald-500 to-emerald-600' : roi >= 10 ? 'from-yellow-500 to-yellow-600' : 'from-red-500 to-red-600'}`}>
           <div className="text-sm opacity-90">ROI</div>
-          <div className="text-3xl font-bold mt-2">{roi.toFixed(1)}%</div>
+          <div className="text-3xl font-bold mt-2">{Math.round(roi)}%</div>
         </div>
       </div>
 
@@ -194,7 +212,7 @@ export default function Dashboard() {
                     return (
                       <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
                         <p className="font-semibold text-gray-800">{data.nombre}</p>
-                        <p className="text-blue-600">Margen: {data.margen.toFixed(1)}</p>
+                        <p className="text-blue-600">Margen: {fmt(data.margen)}</p>
                       </div>
                     )
                   }
@@ -208,7 +226,6 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-        {/* Distribución de HH */}
         <div className="bg-gray-50 rounded-lg p-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4">Top 5 por HH</h3>
           <ResponsiveContainer width="100%" height={300}>
@@ -223,7 +240,7 @@ export default function Dashboard() {
                     return (
                       <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
                         <p className="font-semibold text-gray-800">{data.nombre}</p>
-                        <p className="text-blue-600">HH: {data.hh.toFixed(1)}</p>
+                        <p className="text-blue-600">HH: {fmt(data.hh)}</p>
                       </div>
                     )
                   }
@@ -235,7 +252,6 @@ export default function Dashboard() {
           </ResponsiveContainer>
         </div>
 
-        {/* Desempeño por Jefe */}
         <div className="bg-gray-50 rounded-lg p-6">
           <h3 className="text-lg font-bold text-gray-800 mb-4">Desempeno por Jefe (Margen Promedio)</h3>
           <ResponsiveContainer width="100%" height={300}>
@@ -250,7 +266,7 @@ export default function Dashboard() {
                     return (
                       <div className="bg-white p-2 border border-gray-300 rounded shadow-lg">
                         <p className="font-semibold text-gray-800">{data.jefe_completo}</p>
-                        <p className="text-blue-600">Margen Promedio: {data.margen_promedio.toFixed(1)}</p>
+                        <p className="text-blue-600">Margen Promedio: {fmt(data.margen_promedio)}</p>
                         <p className="text-gray-600 text-sm">Oportunidades: {data.cantidad}</p>
                       </div>
                     )
@@ -273,15 +289,15 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <div>
             <p className="text-gray-600">Oportunidades con margen positivo:</p>
-            <p className="text-2xl font-bold text-green-600">{oportunidadesPositivas} ({totalOportunidades > 0 ? ((oportunidadesPositivas / totalOportunidades) * 100).toFixed(1) : 0}%)</p>
+            <p className="text-2xl font-bold text-green-600">{oportunidadesPositivas} ({totalOportunidades > 0 ? Math.round((oportunidadesPositivas / totalOportunidades) * 100) : 0}%)</p>
           </div>
           <div>
             <p className="text-gray-600">Oportunidades con margen negativo:</p>
-            <p className="text-2xl font-bold text-red-600">{oportunidadesNegativas} ({totalOportunidades > 0 ? ((oportunidadesNegativas / totalOportunidades) * 100).toFixed(1) : 0}%)</p>
+            <p className="text-2xl font-bold text-red-600">{oportunidadesNegativas} ({totalOportunidades > 0 ? Math.round((oportunidadesNegativas / totalOportunidades) * 100) : 0}%)</p>
           </div>
           <div>
             <p className="text-gray-600">Total HH:</p>
-            <p className="text-2xl font-bold text-blue-600">{totalHH.toFixed(1)}</p>
+            <p className="text-2xl font-bold text-blue-600">{fmt(totalHH)}</p>
           </div>
         </div>
       </div>
