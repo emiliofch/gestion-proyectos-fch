@@ -1,0 +1,1326 @@
+Sub agregar_input()
+    Dim wsInputs As Worksheet
+    Dim ultimaFila As Long
+    Dim tipoItem As String
+    Dim nombreItem As String
+    Dim valorItem As String
+    Dim ultimaFilaConDatos As Long
+    Dim hojaActiva As Worksheet
+    
+    ' Guardar la hoja activa
+    Set hojaActiva = ActiveSheet
+    
+    ' Desactivar actualización de pantalla
+    Application.ScreenUpdating = False
+    
+    ' Definir la hoja INPUTS
+    Set wsInputs = ThisWorkbook.Sheets("INPUTS")
+    
+    ' ===== PASO 0: DESPROTEGER LA HOJA =====
+    On Error Resume Next
+    wsInputs.Unprotect Password:="fch2525"
+    On Error GoTo 0
+    
+    ' ===== PASO 1: PREGUNTAR TIPO DE ÍTEM =====
+    tipoItem = InputBox("¿Qué tipo de ítem desea agregar?" & vbCrLf & vbCrLf & _
+                       "Ingrese 1 para GGOO" & vbCrLf & _
+                       "Ingrese 2 para HH", _
+                       "Seleccionar Tipo")
+    
+    ' Verificar si canceló
+    If tipoItem = "" Then
+        ' Reproteger la hoja antes de salir
+        Call ProtegerHojaInputs(wsInputs)
+        MsgBox "Operación cancelada", vbInformation
+        Exit Sub
+    End If
+    
+    ' Asignar tipo según respuesta
+    If tipoItem = "1" Then
+        tipoItem = "GGOO"
+    ElseIf tipoItem = "2" Then
+        tipoItem = "HH"
+    Else
+        ' Reproteger la hoja antes de salir
+        Call ProtegerHojaInputs(wsInputs)
+        MsgBox "Opción inválida. Debe ingresar 1 o 2.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 2: PREGUNTAR NOMBRE DEL ÍTEM =====
+    nombreItem = InputBox("Ingrese el nombre del ítem:", "Nombre del ítem")
+    
+    ' Verificar si canceló o dejó vacío
+    If nombreItem = "" Then
+        ' Reproteger la hoja antes de salir
+        Call ProtegerHojaInputs(wsInputs)
+        MsgBox "Operación cancelada. Debe ingresar un nombre.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 3: PREGUNTAR VALOR =====
+    If tipoItem = "HH" Then
+        valorItem = InputBox("Ingrese el valor de mensual para: " & nombreItem, _
+                            "Valor por Hora (HH)")
+    Else ' GGOO
+        valorItem = InputBox("Ingrese el valor TOTAL del servicio para: " & nombreItem, _
+                            "Valor Total (GGOO)")
+    End If
+    
+    ' Verificar si canceló o dejó vacío
+    If valorItem = "" Then
+        ' Reproteger la hoja antes de salir
+        Call ProtegerHojaInputs(wsInputs)
+        MsgBox "Operación cancelada. Debe ingresar un valor.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Validar que sea un número
+    If Not IsNumeric(valorItem) Then
+        ' Reproteger la hoja antes de salir
+        Call ProtegerHojaInputs(wsInputs)
+        MsgBox "El valor ingresado no es válido. Debe ser un número.", vbCritical
+        Exit Sub
+    End If
+    
+    ' ===== PASO 4: AGREGAR A LA TABLA =====
+    Application.ScreenUpdating = False
+    
+    ' Encontrar la última fila con datos en la columna A
+    ultimaFila = wsInputs.Cells(wsInputs.Rows.Count, "A").End(xlUp).Row + 1
+    
+    ' Agregar los datos
+    wsInputs.Cells(ultimaFila, 1).Value = nombreItem    ' Columna A: Ítem
+    wsInputs.Cells(ultimaFila, 2).Value = CDbl(valorItem) ' Columna B: Valor
+    wsInputs.Cells(ultimaFila, 3).Value = tipoItem       ' Columna C: Tipo
+    
+    ' ===== PASO 5: APLICAR AUTOFIT A LAS COLUMNAS =====
+    ' Aplicar autofit a las columnas A, B y C
+    wsInputs.Columns("A:C").AutoFit
+    
+    ' ===== PASO 6: PROTEGER LA HOJA =====
+    Call ProtegerHojaInputs(wsInputs)
+    
+    ' Volver a la hoja activa original
+    hojaActiva.Activate
+    
+    Application.ScreenUpdating = True
+    
+    ' Mensaje de confirmación
+    MsgBox "Ítem agregado exitosamente:" & vbCrLf & vbCrLf & _
+           "Tipo: " & tipoItem & vbCrLf & _
+           "Nombre: " & nombreItem & vbCrLf & _
+           "Valor: " & Format(CDbl(valorItem), "#,##0.00") & vbCrLf & _
+           "Fila: " & ultimaFila & vbCrLf & vbCrLf & _
+           "La hoja ha sido protegida automáticamente.", _
+           vbInformation, "Ítem Agregado"
+    
+End Sub
+
+' Función auxiliar para proteger la hoja INPUTS completamente
+Private Sub ProtegerHojaInputs(wsInputs As Worksheet)
+    ' Bloquear TODAS las celdas sin excepciones
+    wsInputs.Cells.Locked = True
+    
+    ' Proteger la hoja completamente con contraseña
+    ' Solo se pueden agregar datos mediante la macro (que desprotege temporalmente)
+    wsInputs.Protect Password:="fch2525", DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFormattingCells:=False, AllowFormattingColumns:=False, _
+                     AllowFormattingRows:=False, AllowInsertingRows:=False, _
+                     AllowDeletingRows:=False, AllowSorting:=False, _
+                     AllowFiltering:=False
+End Sub
+
+
+
+Sub agregar_input_extra()
+    Dim wsInputs As Worksheet
+    Dim wsCosteo As Worksheet
+    Dim ultimaFilaInputs As Long
+    Dim tipoItem As String
+    Dim nombreItem As String
+    Dim valorItem As String
+    Dim rangoTotal As Range
+    Dim filaInsertar As Long
+    Dim col As Long
+    Dim filaGGOO As Long
+    Dim filaHH As Long
+    Dim primeraFilaGGOO As Long
+    Dim ultimaFilaGGOO As Long
+    Dim primeraFilaHH As Long
+    Dim ultimaFilaHH As Long
+    Dim filaTotalTotal As Long
+    Dim ultimaColumna As Long
+    Dim filaReferencia As Long
+    Dim i As Long
+    
+    ' Guardar la hoja activa
+    Dim hojaActiva As Worksheet
+    Set hojaActiva = ActiveSheet
+    
+    ' Desactivar actualización de pantalla
+    Application.ScreenUpdating = False
+    
+    ' Definir las hojas
+    Set wsInputs = ThisWorkbook.Sheets("INPUTS")
+    Set wsCosteo = ThisWorkbook.Sheets("COSTEO")
+    
+    ' ===== PASO 0: DESPROTEGER LA HOJA COSTEO =====
+    On Error Resume Next
+    wsCosteo.Unprotect Password:="fch2525"
+    wsInputs.Unprotect Password:="fch2525"
+    On Error GoTo 0
+    
+    ' ===== PASO 1: PREGUNTAR TIPO DE ÍTEM =====
+    tipoItem = InputBox("¿Qué tipo de ítem desea agregar?" & vbCrLf & vbCrLf & _
+                       "Ingrese 1 para GGOO" & vbCrLf & _
+                       "Ingrese 2 para HH", _
+                       "Seleccionar Tipo")
+    
+    ' Verificar si canceló
+    If tipoItem = "" Then
+        MsgBox "Operación cancelada", vbInformation
+        Exit Sub
+    End If
+    
+    ' Asignar tipo según respuesta
+    If tipoItem = "1" Then
+        tipoItem = "GGOO"
+    ElseIf tipoItem = "2" Then
+        tipoItem = "HH"
+    Else
+        MsgBox "Opción inválida. Debe ingresar 1 o 2.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 2: PREGUNTAR NOMBRE DEL ÍTEM =====
+    nombreItem = InputBox("Ingrese el nombre del ítem:", "Nombre del ítem")
+    
+    ' Verificar si canceló o dejó vacío
+    If nombreItem = "" Then
+        MsgBox "Operación cancelada. Debe ingresar un nombre.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 3: PREGUNTAR VALOR =====
+    If tipoItem = "HH" Then
+        valorItem = InputBox("Ingrese el valor de la HORA para: " & nombreItem, _
+                            "Valor por Hora (HH)")
+    Else ' GGOO
+        valorItem = InputBox("Ingrese el valor TOTAL del servicio para: " & nombreItem, _
+                            "Valor Total (GGOO)")
+    End If
+    
+    ' Verificar si canceló o dejó vacío
+    If valorItem = "" Then
+        MsgBox "Operación cancelada. Debe ingresar un valor.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Validar que sea un número
+    If Not IsNumeric(valorItem) Then
+        MsgBox "El valor ingresado no es válido. Debe ser un número.", vbCritical
+        Exit Sub
+    End If
+    
+    ' ===== PASO 4: AGREGAR A LA HOJA INPUTS =====
+    ultimaFilaInputs = wsInputs.Cells(wsInputs.Rows.Count, "A").End(xlUp).Row + 1
+    wsInputs.Cells(ultimaFilaInputs, 1).Value = nombreItem
+    wsInputs.Cells(ultimaFilaInputs, 2).Value = CDbl(valorItem)
+    wsInputs.Cells(ultimaFilaInputs, 3).Value = tipoItem
+    
+    ' ===== PASO 5: AGREGAR A LA HOJA COSTEO =====
+    Application.ScreenUpdating = False
+    
+    ' Obtener referencias de filas nombradas
+    On Error Resume Next
+    filaGGOO = wsCosteo.Range("total_ggoo").Row
+    filaHH = wsCosteo.Range("total_hh").Row
+    filaTotalTotal = wsCosteo.Range("total_total").Row
+    On Error GoTo 0
+    
+    If tipoItem = "GGOO" Then
+        ' Buscar celda nombrada "total_hh"
+        Set rangoTotal = wsCosteo.Range("total_hh")
+        
+        If rangoTotal Is Nothing Then
+            MsgBox "No se encontró la celda nombrada 'total_hh' en COSTEO.", vbExclamation
+            Application.ScreenUpdating = True
+            Exit Sub
+        End If
+        
+        ' Insertar fila arriba de "total_hh"
+        filaInsertar = rangoTotal.Row
+        wsCosteo.Rows(filaInsertar).Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+        
+        ' Agregar el ítem GGOO
+        wsCosteo.Cells(filaInsertar, 1).Value = nombreItem
+        
+        ' Encontrar primera y última fila de ítems GGOO
+        primeraFilaGGOO = filaGGOO + 1
+        ultimaFilaGGOO = rangoTotal.Row - 1 ' La fila antes de total_hh
+        
+        ' Actualizar fórmulas de Total GGOO
+        For col = 2 To 27 ' Columnas B hasta AA
+            wsCosteo.Cells(filaGGOO, col).Formula = _
+                "=SUM(" & wsCosteo.Cells(primeraFilaGGOO, col).Address(False, False) & _
+                ":" & wsCosteo.Cells(ultimaFilaGGOO, col).Address(False, False) & ")"
+        Next col
+        
+        ' Actualizar formatos del Total GGOO
+        wsCosteo.Range(wsCosteo.Cells(filaGGOO, 2), wsCosteo.Cells(filaGGOO, 13)).NumberFormat = "#,##0"
+        wsCosteo.Cells(filaGGOO, 14).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(filaGGOO, 15), wsCosteo.Cells(filaGGOO, 27)).NumberFormat = "$#,##0"
+        
+        ' Actualizar formatos del TOTAL TOTAL también
+        filaTotalTotal = wsCosteo.Range("total_total").Row
+        wsCosteo.Range(wsCosteo.Cells(filaTotalTotal, 2), wsCosteo.Cells(filaTotalTotal, 13)).NumberFormat = "#,##0"
+        wsCosteo.Cells(filaTotalTotal, 14).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(filaTotalTotal, 15), wsCosteo.Cells(filaTotalTotal, 27)).NumberFormat = "$#,##0"
+        
+        ' Encontrar una fila de referencia GGOO para copiar formato y fórmulas
+        If primeraFilaGGOO <= ultimaFilaGGOO Then
+            filaReferencia = primeraFilaGGOO
+        Else
+            filaReferencia = filaInsertar - 1
+        End If
+        
+        ' Copiar fórmulas de columna N (suma de B-M)
+        wsCosteo.Cells(filaInsertar, 14).Formula = _
+            "=SUM(" & wsCosteo.Cells(filaInsertar, 2).Address(False, False) & _
+            ":" & wsCosteo.Cells(filaInsertar, 13).Address(False, False) & ")"
+        
+        ' Copiar fórmulas de columnas O hasta Z (15-26) con XLOOKUP
+        For col = 15 To 26
+            wsCosteo.Cells(filaInsertar, col).Formula = _
+                "=IF(" & wsCosteo.Cells(filaInsertar, col - 13).Address(False, False) & "<>""""," & _
+                wsCosteo.Cells(filaInsertar, col - 13).Address(False, False) & "*XLOOKUP($A" & filaInsertar & ",INPUTS!$A:$A,INPUTS!$B:$B),"""")"
+        Next col
+        
+        ' Copiar fórmula de columna AA (suma de O-Z)
+        wsCosteo.Cells(filaInsertar, 27).Formula = _
+            "=SUM(" & wsCosteo.Cells(filaInsertar, 15).Address(False, False) & _
+            ":" & wsCosteo.Cells(filaInsertar, 26).Address(False, False) & ")"
+        
+        ' Aplicar formato GGOO
+        ' Determinar color según patrón alternado basado en la fila anterior
+        Dim colorFilaAnterior As Long
+        Dim colorNuevaFila As Long
+        If filaInsertar > primeraFilaGGOO Then
+            ' Verificar el color de la fila anterior
+            colorFilaAnterior = wsCosteo.Cells(filaInsertar - 1, 1).Interior.Color
+            ' Si la fila anterior es blanca, usar gris; si es gris, usar blanco
+            If colorFilaAnterior = RGB(255, 255, 255) Then
+                colorNuevaFila = RGB(242, 242, 242) ' Gris muy claro
+            Else
+                colorNuevaFila = RGB(255, 255, 255) ' Blanco
+            End If
+        Else
+            ' Si es la primera fila de datos, usar gris
+            colorNuevaFila = RGB(242, 242, 242) ' Gris muy claro
+        End If
+        
+        With wsCosteo.Range(wsCosteo.Cells(filaInsertar, 1), wsCosteo.Cells(filaInsertar, 27))
+            .Font.Name = "Segoe UI"
+            .Font.Size = 10
+            .Interior.Color = colorNuevaFila
+            .Borders(xlEdgeLeft).LineStyle = xlContinuous
+            .Borders(xlEdgeLeft).Weight = xlThin
+            .Borders(xlEdgeLeft).Color = RGB(208, 206, 206)
+            .Borders(xlEdgeRight).LineStyle = xlContinuous
+            .Borders(xlEdgeRight).Weight = xlThin
+            .Borders(xlEdgeRight).Color = RGB(208, 206, 206)
+            .Borders(xlInsideVertical).LineStyle = xlContinuous
+            .Borders(xlInsideVertical).Weight = xlHairline
+            .Borders(xlInsideVertical).Color = RGB(217, 217, 217)
+            .HorizontalAlignment = xlLeft
+        End With
+        
+        ' Aplicar formatos numéricos específicos para GGOO
+        ' Planificación (B-M): números enteros
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 13)).NumberFormat = "#,##0"
+        ' Total planificación (N): números enteros
+        wsCosteo.Cells(filaInsertar, 14).NumberFormat = "#,##0"
+        ' Costo (O-AA): formato moneda sin decimales
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 15), wsCosteo.Cells(filaInsertar, 27)).NumberFormat = "$#,##0"
+        
+        ' Alinear columna A a la izquierda, columnas numéricas a la derecha
+        wsCosteo.Cells(filaInsertar, 1).HorizontalAlignment = xlLeft
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 27)).HorizontalAlignment = xlRight
+        
+        ' Desbloquear columnas B-M para edición
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 13)).Locked = False
+        
+        ' Ajustar altura de fila
+        wsCosteo.Rows(filaInsertar).RowHeight = 20
+        
+    ElseIf tipoItem = "HH" Then
+        ' Buscar celda nombrada "total_total"
+        Set rangoTotal = wsCosteo.Range("total_total")
+        
+        If rangoTotal Is Nothing Then
+            MsgBox "No se encontró la celda nombrada 'total_total' en COSTEO.", vbExclamation
+            Application.ScreenUpdating = True
+            Exit Sub
+        End If
+        
+        ' Insertar fila arriba de "total_total"
+        filaInsertar = rangoTotal.Row
+        wsCosteo.Rows(filaInsertar).Insert Shift:=xlDown, CopyOrigin:=xlFormatFromLeftOrAbove
+        
+        ' Agregar el ítem HH
+        wsCosteo.Cells(filaInsertar, 1).Value = nombreItem
+        
+        ' Encontrar primera y última fila de ítems HH
+        primeraFilaHH = filaHH + 1
+        ultimaFilaHH = rangoTotal.Row - 1 ' La fila antes de total_total
+        
+        ' Actualizar fórmulas de Total HH
+        For col = 2 To 27 ' Columnas B hasta AA
+            wsCosteo.Cells(filaHH, col).Formula = _
+                "=SUM(" & wsCosteo.Cells(primeraFilaHH, col).Address(False, False) & _
+                ":" & wsCosteo.Cells(ultimaFilaHH, col).Address(False, False) & ")"
+        Next col
+        
+        ' Actualizar formatos del Total HH
+        wsCosteo.Range(wsCosteo.Cells(filaHH, 2), wsCosteo.Cells(filaHH, 13)).NumberFormat = "0.00%"
+        wsCosteo.Cells(filaHH, 14).NumberFormat = "0.00%"
+        wsCosteo.Range(wsCosteo.Cells(filaHH, 15), wsCosteo.Cells(filaHH, 27)).NumberFormat = "$#,##0"
+        
+        ' Copiar fórmulas de columna N (suma de B-M)
+        wsCosteo.Cells(filaInsertar, 14).Formula = _
+            "=SUM(" & wsCosteo.Cells(filaInsertar, 2).Address(False, False) & _
+            ":" & wsCosteo.Cells(filaInsertar, 13).Address(False, False) & ")"
+        
+        ' Copiar fórmulas de columnas O hasta Z (15-26) con XLOOKUP
+        For col = 15 To 26
+            wsCosteo.Cells(filaInsertar, col).Formula = _
+                "=IF(" & wsCosteo.Cells(filaInsertar, col - 13).Address(False, False) & "<>""""," & _
+                wsCosteo.Cells(filaInsertar, col - 13).Address(False, False) & "*XLOOKUP($A" & filaInsertar & ",INPUTS!$A:$A,INPUTS!$B:$B),"""")"
+        Next col
+        
+        ' Copiar fórmula de columna AA (suma de O-Z)
+        wsCosteo.Cells(filaInsertar, 27).Formula = _
+            "=SUM(" & wsCosteo.Cells(filaInsertar, 15).Address(False, False) & _
+            ":" & wsCosteo.Cells(filaInsertar, 26).Address(False, False) & ")"
+        
+        ' Aplicar formato HH
+        ' Determinar color según patrón alternado basado en la fila anterior
+        Dim colorFilaAnteriorHH As Long
+        Dim colorNuevaFilaHH As Long
+        If filaInsertar > primeraFilaHH Then
+            ' Verificar el color de la fila anterior
+            colorFilaAnteriorHH = wsCosteo.Cells(filaInsertar - 1, 1).Interior.Color
+            ' Si la fila anterior es blanca, usar azul claro; si es azul claro, usar blanco
+            If colorFilaAnteriorHH = RGB(255, 255, 255) Then
+                colorNuevaFilaHH = RGB(237, 245, 255) ' Azul muy claro
+            Else
+                colorNuevaFilaHH = RGB(255, 255, 255) ' Blanco
+            End If
+        Else
+            ' Si es la primera fila de datos, usar azul claro
+            colorNuevaFilaHH = RGB(237, 245, 255) ' Azul muy claro
+        End If
+        
+        With wsCosteo.Range(wsCosteo.Cells(filaInsertar, 1), wsCosteo.Cells(filaInsertar, 27))
+            .Font.Name = "Segoe UI"
+            .Font.Size = 10
+            .Interior.Color = colorNuevaFilaHH
+            .Borders(xlEdgeLeft).LineStyle = xlContinuous
+            .Borders(xlEdgeLeft).Weight = xlThin
+            .Borders(xlEdgeLeft).Color = RGB(208, 206, 206)
+            .Borders(xlEdgeRight).LineStyle = xlContinuous
+            .Borders(xlEdgeRight).Weight = xlThin
+            .Borders(xlEdgeRight).Color = RGB(208, 206, 206)
+            .Borders(xlInsideVertical).LineStyle = xlContinuous
+            .Borders(xlInsideVertical).Weight = xlHairline
+            .Borders(xlInsideVertical).Color = RGB(217, 217, 217)
+            .HorizontalAlignment = xlLeft
+        End With
+        
+        ' Aplicar formatos numéricos específicos para HH
+        ' Planificación (B-M): porcentajes con decimales
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 13)).NumberFormat = "0.00%"
+        ' Total planificación (N): porcentajes con decimales
+        wsCosteo.Cells(filaInsertar, 14).NumberFormat = "0.00%"
+        ' Costo (O-AA): formato moneda sin decimales
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 15), wsCosteo.Cells(filaInsertar, 27)).NumberFormat = "$#,##0"
+        
+        ' Alinear columna A a la izquierda, columnas numéricas a la derecha
+        wsCosteo.Cells(filaInsertar, 1).HorizontalAlignment = xlLeft
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 27)).HorizontalAlignment = xlRight
+        
+        ' Desbloquear columnas B-M para edición
+        wsCosteo.Range(wsCosteo.Cells(filaInsertar, 2), wsCosteo.Cells(filaInsertar, 13)).Locked = False
+        
+        ' Ajustar altura de fila
+        wsCosteo.Rows(filaInsertar).RowHeight = 20
+        
+        ' Actualizar fórmulas de TOTAL TOTAL (suma de Total GGOO + Total HH)
+        filaTotalTotal = rangoTotal.Row
+        For col = 2 To 27 ' Columnas B hasta AA
+            wsCosteo.Cells(filaTotalTotal, col).Formula = _
+                "=" & wsCosteo.Cells(filaGGOO, col).Address(False, False) & _
+                "+" & wsCosteo.Cells(filaHH, col).Address(False, False)
+        Next col
+        
+        ' Actualizar formatos del TOTAL TOTAL
+        wsCosteo.Range(wsCosteo.Cells(filaTotalTotal, 2), wsCosteo.Cells(filaTotalTotal, 13)).NumberFormat = "#,##0"
+        wsCosteo.Cells(filaTotalTotal, 14).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(filaTotalTotal, 15), wsCosteo.Cells(filaTotalTotal, 27)).NumberFormat = "$#,##0"
+    End If
+    
+    ' ===== PASO 6: REPROTEGER LA HOJA =====
+    ' Bloquear todas las celdas primero
+    wsCosteo.Cells.Locked = True
+    
+    ' Desbloquear columnas B-M para ítems GGOO
+    If tipoItem = "GGOO" Then
+        primeraFilaGGOO = filaGGOO + 1
+        ultimaFilaGGOO = wsCosteo.Range("total_hh").Row - 1
+        If ultimaFilaGGOO >= primeraFilaGGOO Then
+            wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 2), wsCosteo.Cells(ultimaFilaGGOO, 13)).Locked = False
+        End If
+    End If
+    
+    ' Desbloquear columnas B-M para ítems HH
+    primeraFilaHH = filaHH + 1
+    ultimaFilaHH = wsCosteo.Range("total_total").Row - 1
+    If ultimaFilaHH >= primeraFilaHH Then
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH, 2), wsCosteo.Cells(ultimaFilaHH, 13)).Locked = False
+    End If
+    
+    ' Aplicar autofit a las columnas ANTES de proteger
+    On Error Resume Next
+    wsCosteo.Columns("A:AA").AutoFit
+    On Error GoTo 0
+    
+    ' Proteger la hoja con contraseña
+    wsCosteo.Protect Password:="fch2525", DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFormattingCells:=False, AllowFormattingColumns:=False, _
+                     AllowFormattingRows:=False
+    
+    ' Proteger también INPUTS
+    wsInputs.Cells.Locked = True
+    wsInputs.Protect Password:="fch2525", DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFormattingCells:=False, AllowFormattingColumns:=False, _
+                     AllowFormattingRows:=False, AllowInsertingRows:=False, _
+                     AllowDeletingRows:=False, AllowSorting:=False, _
+                     AllowFiltering:=False
+    
+    ' Volver a la hoja activa original
+    hojaActiva.Activate
+    
+    Application.ScreenUpdating = True
+    
+    ' Mensaje de confirmación
+    MsgBox "Ítem agregado exitosamente en ambas hojas:" & vbCrLf & vbCrLf & _
+           "Tipo: " & tipoItem & vbCrLf & _
+           "Nombre: " & nombreItem & vbCrLf & _
+           "Valor: " & Format(CDbl(valorItem), "#,##0.00") & vbCrLf & vbCrLf & _
+           "INPUTS - Fila: " & ultimaFilaInputs & vbCrLf & _
+           "COSTEO - Fila: " & filaInsertar, _
+           vbInformation, "Ítem Agregado"
+    
+End Sub
+
+
+
+Sub crear_costeo()
+    Dim wsInputs As Worksheet
+    Dim wsCosteo As Worksheet
+    Dim ultimaFilaInputs As Long
+    Dim i As Long
+    Dim filaActual As Long
+    Dim col As Long
+    Dim primeraFilaGGOO As Long
+    Dim ultimaFilaGGOO As Long
+    Dim primeraFilaHH As Long
+    Dim ultimaFilaHH As Long
+    Dim filaTotal As Long
+    Dim colFormula As Long
+    Dim ultimaColumna As Long
+    Dim hojaActiva As Worksheet
+    
+    ' Guardar la hoja activa
+    Set hojaActiva = ActiveSheet
+    
+    ' Desactivar actualización de pantalla
+    Application.ScreenUpdating = False
+    
+    ' Definir las hojas
+    Set wsInputs = ThisWorkbook.Sheets("INPUTS")
+    Set wsCosteo = ThisWorkbook.Sheets("COSTEO")
+    
+    ' Desproteger la hoja si está protegida
+    On Error Resume Next
+    wsCosteo.Unprotect Password:="fch2525"
+    On Error GoTo 0
+    
+    ' ===== ELIMINAR TODO EL CONTENIDO DE LA HOJA =====
+    wsCosteo.Cells.Clear
+    wsCosteo.Cells.ClearFormats
+    
+    ' ===== CREAR ENCABEZADOS =====
+    
+    ' FILA 1: Títulos principales
+    ' Combinar B1:M1 para "Planificación Actividades"
+    wsCosteo.Range("B1:M1").Merge
+    wsCosteo.Range("B1").Value = "PLANIFICACIÓN ACTIVIDADES"
+    With wsCosteo.Range("B1")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 12
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(68, 114, 196) ' Azul corporativo
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' Combinar O1:Z1 para "Costo Actividades"
+    wsCosteo.Range("O1:Z1").Merge
+    wsCosteo.Range("O1").Value = "COSTO ACTIVIDADES"
+    With wsCosteo.Range("O1")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 12
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(112, 173, 71) ' Verde corporativo
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' Celda N1 - Total (Planificación)
+    wsCosteo.Range("N1").Value = "TOTAL"
+    With wsCosteo.Range("N1")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 11
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(68, 114, 196)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' Celda AA1 - Total (Costo)
+    wsCosteo.Range("AA1").Value = "TOTAL"
+    With wsCosteo.Range("AA1")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 11
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(112, 173, 71)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+    End With
+    
+    ' FILA 2: Meses
+    ' Mes 1 a Mes 12 en columnas B hasta M
+    For col = 2 To 13 ' B hasta M
+        wsCosteo.Cells(2, col).Value = "Mes " & (col - 1)
+        With wsCosteo.Cells(2, col)
+            .Font.Name = "Segoe UI"
+            .Font.Bold = True
+            .Font.Size = 10
+            .Font.Color = RGB(68, 114, 196)
+            .Interior.Color = RGB(217, 225, 242) ' Azul muy claro
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+            .Borders.Color = RGB(68, 114, 196)
+        End With
+    Next col
+    
+    ' Total en N2
+    wsCosteo.Range("N2").Value = "Total"
+    With wsCosteo.Range("N2")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 10
+        .Font.Color = RGB(68, 114, 196)
+        .Interior.Color = RGB(217, 225, 242)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Borders.Weight = xlThin
+        .Borders.Color = RGB(68, 114, 196)
+    End With
+    
+    ' Mes 1 a Mes 12 en columnas O hasta Z
+    For col = 15 To 26 ' O hasta Z
+        wsCosteo.Cells(2, col).Value = "Mes " & (col - 14)
+        With wsCosteo.Cells(2, col)
+            .Font.Name = "Segoe UI"
+            .Font.Bold = True
+            .Font.Size = 10
+            .Font.Color = RGB(112, 173, 71)
+            .Interior.Color = RGB(226, 239, 218) ' Verde muy claro
+            .HorizontalAlignment = xlCenter
+            .VerticalAlignment = xlCenter
+            .Borders.LineStyle = xlContinuous
+            .Borders.Weight = xlThin
+            .Borders.Color = RGB(112, 173, 71)
+        End With
+    Next col
+    
+    ' Total en AA2
+    wsCosteo.Range("AA2").Value = "Total"
+    With wsCosteo.Range("AA2")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 10
+        .Font.Color = RGB(112, 173, 71)
+        .Interior.Color = RGB(226, 239, 218)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Borders.Weight = xlThin
+        .Borders.Color = RGB(112, 173, 71)
+    End With
+    
+    ' Formato para columna A (fila 1 y 2)
+    wsCosteo.Range("A1").Value = "ÍTEM"
+    wsCosteo.Range("A2").Value = "Descripción"
+    With wsCosteo.Range("A1:A2")
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 11
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(68, 114, 196)
+        .HorizontalAlignment = xlCenter
+        .VerticalAlignment = xlCenter
+        .Borders.LineStyle = xlContinuous
+        .Borders.Weight = xlMedium
+    End With
+    
+    ' Encontrar última fila en INPUTS
+    ultimaFilaInputs = wsInputs.Cells(wsInputs.Rows.Count, "A").End(xlUp).Row
+    
+    ' Iniciar en fila 3 de COSTEO
+    filaActual = 3
+    
+    ' ===== PASO 1: PEGAR TOTAL GGOO =====
+    wsCosteo.Cells(filaActual, 1).Value = "Total GGOO"
+    primeraFilaGGOO = filaActual
+    
+    ' Nombrar la celda como "total_ggoo"
+    wsCosteo.Cells(filaActual, 1).Name = "total_ggoo"
+    
+    filaActual = filaActual + 1
+    
+    ' ===== PASO 2: PEGAR ITEMS GGOO =====
+    For i = 2 To ultimaFilaInputs ' Asumiendo fila 1 es encabezado
+        If UCase(Trim(wsInputs.Cells(i, 3).Value)) = "GGOO" Then
+            wsCosteo.Cells(filaActual, 1).Value = wsInputs.Cells(i, 1).Value
+            filaActual = filaActual + 1
+        End If
+    Next i
+    
+    ultimaFilaGGOO = filaActual - 1
+    
+    ' ===== PASO 3: PEGAR TOTAL HH =====
+    wsCosteo.Cells(filaActual, 1).Value = "Total HH"
+    primeraFilaHH = filaActual
+    
+    ' Nombrar la celda como "total_hh"
+    wsCosteo.Cells(filaActual, 1).Name = "total_hh"
+    
+    filaActual = filaActual + 1
+    
+    ' ===== PASO 4: PEGAR ITEMS HH =====
+    For i = 2 To ultimaFilaInputs
+        If UCase(Trim(wsInputs.Cells(i, 3).Value)) = "HH" Then
+            wsCosteo.Cells(filaActual, 1).Value = wsInputs.Cells(i, 1).Value
+            filaActual = filaActual + 1
+        End If
+    Next i
+    
+    ultimaFilaHH = filaActual - 1
+    
+    ' ===== PASO 5: PEGAR TOTAL TOTAL =====
+    wsCosteo.Cells(filaActual, 1).Value = "TOTAL TOTAL"
+    filaTotal = filaActual
+    
+    ' Nombrar la celda como "total_total"
+    wsCosteo.Cells(filaActual, 1).Name = "total_total"
+    ' Nombrar también la celda de la columna AA (última fila) como "total_total"
+    wsCosteo.Cells(filaActual, 27).Name = "total_total"
+    
+    ' ===== PASO 6: CREAR FÓRMULAS EN COLUMNAS B HASTA Z Y AA =====
+    For col = 2 To 27 ' Columnas B hasta AA
+        ' Fórmula para Total GGOO
+        wsCosteo.Cells(primeraFilaGGOO, col).Formula = _
+            "=SUM(" & wsCosteo.Cells(primeraFilaGGOO + 1, col).Address(False, False) & _
+            ":" & wsCosteo.Cells(ultimaFilaGGOO, col).Address(False, False) & ")"
+        
+        ' Fórmula para Total HH
+        wsCosteo.Cells(primeraFilaHH, col).Formula = _
+            "=SUM(" & wsCosteo.Cells(primeraFilaHH + 1, col).Address(False, False) & _
+            ":" & wsCosteo.Cells(ultimaFilaHH, col).Address(False, False) & ")"
+        
+        ' Fórmula para TOTAL TOTAL (suma de Total GGOO + Total HH)
+        wsCosteo.Cells(filaTotal, col).Formula = _
+            "=" & wsCosteo.Cells(primeraFilaGGOO, col).Address(False, False) & _
+            "+" & wsCosteo.Cells(primeraFilaHH, col).Address(False, False)
+    Next col
+    
+    ' ===== PASO 7: AGREGAR FÓRMULAS PARA CADA ÍTEM =====
+    
+    ' Fórmulas para ítems GGOO
+    For i = primeraFilaGGOO + 1 To ultimaFilaGGOO
+        ' Columna N (14): Suma de B hasta M
+        wsCosteo.Cells(i, 14).Formula = _
+            "=SUM(" & wsCosteo.Cells(i, 2).Address(False, False) & _
+            ":" & wsCosteo.Cells(i, 13).Address(False, False) & ")"
+        
+        ' Columnas O hasta Z (15-26): Fórmula con XLOOKUP
+        For colFormula = 15 To 26
+            wsCosteo.Cells(i, colFormula).Formula = _
+                "=IF(" & wsCosteo.Cells(i, colFormula - 13).Address(False, False) & "<>""""," & _
+                wsCosteo.Cells(i, colFormula - 13).Address(False, False) & "*XLOOKUP($A" & i & ",INPUTS!$A:$A,INPUTS!$B:$B),"""")"
+        Next colFormula
+        
+        ' Columna AA (27): Suma de O hasta Z
+        wsCosteo.Cells(i, 27).Formula = _
+            "=SUM(" & wsCosteo.Cells(i, 15).Address(False, False) & _
+            ":" & wsCosteo.Cells(i, 26).Address(False, False) & ")"
+    Next i
+    
+    ' Fórmulas para ítems HH
+    For i = primeraFilaHH + 1 To ultimaFilaHH
+        ' Columna N (14): Suma de B hasta M
+        wsCosteo.Cells(i, 14).Formula = _
+            "=SUM(" & wsCosteo.Cells(i, 2).Address(False, False) & _
+            ":" & wsCosteo.Cells(i, 13).Address(False, False) & ")"
+        
+        ' Columnas O hasta Z (15-26): Fórmula con XLOOKUP
+        For colFormula = 15 To 26
+            wsCosteo.Cells(i, colFormula).Formula = _
+                "=IF(" & wsCosteo.Cells(i, colFormula - 13).Address(False, False) & "<>""""," & _
+                wsCosteo.Cells(i, colFormula - 13).Address(False, False) & "*XLOOKUP($A" & i & ",INPUTS!$A:$A,INPUTS!$B:$B),"""")"
+        Next colFormula
+        
+        ' Columna AA (27): Suma de O hasta Z
+        wsCosteo.Cells(i, 27).Formula = _
+            "=SUM(" & wsCosteo.Cells(i, 15).Address(False, False) & _
+            ":" & wsCosteo.Cells(i, 26).Address(False, False) & ")"
+    Next i
+    
+    ' ===== PASO 8: APLICAR FORMATO MODERNO =====
+    
+    ' Determinar última columna con datos
+    ultimaColumna = 27 ' Columna AA
+    
+    ' Desactivar actualización de pantalla para mejor rendimiento
+    Application.ScreenUpdating = False
+    
+    ' 1. FORMATO PARA ÍTEMS GGOO
+    If ultimaFilaGGOO >= primeraFilaGGOO + 1 Then
+        With wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO + 1, 1), wsCosteo.Cells(ultimaFilaGGOO, ultimaColumna))
+            .Font.Name = "Segoe UI"
+            .Font.Size = 10
+            .Interior.Color = RGB(242, 242, 242) ' Gris muy claro
+            .Borders(xlEdgeLeft).LineStyle = xlContinuous
+            .Borders(xlEdgeLeft).Weight = xlThin
+            .Borders(xlEdgeLeft).Color = RGB(208, 206, 206)
+            .Borders(xlEdgeRight).LineStyle = xlContinuous
+            .Borders(xlEdgeRight).Weight = xlThin
+            .Borders(xlEdgeRight).Color = RGB(208, 206, 206)
+            .Borders(xlInsideVertical).LineStyle = xlContinuous
+            .Borders(xlInsideVertical).Weight = xlHairline
+            .Borders(xlInsideVertical).Color = RGB(217, 217, 217)
+        End With
+        
+        ' Alternar colores en filas GGOO
+        For i = primeraFilaGGOO + 1 To ultimaFilaGGOO
+            If (i - primeraFilaGGOO) Mod 2 = 0 Then
+                wsCosteo.Range(wsCosteo.Cells(i, 1), wsCosteo.Cells(i, ultimaColumna)).Interior.Color = RGB(255, 255, 255)
+            End If
+        Next i
+    End If
+    
+    ' 2. FORMATO PARA TOTAL GGOO (mejorado)
+    With wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 1), wsCosteo.Cells(primeraFilaGGOO, ultimaColumna))
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 11
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(68, 114, 196) ' Azul corporativo
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Borders(xlEdgeTop).Weight = xlMedium
+        .Borders(xlEdgeTop).Color = RGB(32, 55, 100)
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Weight = xlMedium
+        .Borders(xlEdgeBottom).Color = RGB(32, 55, 100)
+        .Borders(xlEdgeLeft).LineStyle = xlContinuous
+        .Borders(xlEdgeLeft).Weight = xlMedium
+        .Borders(xlEdgeRight).LineStyle = xlContinuous
+        .Borders(xlEdgeRight).Weight = xlMedium
+    End With
+    ' Alinear columnas numéricas del Total GGOO a la derecha
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 2), wsCosteo.Cells(primeraFilaGGOO, ultimaColumna)).HorizontalAlignment = xlRight
+    
+    ' 3. FORMATO PARA ÍTEMS HH
+    If ultimaFilaHH >= primeraFilaHH + 1 Then
+        With wsCosteo.Range(wsCosteo.Cells(primeraFilaHH + 1, 1), wsCosteo.Cells(ultimaFilaHH, ultimaColumna))
+            .Font.Name = "Segoe UI"
+            .Font.Size = 10
+            .Interior.Color = RGB(237, 245, 255) ' Azul muy claro
+            .Borders(xlEdgeLeft).LineStyle = xlContinuous
+            .Borders(xlEdgeLeft).Weight = xlThin
+            .Borders(xlEdgeLeft).Color = RGB(208, 206, 206)
+            .Borders(xlEdgeRight).LineStyle = xlContinuous
+            .Borders(xlEdgeRight).Weight = xlThin
+            .Borders(xlEdgeRight).Color = RGB(208, 206, 206)
+            .Borders(xlInsideVertical).LineStyle = xlContinuous
+            .Borders(xlInsideVertical).Weight = xlHairline
+            .Borders(xlInsideVertical).Color = RGB(217, 217, 217)
+        End With
+        
+        ' Alternar colores en filas HH
+        For i = primeraFilaHH + 1 To ultimaFilaHH
+            If (i - primeraFilaHH) Mod 2 = 0 Then
+                wsCosteo.Range(wsCosteo.Cells(i, 1), wsCosteo.Cells(i, ultimaColumna)).Interior.Color = RGB(255, 255, 255)
+            End If
+        Next i
+    End If
+    
+    ' 4. FORMATO PARA TOTAL HH (mejorado)
+    With wsCosteo.Range(wsCosteo.Cells(primeraFilaHH, 1), wsCosteo.Cells(primeraFilaHH, ultimaColumna))
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 11
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(68, 114, 196) ' Azul corporativo
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Borders(xlEdgeTop).Weight = xlMedium
+        .Borders(xlEdgeTop).Color = RGB(32, 55, 100)
+        .Borders(xlEdgeBottom).LineStyle = xlContinuous
+        .Borders(xlEdgeBottom).Weight = xlMedium
+        .Borders(xlEdgeBottom).Color = RGB(32, 55, 100)
+        .Borders(xlEdgeLeft).LineStyle = xlContinuous
+        .Borders(xlEdgeLeft).Weight = xlMedium
+        .Borders(xlEdgeRight).LineStyle = xlContinuous
+        .Borders(xlEdgeRight).Weight = xlMedium
+    End With
+    ' Alinear columnas numéricas del Total HH a la derecha
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaHH, 2), wsCosteo.Cells(primeraFilaHH, ultimaColumna)).HorizontalAlignment = xlRight
+    
+    ' 5. FORMATO PARA TOTAL TOTAL (destacado y mejorado)
+    With wsCosteo.Range(wsCosteo.Cells(filaTotal, 1), wsCosteo.Cells(filaTotal, ultimaColumna))
+        .Font.Name = "Segoe UI"
+        .Font.Bold = True
+        .Font.Size = 13
+        .Font.Color = RGB(255, 255, 255)
+        .Interior.Color = RGB(112, 173, 71) ' Verde corporativo
+        .HorizontalAlignment = xlLeft
+        .VerticalAlignment = xlCenter
+        .Borders(xlEdgeTop).LineStyle = xlContinuous
+        .Borders(xlEdgeTop).Weight = xlThick
+        .Borders(xlEdgeTop).Color = RGB(56, 87, 35)
+        .Borders(xlEdgeBottom).LineStyle = xlDouble
+        .Borders(xlEdgeBottom).Weight = xlThick
+        .Borders(xlEdgeBottom).Color = RGB(56, 87, 35)
+        .Borders(xlEdgeLeft).LineStyle = xlContinuous
+        .Borders(xlEdgeLeft).Weight = xlThick
+        .Borders(xlEdgeRight).LineStyle = xlContinuous
+        .Borders(xlEdgeRight).Weight = xlThick
+    End With
+    ' Alinear columnas numéricas del TOTAL TOTAL a la derecha
+    wsCosteo.Range(wsCosteo.Cells(filaTotal, 2), wsCosteo.Cells(filaTotal, ultimaColumna)).HorizontalAlignment = xlRight
+    
+    ' 6. FORMATO NUMÉRICO PARA TODAS LAS COLUMNAS CON VALORES
+    ' Aplicar formato de número con separador de miles y 2 decimales
+    ' Planificación Actividades (B-M) - GGOO: Números enteros
+    If ultimaFilaGGOO >= primeraFilaGGOO + 1 Then
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO + 1, 2), wsCosteo.Cells(ultimaFilaGGOO, 13)).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 2), wsCosteo.Cells(primeraFilaGGOO, 13)).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO + 1, 14), wsCosteo.Cells(ultimaFilaGGOO, 14)).NumberFormat = "#,##0"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 14), wsCosteo.Cells(primeraFilaGGOO, 14)).NumberFormat = "#,##0"
+    End If
+    
+    ' Planificación Actividades (B-M) - HH: Porcentajes
+    If ultimaFilaHH >= primeraFilaHH + 1 Then
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH + 1, 2), wsCosteo.Cells(ultimaFilaHH, 13)).NumberFormat = "0.00%"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH, 2), wsCosteo.Cells(primeraFilaHH, 13)).NumberFormat = "0.00%"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH + 1, 14), wsCosteo.Cells(ultimaFilaHH, 14)).NumberFormat = "0.00%"
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH, 14), wsCosteo.Cells(primeraFilaHH, 14)).NumberFormat = "0.00%"
+    End If
+    
+    ' Costo Actividades (O-AA): Formato moneda sin decimales para todos
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 15), wsCosteo.Cells(filaTotal, 27)).NumberFormat = "$#,##0"
+    
+    ' TOTAL TOTAL - Planificación: Números enteros
+    wsCosteo.Range(wsCosteo.Cells(filaTotal, 2), wsCosteo.Cells(filaTotal, 13)).NumberFormat = "#,##0"
+    wsCosteo.Range(wsCosteo.Cells(filaTotal, 14), wsCosteo.Cells(filaTotal, 14)).NumberFormat = "#,##0"
+    
+    ' 7. APLICAR AUTOFIT A LAS COLUMNAS
+    wsCosteo.Columns("A:AA").AutoFit
+    
+    ' 8. ALINEACIÓN
+    ' Columna A alineada a la izquierda
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 1), wsCosteo.Cells(filaTotal, 1)).HorizontalAlignment = xlLeft
+    ' Columnas numéricas alineadas a la derecha
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 2), wsCosteo.Cells(filaTotal, ultimaColumna)).HorizontalAlignment = xlRight
+    
+    ' 9. ALTURA DE FILAS
+    wsCosteo.Rows("1:2").RowHeight = 25 ' Encabezados
+    wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO, 1), wsCosteo.Cells(filaTotal, ultimaColumna)).RowHeight = 20
+    ' Filas de totales un poco más altas
+    wsCosteo.Rows(primeraFilaGGOO).RowHeight = 25
+    wsCosteo.Rows(primeraFilaHH).RowHeight = 25
+    wsCosteo.Rows(filaTotal).RowHeight = 28
+    
+    ' ===== PASO 9: PROTEGER HOJA =====
+    ' Desbloquear solo las celdas de Planificación Actividades (B hasta M) para ítems
+    ' Primero, bloquear toda la hoja
+    wsCosteo.Cells.Locked = True
+    
+    ' Desbloquear columnas B hasta M para ítems GGOO
+    If ultimaFilaGGOO >= primeraFilaGGOO + 1 Then
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaGGOO + 1, 2), wsCosteo.Cells(ultimaFilaGGOO, 13)).Locked = False
+    End If
+    
+    ' Desbloquear columnas B hasta M para ítems HH
+    If ultimaFilaHH >= primeraFilaHH + 1 Then
+        wsCosteo.Range(wsCosteo.Cells(primeraFilaHH + 1, 2), wsCosteo.Cells(ultimaFilaHH, 13)).Locked = False
+    End If
+    
+    ' Proteger la hoja (sin contraseña, solo estructura)
+    wsCosteo.Protect Password:="fch2525", DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFormattingCells:=False, AllowFormattingColumns:=False, _
+                     AllowFormattingRows:=False
+    
+    ' Reactivar actualización de pantalla
+    Application.ScreenUpdating = True
+    
+    MsgBox "Hoja de costeo creada exitosamente.", vbInformation, "Éxito"
+    
+    ' Restaurar la hoja activa
+    hojaActiva.Activate
+    
+End Sub
+
+
+
+Sub ModificarParametrosPricing()
+    Dim wsActual As Worksheet
+    Dim wsPricing As Worksheet
+    Dim opcion As String
+    Dim valorIngresado As String
+    Dim valorNumerico As Double
+    Dim nombreRango As String
+    
+    ' Guardar la hoja actual
+    Set wsActual = ActiveSheet
+    
+    ' Desactivar actualización de pantalla
+    Application.ScreenUpdating = False
+    Application.DisplayAlerts = False
+    
+    On Error GoTo ErrorHandler
+    
+    ' Referencia a la hoja PRICING
+    Set wsPricing = ThisWorkbook.Worksheets("PRICING")
+    
+    ' Desbloquear la hoja
+    wsPricing.Unprotect Password:="fch2525"
+    
+    ' Mostrar mensaje de opciones
+    opcion = InputBox("¿Qué parámetro deseas modificar?" & vbCrLf & vbCrLf & _
+                      "1.- Imprevistos" & vbCrLf & _
+                      "2.- Overhead" & vbCrLf & _
+                      "3.- % de Margen" & vbCrLf & vbCrLf & _
+                      "Ingresa 1, 2 o 3:", "Seleccionar Parámetro")
+    
+    ' Validar la opción
+    If opcion = "" Then
+        MsgBox "Operación cancelada.", vbInformation
+        GoTo Salir
+    End If
+    
+    If opcion <> "1" And opcion <> "2" And opcion <> "3" Then
+        MsgBox "Opción inválida. Debes ingresar 1, 2 o 3.", vbExclamation
+        GoTo Salir
+    End If
+    
+    ' Determinar el nombre del rango según la opción
+    Select Case opcion
+        Case "1"
+            nombreRango = "imprevistos"
+        Case "2"
+            nombreRango = "overhead"
+        Case "3"
+            nombreRango = "margen"
+    End Select
+    
+    ' Solicitar el valor
+    valorIngresado = InputBox("Ingresa el nuevo valor para " & nombreRango & vbCrLf & _
+                              "(Ejemplo: 5%)" & vbCrLf & vbCrLf & _
+                              "IMPORTANTE: Debes usar el signo %", _
+                              "Ingresar Valor")
+    
+    ' Validar que se ingresó algo
+    If valorIngresado = "" Then
+        MsgBox "Operación cancelada.", vbInformation
+        GoTo Salir
+    End If
+    
+    ' Validar que contenga el signo %
+    If InStr(valorIngresado, "%") = 0 Then
+        MsgBox "Error: Debes incluir el signo % (Ejemplo: 5%)", vbExclamation
+        GoTo Salir
+    End If
+    
+    ' Convertir el valor (eliminar el % y dividir entre 100)
+    valorIngresado = Replace(valorIngresado, "%", "")
+    valorIngresado = Replace(valorIngresado, " ", "")
+    
+    If Not IsNumeric(valorIngresado) Then
+        MsgBox "Error: El valor ingresado no es numérico.", vbExclamation
+        GoTo Salir
+    End If
+    
+    valorNumerico = CDbl(valorIngresado) / 100
+    
+    ' Escribir el valor en el rango nombrado
+    wsPricing.Range(nombreRango).Value = valorNumerico
+    
+    MsgBox "Parámetro actualizado correctamente: " & nombreRango & " = " & Format(valorNumerico, "0.00%"), vbInformation
+    
+Salir:
+    ' Volver a bloquear la hoja
+    wsPricing.Protect Password:="fch2525"
+    
+    ' Restaurar configuración
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    
+    ' Asegurar que volvemos a la hoja original
+    wsActual.Activate
+    
+    Exit Sub
+    
+ErrorHandler:
+    MsgBox "Error: " & Err.Description, vbCritical
+    wsPricing.Protect Password:="fch2525"
+    Application.ScreenUpdating = True
+    Application.DisplayAlerts = True
+    wsActual.Activate
+End Sub
+
+
+
+Sub eliminar_item_costeo()
+    Dim wsInputs As Worksheet
+    Dim listaItems As String
+    Dim items() As Variant
+    Dim filas() As Long
+    Dim tipos() As String
+    Dim i As Long
+    Dim contador As Long
+    Dim numeroSeleccionado As String
+    Dim indiceSeleccionado As Long
+    Dim filaAEliminar As Long
+    Dim nombreItemEliminar As String
+    Dim tipoItemEliminar As String
+    Dim ultimaFilaInputs As Long
+    Dim respuesta As VbMsgBoxResult
+    Dim hojaActiva As Worksheet
+    
+    ' Guardar la hoja activa
+    Set hojaActiva = ActiveSheet
+    
+    ' Desactivar actualización de pantalla
+    Application.ScreenUpdating = False
+    
+    ' Definir la hoja INPUTS
+    Set wsInputs = ThisWorkbook.Sheets("INPUTS")
+    
+    ' ===== PASO 0: DESPROTEGER LA HOJA =====
+    On Error Resume Next
+    wsInputs.Unprotect Password:="fch2525"
+    On Error GoTo 0
+    
+    ' ===== PASO 1: RECOPILAR TODOS LOS ÍTEMS DE INPUTS =====
+    ReDim items(1 To 1000)
+    ReDim filas(1 To 1000)
+    ReDim tipos(1 To 1000)
+    contador = 0
+    
+    ' Encontrar última fila con datos
+    ultimaFilaInputs = wsInputs.Cells(wsInputs.Rows.Count, "A").End(xlUp).Row
+    
+    ' Recopilar todos los ítems de INPUTS (empezando desde fila 2, asumiendo fila 1 es encabezado)
+    For i = 2 To ultimaFilaInputs
+        If Trim(wsInputs.Cells(i, 1).Value) <> "" Then
+            contador = contador + 1
+            items(contador) = wsInputs.Cells(i, 1).Value
+            filas(contador) = i
+            tipos(contador) = UCase(Trim(wsInputs.Cells(i, 3).Value))
+        End If
+    Next i
+    
+    ' Verificar si hay ítems para eliminar
+    If contador = 0 Then
+        Application.ScreenUpdating = True
+        Call ProtegerHojaInputs(wsInputs)
+        hojaActiva.Activate
+        MsgBox "No hay ítems para eliminar en la hoja INPUTS.", vbInformation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 2: CREAR LISTA NUMERADA =====
+    listaItems = "Ítems disponibles para eliminar:" & vbCrLf & vbCrLf
+    
+    For i = 1 To contador
+        listaItems = listaItems & i & ". " & items(i) & " (" & tipos(i) & ")" & vbCrLf
+    Next i
+    
+    listaItems = listaItems & vbCrLf & "Ingrese el número del ítem que desea eliminar:"
+    
+    ' ===== PASO 3: MOSTRAR LISTA Y SOLICITAR SELECCIÓN =====
+    numeroSeleccionado = InputBox(listaItems, "Eliminar Ítem de INPUTS", "")
+    
+    ' Verificar si canceló
+    If numeroSeleccionado = "" Then
+        Application.ScreenUpdating = True
+        Call ProtegerHojaInputs(wsInputs)
+        hojaActiva.Activate
+        MsgBox "Operación cancelada", vbInformation
+        Exit Sub
+    End If
+    
+    ' Validar que sea un número
+    If Not IsNumeric(numeroSeleccionado) Then
+        Application.ScreenUpdating = True
+        Call ProtegerHojaInputs(wsInputs)
+        hojaActiva.Activate
+        MsgBox "Debe ingresar un número válido.", vbExclamation
+        Exit Sub
+    End If
+    
+    indiceSeleccionado = CLng(numeroSeleccionado)
+    
+    ' Validar rango
+    If indiceSeleccionado < 1 Or indiceSeleccionado > contador Then
+        Application.ScreenUpdating = True
+        Call ProtegerHojaInputs(wsInputs)
+        hojaActiva.Activate
+        MsgBox "Número inválido. Debe estar entre 1 y " & contador & ".", vbExclamation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 4: CONFIRMAR ELIMINACIÓN =====
+    filaAEliminar = filas(indiceSeleccionado)
+    nombreItemEliminar = items(indiceSeleccionado)
+    tipoItemEliminar = tipos(indiceSeleccionado)
+    
+    respuesta = MsgBox("¿Está seguro que desea eliminar este ítem?" & vbCrLf & vbCrLf & _
+                       "Ítem: " & nombreItemEliminar & vbCrLf & _
+                       "Tipo: " & tipoItemEliminar, _
+                       vbYesNo + vbQuestion + vbDefaultButton2, "Confirmar Eliminación")
+    
+    If respuesta = vbNo Then
+        Application.ScreenUpdating = True
+        Call ProtegerHojaInputs(wsInputs)
+        hojaActiva.Activate
+        MsgBox "Operación cancelada", vbInformation
+        Exit Sub
+    End If
+    
+    ' ===== PASO 5: ELIMINAR DE INPUTS =====
+    wsInputs.Rows(filaAEliminar).Delete
+    
+    ' Aplicar autofit a las columnas
+    wsInputs.Columns("A:C").AutoFit
+    
+    ' ===== PASO 6: REPROTEGER HOJA =====
+    Call ProtegerHojaInputs(wsInputs)
+    
+    ' Reactivar actualización de pantalla
+    Application.ScreenUpdating = True
+    
+    ' Restaurar la hoja activa
+    hojaActiva.Activate
+    
+    ' Mensaje de confirmación
+    MsgBox "Ítem eliminado exitosamente.", vbInformation, "Éxito"
+    
+End Sub
+
+' Función auxiliar para proteger la hoja INPUTS con contraseña
+Private Sub ProtegerHojaInputs(wsInputs As Worksheet)
+    On Error Resume Next
+    wsInputs.Unprotect Password:="fch2525"
+    On Error GoTo 0
+    
+    wsInputs.Cells.Locked = True
+    wsInputs.Protect Password:="fch2525", DrawingObjects:=True, Contents:=True, Scenarios:=True, _
+                     AllowFormattingCells:=False, AllowFormattingColumns:=False, _
+                     AllowFormattingRows:=False, AllowInsertingRows:=False, _
+                     AllowDeletingRows:=False, AllowSorting:=False, _
+                     AllowFiltering:=False
+End Sub
+
+
+' Macro para probar si el evento está funcionando correctamente
+
+Sub testear_autofit_evento()
+    Dim wsCosteo As Worksheet
+    Dim nombreHoja As String
+    Dim eventosHabilitados As Boolean
+    
+    On Error Resume Next
+    Set wsCosteo = ThisWorkbook.Sheets("COSTEO")
+    On Error GoTo 0
+    
+    If wsCosteo Is Nothing Then
+        MsgBox "ERROR: No se encontró la hoja 'COSTEO'." & vbCrLf & vbCrLf & _
+               "Verifica que el nombre de la hoja sea exactamente 'COSTEO'.", _
+               vbCritical, "Error"
+        Exit Sub
+    End If
+    
+    nombreHoja = wsCosteo.Name
+    eventosHabilitados = Application.EnableEvents
+    
+    Dim mensaje As String
+    mensaje = "Información del Evento:" & vbCrLf & vbCrLf
+    mensaje = mensaje & "Nombre de la hoja: " & nombreHoja & vbCrLf
+    mensaje = mensaje & "Eventos habilitados: " & IIf(eventosHabilitados, "SÍ", "NO") & vbCrLf
+    mensaje = mensaje & "Hoja protegida: " & IIf(wsCosteo.ProtectContents, "SÍ", "NO") & vbCrLf & vbCrLf
+    
+    If Not eventosHabilitados Then
+        mensaje = mensaje & "?? PROBLEMA DETECTADO:" & vbCrLf
+        mensaje = mensaje & "Los eventos están DESHABILITADOS." & vbCrLf & vbCrLf
+        mensaje = mensaje & "Solución:" & vbCrLf
+        mensaje = mensaje & "Ejecuta la macro 'habilitar_eventos' para corregirlo."
+    Else
+        mensaje = mensaje & "? Configuración correcta." & vbCrLf & vbCrLf
+        mensaje = mensaje & "El evento debería funcionar. Prueba haciendo un cambio" & vbCrLf
+        mensaje = mensaje & "en la hoja COSTEO para verificar."
+    End If
+    
+    MsgBox mensaje, vbInformation, "Test de Evento"
+End Sub
+
+Sub habilitar_eventos()
+    Application.EnableEvents = True
+    MsgBox "Eventos habilitados correctamente." & vbCrLf & vbCrLf & _
+           "Ahora el autofit automático debería funcionar.", _
+           vbInformation, "Eventos Habilitados"
+End Sub
+
+
+
+
+
+
+
+

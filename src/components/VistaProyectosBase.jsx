@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 import * as XLSX from 'xlsx'
 import ResizableTh from './ResizableTh'
+import FilterableTh from './FilterableTh'
 
 const ESTADOS = ['Activo', 'En pausa', 'Terminado', 'Cancelado']
 
@@ -34,6 +35,10 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [procesando, setProcesando] = useState(false)
   const [eliminandoTodos, setEliminandoTodos] = useState(false)
   const [mostrarInstrucciones, setMostrarInstrucciones] = useState(false)
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('proyecto')
+  const [ordenDir, setOrdenDir] = useState('asc')
 
   const [modalCrear, setModalCrear] = useState(false)
   const [modalEditar, setModalEditar] = useState(null)
@@ -44,6 +49,13 @@ export default function VistaProyectosBase({ user, perfil }) {
     cargarColaboradores()
     cargarProyectos()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarColaboradores() {
     const { data } = await supabase
@@ -366,7 +378,19 @@ export default function VistaProyectosBase({ user, perfil }) {
     }
   }
 
-  const proyectosFiltrados = proyectos.filter(p => {
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
+
+  const proyectosBusqueda = proyectos.filter(p => {
     const q = busqueda.toLowerCase()
     return (
       p.nombre?.toLowerCase().includes(q) ||
@@ -375,6 +399,36 @@ export default function VistaProyectosBase({ user, perfil }) {
       p.tipo?.toLowerCase().includes(q) ||
       p.colaboradores?.colaborador?.toLowerCase().includes(q)
     )
+  })
+
+  const opcionesLinea = [...new Set(proyectos.map((p) => p.ceco).filter(Boolean))].sort()
+  const opcionesProyecto = [...new Set(proyectos.map((p) => p.nombre).filter(Boolean))].sort()
+  const opcionesJefe = [...new Set(proyectos.map((p) => p.colaboradores?.colaborador).filter(Boolean))].sort()
+  const opcionesEstado = [...new Set(proyectos.map((p) => p.estado).filter(Boolean))].sort()
+  const opcionesTipo = [...new Set(proyectos.map((p) => p.tipo).filter(Boolean))].sort()
+  const opcionesRendible = ['Sí', 'No']
+
+  const proyectosFiltrados = proyectosBusqueda.filter((p) => {
+    const rendibleTxt = p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''
+    const matchLinea = !filtros.linea?.length || filtros.linea.includes(p.ceco)
+    const matchProyecto = !filtros.proyecto?.length || filtros.proyecto.includes(p.nombre)
+    const matchJefe = !filtros.jefe?.length || filtros.jefe.includes(p.colaboradores?.colaborador)
+    const matchEstado = !filtros.estado?.length || filtros.estado.includes(p.estado)
+    const matchTipo = !filtros.tipo?.length || filtros.tipo.includes(p.tipo)
+    const matchRendible = !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
+    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchRendible
+  }).sort((a, b) => {
+    let vA = ''
+    let vB = ''
+    if (ordenCol === 'linea') { vA = a.ceco || ''; vB = b.ceco || '' }
+    if (ordenCol === 'proyecto') { vA = a.nombre || ''; vB = b.nombre || '' }
+    if (ordenCol === 'jefe') { vA = a.colaboradores?.colaborador || ''; vB = b.colaboradores?.colaborador || '' }
+    if (ordenCol === 'estado') { vA = a.estado || ''; vB = b.estado || '' }
+    if (ordenCol === 'tipo') { vA = a.tipo || ''; vB = b.tipo || '' }
+    if (ordenCol === 'rendible') { vA = a.rendible === true ? 1 : a.rendible === false ? 0 : -1; vB = b.rendible === true ? 1 : b.rendible === false ? 0 : -1 }
+    if (ordenCol === 'ceco') { vA = a.ceco_codigo || ''; vB = b.ceco_codigo || '' }
+    if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+    return ordenDir === 'asc' ? vA - vB : vB - vA
   })
 
   // Campo select reutilizable para jefe
@@ -394,7 +448,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
       {/* Cabecera */}
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Proyectos</h2>
@@ -490,23 +544,115 @@ export default function VistaProyectosBase({ user, perfil }) {
       </div>
 
       {/* Tabla */}
+      <div className="flex-1 overflow-auto min-h-0">
       {loading ? (
         <div className="text-center py-12">
           <p className="text-gray-500">Cargando proyectos...</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
-              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
+              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
                 <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '48px' }}>#</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '140px' }}>Línea</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '150px' }}>Jefe</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '110px' }}>Estado</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '110px' }}>Tipo</ResizableTh>
-                <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '95px' }}>Rendible</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '95px' }}>CECO</ResizableTh>
+                <FilterableTh
+                  col="linea"
+                  label="Línea"
+                  style={{ width: '140px' }}
+                  opciones={opcionesLinea}
+                  filtro={filtros.linea || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'linea'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'linea'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="proyecto"
+                  label="Proyecto"
+                  opciones={opcionesProyecto}
+                  filtro={filtros.proyecto || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'proyecto'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'proyecto'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="jefe"
+                  label="Jefe"
+                  style={{ width: '150px' }}
+                  opciones={opcionesJefe}
+                  filtro={filtros.jefe || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'jefe'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'jefe'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="estado"
+                  label="Estado"
+                  style={{ width: '110px' }}
+                  opciones={opcionesEstado}
+                  filtro={filtros.estado || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'estado'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'estado'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="tipo"
+                  label="Tipo"
+                  style={{ width: '110px' }}
+                  opciones={opcionesTipo}
+                  filtro={filtros.tipo || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'tipo'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'tipo'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="rendible"
+                  label="Rendible"
+                  align="center"
+                  style={{ width: '95px' }}
+                  opciones={opcionesRendible}
+                  filtro={filtros.rendible || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'rendible'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'rendible'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="ceco"
+                  label="CECO"
+                  style={{ width: '95px' }}
+                  opciones={[]}
+                  filtro={[]}
+                  onFiltro={() => {}}
+                  dropdownAbierto={false}
+                  onToggleDropdown={() => {}}
+                  sortable
+                  ordenActiva={ordenCol === 'ceco'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
                 <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '130px' }}>Acciones</ResizableTh>
               </tr>
             </thead>
@@ -552,6 +698,7 @@ export default function VistaProyectosBase({ user, perfil }) {
           </table>
         </div>
       )}
+      </div>
 
       {/* Modal Crear Proyecto */}
       {modalCrear && (

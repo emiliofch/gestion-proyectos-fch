@@ -1,0 +1,17 @@
+estos son los colores que se deben usar cuando necesites colores. EL HEADER NO SE CAMBIA.
+
+RGB
+
+89,121,149
+
+233,184,86
+
+156,90,45
+
+242,238,234
+
+183,107,51
+
+225,174,81
+
+219,104,70

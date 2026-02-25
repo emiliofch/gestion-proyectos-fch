@@ -4,6 +4,7 @@ import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import ResizableTh from './ResizableTh'
+import FilterableTh from './FilterableTh'
 
 const ESTADOS_OPT = ['Efectivo', 'No Efectivo', 'Adjudicado']
 
@@ -464,10 +465,10 @@ export default function VistaOportunidades({ user }) {
         jefe?.toLowerCase().includes(q)
       )
       const matchLinea    = !filtroLinea        || o.proyectos?.ceco === filtroLinea
-      const matchFLinea   = !filtros.linea      || o.proyectos?.ceco === filtros.linea
-      const matchFProy    = !filtros.proyecto   || o.proyectos?.nombre === filtros.proyecto
-      const matchFJefe    = !filtros.jefe       || jefe === filtros.jefe
-      const matchFEstado  = !filtros.estado     || o.proyectos?.estado === filtros.estado
+      const matchFLinea   = !filtros.linea?.length || filtros.linea.includes(o.proyectos?.ceco)
+      const matchFProy    = !filtros.proyecto?.length || filtros.proyecto.includes(o.proyectos?.nombre)
+      const matchFJefe    = !filtros.jefe?.length || filtros.jefe.includes(jefe)
+      const matchFEstado  = !filtros.estado?.length || filtros.estado.includes(o.proyectos?.estado)
       return matchBusqueda && matchLinea && matchFLinea && matchFProy && matchFJefe && matchFEstado
     })
     .sort((a, b) => {
@@ -597,14 +598,14 @@ export default function VistaOportunidades({ user }) {
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <ThSort col="linea"    label="Línea"    align="left"   activo={ordenCol==='linea'}    dir={ordenDir} onClick={toggleOrden} style={{ width: '130px' }} opciones={opcionesLinea}    filtro={filtros.linea    || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'}    onToggleDropdown={setDropdownFiltro} />
-                <ThSort col="proyecto" label="Proyecto" align="left"   activo={ordenCol==='proyecto'} dir={ordenDir} onClick={toggleOrden}                             opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='proyecto'} onToggleDropdown={setDropdownFiltro} />
-                <ThSort col="jefe"     label="Jefe"     align="left"   activo={ordenCol==='jefe'}     dir={ordenDir} onClick={toggleOrden} style={{ width: '140px' }} opciones={opcionesJefe}     filtro={filtros.jefe     || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='jefe'}     onToggleDropdown={setDropdownFiltro} />
-                <ThSort col="ingresos" label="Ingresos" align="right"  activo={ordenCol==='ingresos'} dir={ordenDir} onClick={toggleOrden} style={{ width: '110px' }} />
-                <ThSort col="hh"       label="HH"       align="right"  activo={ordenCol==='hh'}       dir={ordenDir} onClick={toggleOrden} style={{ width: '110px' }} />
-                <ThSort col="gastos"   label="GGOO"     align="right"  activo={ordenCol==='gastos'}   dir={ordenDir} onClick={toggleOrden} style={{ width: '110px' }} />
-                <ThSort col="margen"   label="Margen"   align="right"  activo={ordenCol==='margen'}   dir={ordenDir} onClick={toggleOrden} style={{ width: '110px' }} />
-                <ThSort col="estado"   label="Estado"   align="center" activo={ordenCol==='estado'}   dir={ordenDir} onClick={toggleOrden} style={{ width: '130px' }} opciones={opcionesEstado}   filtro={filtros.estado   || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='estado'}   onToggleDropdown={setDropdownFiltro} />
+                <FilterableTh col="linea" label="Línea" align="left" style={{ width: '130px' }} opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="proyecto" label="Proyecto" align="left" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="jefe" label="Jefe" align="left" style={{ width: '140px' }} opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="ingresos" label="Ingresos" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='ingresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="hh" label="HH" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='hh'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="gastos" label="GGOO" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='gastos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="estado" label="Estado" align="center" style={{ width: '130px' }} opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <ResizableTh style={{ width: '42px', backgroundColor: '#FFF5F0' }}></ResizableTh>
               </tr>
             </thead>

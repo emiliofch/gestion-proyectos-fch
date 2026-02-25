@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import { ToastContainer, toast } from 'react-toastify'
 import 'react-toastify/dist/ReactToastify.css'
@@ -19,6 +19,8 @@ import AdministracionOC from './components/AdministracionOC'
 import VistaProyectosBase from './components/VistaProyectosBase'
 import VistaOportunidades from './components/VistaOportunidades'
 import VistaColaboradores from './components/VistaColaboradores'
+import VistaCosteo from './components/VistaCosteo'
+import VistaCosteoInputs from './components/VistaCosteoInputs'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -36,6 +38,7 @@ function App() {
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [submenuOC, setSubmenuOC] = useState(false)
   const [submenuTablas, setSubmenuTablas] = useState(false)
+  const [submenuCosteo, setSubmenuCosteo] = useState(false)
   const [filtroJefe, setFiltroJefe] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [ordenColumna, setOrdenColumna] = useState('nombre')
@@ -624,7 +627,7 @@ function App() {
               <h1 className="text-3xl md:text-4xl font-bold text-white whitespace-nowrap">
                 DeskFlow {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
               </h1>
-              <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} • {perfil?.rol} • {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</p>
+              <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} | {perfil?.rol} | {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</p>
             </div>
 
             <button
@@ -777,16 +780,40 @@ function App() {
             💸 Solicitud egreso
           </button>
 
-          {/* 4. Ingreso HH */}
-          <button
-            onClick={() => { setVista('ingreso-hh'); setMenuAbierto(false) }}
-            className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
-            style={{ color: vista === 'ingreso-hh' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-hh' ? '#FFF5F0' : 'transparent' }}
-          >
-            ⏱️ Ingreso HH
-          </button>
+          {/* 5. Sistema de Costeo (con submenu) */}
+          <div>
+            <button
+              onClick={() => setSubmenuCosteo(!submenuCosteo)}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
+              style={{ color: ['costeo', 'costeo-inputs', 'costeo-nuevo', 'costeo-editar'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['costeo', 'costeo-inputs', 'costeo-nuevo', 'costeo-editar'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+            >
+              <span>⏱️ Sistema de Costeo</span>
+              <svg className={`w-5 h-5 transition-transform ${submenuCosteo ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
 
-          {/* 5. Config (solo admin) */}
+            {submenuCosteo && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('costeo-nuevo'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'costeo-nuevo' ? '#FF5100' : '#374151', backgroundColor: vista === 'costeo-nuevo' ? '#FFF5F0' : 'transparent' }}
+                >
+                  Nuevo costeo
+                </button>
+                <button
+                  onClick={() => { setVista('costeo-editar'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'costeo-editar' ? '#FF5100' : '#374151', backgroundColor: vista === 'costeo-editar' ? '#FFF5F0' : 'transparent' }}
+                >
+                  Editar Costeo
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* 6. Config (solo admin) */}
           {perfil?.rol === 'admin' && (
             <button
               onClick={() => { setVista('usuarios'); setMenuAbierto(false) }}
@@ -797,7 +824,7 @@ function App() {
             </button>
           )}
 
-          {/* 6. Sugerencias */}
+          {/* 7. Sugerencias */}
           <button
             onClick={() => { setVista('sugerencias'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
@@ -887,16 +914,20 @@ function App() {
               </div>
             )}
 
-            {vista === 'ingreso-hh' && (
-              <div>
-                <h2 className="text-2xl font-bold mb-6" style={{ color: '#FF5100' }}>
-                  ⏱️ Ingreso de Horas Hombre
-                </h2>
-                <div className="bg-gray-50 rounded-lg p-12 text-center">
-                  <p className="text-gray-600 text-lg mb-4">Esta funcionalidad estará disponible próximamente.</p>
-                  <p className="text-gray-500 text-sm">Aquí podrás registrar y gestionar las horas hombre de tus proyectos.</p>
-                </div>
-              </div>
+            {vista === 'costeo' && (
+              <VistaCosteo />
+            )}
+
+            {vista === 'costeo-inputs' && (
+              <VistaCosteoInputs user={user} perfil={perfil} />
+            )}
+
+            {vista === 'costeo-nuevo' && (
+              <VistaCosteoInputs user={user} perfil={perfil} mode="nuevo" />
+            )}
+
+            {vista === 'costeo-editar' && (
+              <VistaCosteoInputs user={user} perfil={perfil} mode="editar" />
             )}
           </div>
         </div>
@@ -926,3 +957,5 @@ function App() {
 }
 
 export default App
+
+

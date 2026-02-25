@@ -3,6 +3,7 @@ import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 import * as XLSX from 'xlsx'
 import ResizableTh from './ResizableTh'
+import FilterableTh from './FilterableTh'
 
 export default function VistaColaboradores({ user, perfil }) {
   const esAdmin = perfil?.rol === 'admin'
@@ -11,12 +12,23 @@ export default function VistaColaboradores({ user, perfil }) {
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('colaborador')
+  const [ordenDir, setOrdenDir] = useState('asc')
   const [modalEditar, setModalEditar] = useState(null)   // colaborador a editar
   const [formEdit, setFormEdit] = useState({ colaborador: '', rut: '' })
 
   useEffect(() => {
     cargarColaboradores()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarColaboradores() {
     setLoading(true)
@@ -152,13 +164,36 @@ export default function VistaColaboradores({ user, perfil }) {
     setProcesando(false)
   }
 
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
+
+  const opcionesColaborador = [...new Set(colaboradores.map((c) => c.colaborador).filter(Boolean))].sort()
+  const opcionesRut = [...new Set(colaboradores.map((c) => c.rut).filter(Boolean))].sort()
+
   const filtrados = colaboradores.filter(c =>
     c.colaborador?.toLowerCase().includes(busqueda.toLowerCase()) ||
     c.rut?.toLowerCase().includes(busqueda.toLowerCase())
-  )
+  ).filter((c) => {
+    const matchColaborador = !filtros.colaborador?.length || filtros.colaborador.includes(c.colaborador)
+    const matchRut = !filtros.rut?.length || filtros.rut.includes(c.rut)
+    return matchColaborador && matchRut
+  }).sort((a, b) => {
+    const vA = ordenCol === 'rut' ? (a.rut || '') : (a.colaborador || '')
+    const vB = ordenCol === 'rut' ? (b.rut || '') : (b.colaborador || '')
+    return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+  })
 
   return (
-    <div>
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
       {/* Encabezado */}
       <div className="flex flex-wrap justify-between items-center gap-4 mb-6">
         <h2 className="text-2xl font-bold text-gray-800">Colaboradores</h2>
@@ -213,6 +248,7 @@ export default function VistaColaboradores({ user, perfil }) {
         {busqueda && ` para "${busqueda}"`}
       </p>
 
+      <div className="flex-1 overflow-auto min-h-0">
       {loading ? (
         <p className="text-gray-500 text-center py-8">Cargando...</p>
       ) : filtrados.length === 0 ? (
@@ -221,13 +257,38 @@ export default function VistaColaboradores({ user, perfil }) {
           <p className="text-gray-400 text-sm">Importa un Excel con columnas COLABORADOR y RUT</p>
         </div>
       ) : (
-        <div className="overflow-x-auto">
+        <div>
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
-              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
+              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
                 <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '50px' }}>#</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold">Colaborador</ResizableTh>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '160px' }}>RUT</ResizableTh>
+                <FilterableTh
+                  col="colaborador"
+                  label="Colaborador"
+                  opciones={opcionesColaborador}
+                  filtro={filtros.colaborador || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'colaborador'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'colaborador'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="rut"
+                  label="RUT"
+                  style={{ width: '160px' }}
+                  opciones={opcionesRut}
+                  filtro={filtros.rut || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'rut'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'rut'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
                 {esAdmin && (
                   <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '140px' }}>Acciones</ResizableTh>
                 )}
@@ -264,6 +325,7 @@ export default function VistaColaboradores({ user, perfil }) {
           </table>
         </div>
       )}
+      </div>
 
       {/* Modal Editar */}
       {modalEditar && (
