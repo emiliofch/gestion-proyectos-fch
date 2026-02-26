@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+﻿import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
@@ -14,7 +14,7 @@ function fmt(val) {
 }
 
 function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opciones, filtro, onFiltro, dropdownAbierto, onToggleDropdown }) {
-  const arrow = activo ? (dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'
+  const arrow = activo ? (dir === 'asc' ? ' â†‘' : ' â†“') : ' â†•'
   const tieneOpciones = opciones && opciones.length > 0
   const btnRef = useRef(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
@@ -48,7 +48,7 @@ function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opcio
               className={`text-xs px-0.5 py-1 rounded transition-all leading-none ${filtro ? 'text-orange-500 font-bold' : 'text-gray-400 hover:text-gray-700'}`}
               title={filtro ? `Filtro: ${filtro}` : 'Filtrar'}
             >
-              {filtro ? '▼' : '⏷'}
+              {filtro ? 'â–¼' : 'â·'}
             </button>
             {dropdownAbierto && createPortal(
               <div
@@ -100,7 +100,7 @@ function badgeEstado(estado, oportunidad, onSolicitar) {
   )
 }
 
-export default function VistaOportunidades({ user }) {
+export default function VistaOportunidades({ user, onCambioRegistrado }) {
   const [oportunidades, setOportunidades] = useState([])
   const [proyectos, setProyectos] = useState([])
   const [loading, setLoading] = useState(true)
@@ -162,7 +162,7 @@ export default function VistaOportunidades({ user }) {
     setLoading(false)
   }
 
-  // ── SOLICITAR CAMBIO DE ESTADO (abre modal de motivo) ──
+  // â”€â”€ SOLICITAR CAMBIO DE ESTADO (abre modal de motivo) â”€â”€
   function solicitarCambioEstado(oportunidad, nuevoEstado) {
     setModalMotivo({
       tipo: 'estado',
@@ -173,7 +173,7 @@ export default function VistaOportunidades({ user }) {
     setMotivoAccion('')
   }
 
-  // ── SOLICITAR ELIMINAR (abre modal de motivo) ──
+  // â”€â”€ SOLICITAR ELIMINAR (abre modal de motivo) â”€â”€
   function solicitarEliminar(oportunidad) {
     setModalMotivo({
       tipo: 'eliminar',
@@ -184,7 +184,7 @@ export default function VistaOportunidades({ user }) {
     setMotivoAccion('')
   }
 
-  // ── CONFIRMAR ACCIÓN CON MOTIVO ──
+  // â”€â”€ CONFIRMAR ACCIÃ“N CON MOTIVO â”€â”€
   async function confirmarAccionConMotivo() {
     if (!motivoAccion.trim()) {
       toast.error('Debes ingresar un motivo')
@@ -214,6 +214,7 @@ export default function VistaOportunidades({ user }) {
         tipo_cambio:     'oportunidad',
         proyecto_nombre: oportunidad.proyectos?.nombre
       })
+      await onCambioRegistrado?.()
 
       setOportunidades(prev => prev.map(o =>
         o.proyecto_id === oportunidad.proyecto_id
@@ -235,6 +236,7 @@ export default function VistaOportunidades({ user }) {
         tipo_cambio:     'oportunidad',
         proyecto_nombre: oportunidad.proyectos?.nombre
       })
+      await onCambioRegistrado?.()
 
       const { error } = await supabase.from('oportunidades').delete().eq('id', oportunidad.id)
       if (error) { toast.error('Error al eliminar'); return }
@@ -247,7 +249,7 @@ export default function VistaOportunidades({ user }) {
     setMotivoAccion('')
   }
 
-  // ── AGREGAR OPORTUNIDAD ──
+  // â”€â”€ AGREGAR OPORTUNIDAD â”€â”€
   async function agregarOportunidad() {
     if (!formAgregar.proyecto_id) {
       toast.error('Selecciona un proyecto')
@@ -267,7 +269,7 @@ export default function VistaOportunidades({ user }) {
     cargarDatos()
   }
 
-  // ── EDICIÓN NUMÉRICA (Ingresos / HH / GGOO) ──
+  // â”€â”€ EDICIÃ“N NUMÃ‰RICA (Ingresos / HH / GGOO) â”€â”€
   function abrirModalEdicion(oportunidad, campo, valorActual) {
     setModalEdicion({ oportunidad, campo })
     setValorEditando(valorActual?.toString() || '0')
@@ -314,7 +316,9 @@ export default function VistaOportunidades({ user }) {
 
     if (errorCambio) {
       console.error('Error registrando cambio:', errorCambio)
-      toast.warning('Valor actualizado pero no se registró el cambio')
+      toast.warning('Valor actualizado pero no se registrÃ³ el cambio')
+    } else {
+      await onCambioRegistrado?.()
     }
 
     toast.success('Valor actualizado')
@@ -322,7 +326,7 @@ export default function VistaOportunidades({ user }) {
     cargarDatos()
   }
 
-  // ── IMPORTAR EXCEL ──
+  // â”€â”€ IMPORTAR EXCEL â”€â”€
   async function importarExcel(e) {
     const file = e.target.files[0]
     if (!file) return
@@ -340,7 +344,7 @@ export default function VistaOportunidades({ user }) {
           if (val === null || val === undefined || val === '') return 0
           if (typeof val === 'number') return val
           // Formato latino: punto = separador de miles, coma = decimal
-          // Ej: "1.234,56" → 1234.56
+          // Ej: "1.234,56" â†’ 1234.56
           const str = String(val).trim().replace(/\./g, '').replace(',', '.')
           return parseFloat(str) || 0
         }
@@ -360,7 +364,7 @@ export default function VistaOportunidades({ user }) {
             continue
           }
 
-          // Buscar proyecto — intenta match por código prefijo, si no por nombre exacto
+          // Buscar proyecto â€” intenta match por cÃ³digo prefijo, si no por nombre exacto
           const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
           const busq = codigoMatch ? codigoMatch[0] : proyectoNombre
 
@@ -372,7 +376,7 @@ export default function VistaOportunidades({ user }) {
 
           if (!encontrados || encontrados.length === 0) {
             noEncontrados.push(proyectoNombre)
-            continue   // ← no insertar si no existe en proyectos
+            continue   // â† no insertar si no existe en proyectos
           }
 
           const { error: errorInsert } = await supabase.from('oportunidades').insert({
@@ -393,14 +397,14 @@ export default function VistaOportunidades({ user }) {
 
         if (noEncontrados.length > 0) {
           toast.warning(
-            `${noEncontrados.length} proyecto(s) no encontrado(s) — no importados:\n${noEncontrados.slice(0, 5).join(', ')}${noEncontrados.length > 5 ? '...' : ''}`,
+            `${noEncontrados.length} proyecto(s) no encontrado(s) â€” no importados:\n${noEncontrados.slice(0, 5).join(', ')}${noEncontrados.length > 5 ? '...' : ''}`,
             { autoClose: 6000 }
           )
         }
         if (errores > 0) {
           toast.warning(`${errores} fila(s) con error al insertar`)
         }
-        toast.success(`Importación: ${insertados} oportunidades creadas`)
+        toast.success(`ImportaciÃ³n: ${insertados} oportunidades creadas`)
         cargarDatos()
       } catch (error) {
         console.error('Error:', error)
@@ -414,8 +418,8 @@ export default function VistaOportunidades({ user }) {
   }
 
   async function borrarTodas() {
-    if (!confirm('¿Eliminar TODAS las oportunidades? Esta acción no se puede deshacer.')) return
-    if (!confirm('Confirmación final: ¿seguro?')) return
+    if (!confirm('Â¿Eliminar TODAS las oportunidades? Esta acciÃ³n no se puede deshacer.')) return
+    if (!confirm('ConfirmaciÃ³n final: Â¿seguro?')) return
     const { error } = await supabase
       .from('oportunidades')
       .delete()
@@ -428,7 +432,7 @@ export default function VistaOportunidades({ user }) {
     }
   }
 
-  // ── TOGGLE ORDEN ──
+  // â”€â”€ TOGGLE ORDEN â”€â”€
   function toggleOrden(col) {
     if (ordenCol === col) {
       setOrdenDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -442,18 +446,18 @@ export default function VistaOportunidades({ user }) {
     setFiltros(prev => ({ ...prev, [col]: valor }))
   }
 
-  // ── LÍNEAS ÚNICAS PARA EL FILTRO SUPERIOR ──
+  // â”€â”€ LÃNEAS ÃšNICAS PARA EL FILTRO SUPERIOR â”€â”€
   const lineasUnicas = [...new Set(
     oportunidades.map(o => o.proyectos?.ceco).filter(Boolean)
   )].sort()
 
-  // ── OPCIONES ÚNICAS POR COLUMNA (para dropdowns) ──
+  // â”€â”€ OPCIONES ÃšNICAS POR COLUMNA (para dropdowns) â”€â”€
   const opcionesLinea    = [...new Set(oportunidades.map(o => o.proyectos?.ceco).filter(Boolean))].sort()
   const opcionesProyecto = [...new Set(oportunidades.map(o => o.proyectos?.nombre).filter(Boolean))].sort()
   const opcionesJefe     = [...new Set(oportunidades.map(o => o.proyectos?.colaboradores?.colaborador).filter(Boolean))].sort()
   const opcionesEstado   = [...new Set(oportunidades.map(o => o.proyectos?.estado).filter(Boolean))].sort()
 
-  // ── FILTRO Y ORDEN ──
+  // â”€â”€ FILTRO Y ORDEN â”€â”€
   const oportunidadesFiltradas = oportunidades
     .filter(o => {
       const q = busqueda.toLowerCase()
@@ -526,7 +530,7 @@ export default function VistaOportunidades({ user }) {
               onChange={(e) => setFiltroLinea(e.target.value)}
               className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 max-w-[220px]"
             >
-              <option value="">Todas las líneas</option>
+              <option value="">Todas las lÃ­neas</option>
               {lineasUnicas.map(l => (
                 <option key={l} value={l}>{l}</option>
               ))}
@@ -575,15 +579,15 @@ export default function VistaOportunidades({ user }) {
               <span className="text-red-600 font-bold">GGOO</span>
             </div>
             <ul className="text-sm text-gray-600 space-y-1">
-              <li>- <strong>PROYECTO</strong>: Código/nombre del proyecto (debe existir en tabla Proyectos)</li>
-              <li>- <strong>INGRESOS / HH / GGOO</strong>: Valores numéricos</li>
+              <li>- <strong>PROYECTO</strong>: CÃ³digo/nombre del proyecto (debe existir en tabla Proyectos)</li>
+              <li>- <strong>INGRESOS / HH / GGOO</strong>: Valores numÃ©ricos</li>
             </ul>
             <p className="text-xs text-gray-500 mt-2">Si el proyecto no existe en la tabla, la fila no se importa.</p>
           </div>
         )}
       </div>
 
-      {/* Área scrollable (tabla) */}
+      {/* Ãrea scrollable (tabla) */}
       <div className="flex-1 overflow-auto min-h-0">
         {loading ? (
           <div className="text-center py-12">
@@ -598,7 +602,7 @@ export default function VistaOportunidades({ user }) {
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <FilterableTh col="linea" label="Línea" align="left" style={{ width: '130px' }} opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="linea" label="LÃ­nea" align="left" style={{ width: '130px' }} opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="proyecto" label="Proyecto" align="left" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="jefe" label="Jefe" align="left" style={{ width: '140px' }} opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="ingresos" label="Ingresos" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='ingresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
@@ -665,7 +669,12 @@ export default function VistaOportunidades({ user }) {
                         className="text-gray-300 hover:text-red-500 transition-all text-base leading-none"
                         title="Eliminar oportunidad"
                       >
-                        🗑
+                        <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
+                        </svg>
                       </button>
                     </td>
                   </tr>
@@ -806,7 +815,7 @@ export default function VistaOportunidades({ user }) {
         </div>
       )}
 
-      {/* Modal edición numérica */}
+      {/* Modal ediciÃ³n numÃ©rica */}
       {modalEdicion && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">
@@ -861,3 +870,4 @@ export default function VistaOportunidades({ user }) {
     </div>
   )
 }
+

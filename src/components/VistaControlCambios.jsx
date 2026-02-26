@@ -1,10 +1,10 @@
-import { useEffect, useState } from 'react'
+﻿import { useEffect, useMemo, useState } from 'react'
 import FilterableTh from './FilterableTh'
 
 function fmtVal(v) {
   if (v === null || v === undefined || v === '') return '-'
   const n = parseFloat(v)
-  return isNaN(n) ? v : n.toFixed(1)
+  return Number.isNaN(n) ? v : n.toFixed(1)
 }
 
 export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoControlCambios }) {
@@ -13,6 +13,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
   const [ordenCol, setOrdenCol] = useState('fecha')
   const [ordenDir, setOrdenDir] = useState('desc')
 
+  const esVistaEstados = tipoControlCambios === 'estado'
+  const muestraProyecto = tipoControlCambios === 'valor' || esVistaEstados
+  const muestraCampo = !esVistaEstados
+  const muestraAnteriorNuevo = tipoControlCambios === 'valor' || esVistaEstados
+
   useEffect(() => {
     if (!dropdownFiltro) return
     function cerrar() { setDropdownFiltro(null) }
@@ -20,27 +25,37 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
 
+  useEffect(() => {
+    setFiltros({})
+    setDropdownFiltro(null)
+    setOrdenCol('fecha')
+    setOrdenDir('desc')
+  }, [tipoControlCambios])
+
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
+
   function toggleOrden(col) {
     if (ordenCol === col) {
-      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+      setOrdenDir((d) => (d === 'asc' ? 'desc' : 'asc'))
     } else {
       setOrdenCol(col)
       setOrdenDir('asc')
     }
   }
 
-  const opcionesProyecto = [...new Set(cambiosFiltrados.map((c) => c.proyecto_nombre).filter(Boolean))].sort()
-  const opcionesCampo = [...new Set(cambiosFiltrados.map((c) => c.campo).filter(Boolean))].sort()
-  const opcionesUsuario = [...new Set(cambiosFiltrados.map((c) => c.usuario).filter(Boolean))].sort()
+  const opcionesProyecto = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.proyecto_nombre).filter(Boolean))].sort(), [cambiosFiltrados])
+  const opcionesCampo = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.campo).filter(Boolean))].sort(), [cambiosFiltrados])
+  const opcionesUsuario = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.usuario).filter(Boolean))].sort(), [cambiosFiltrados])
+  const opcionesEstadoNuevo = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.valor_nuevo).filter(Boolean))].sort(), [cambiosFiltrados])
 
-  const cambiosConFiltros = cambiosFiltrados.filter((c) => {
+  const cambiosConFiltros = useMemo(() => cambiosFiltrados.filter((c) => {
     const matchProyecto = !filtros.proyecto?.length || filtros.proyecto.includes(c.proyecto_nombre)
     const matchCampo = !filtros.campo?.length || filtros.campo.includes(c.campo)
     const matchUsuario = !filtros.usuario?.length || filtros.usuario.includes(c.usuario)
-    return matchProyecto && matchCampo && matchUsuario
+    const matchEstadoNuevo = !filtros.estadoNuevo?.length || filtros.estadoNuevo.includes(c.valor_nuevo)
+    return matchProyecto && matchCampo && matchUsuario && matchEstadoNuevo
   }).sort((a, b) => {
     let vA = ''
     let vB = ''
@@ -53,7 +68,7 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
     if (ordenCol === 'motivo') { vA = a.motivo || ''; vB = b.motivo || '' }
     if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
     return ordenDir === 'asc' ? vA - vB : vB - vA
-  })
+  }), [cambiosFiltrados, filtros, ordenCol, ordenDir])
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
@@ -64,7 +79,7 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
             onClick={() => setTipoControlCambios('valor')}
             className={`px-4 py-2 rounded-lg font-medium transition-all ${tipoControlCambios === 'valor' ? 'text-white' : 'bg-gray-200 text-gray-800'}`}
             style={{ backgroundColor: tipoControlCambios === 'valor' ? '#FF5100' : '' }}
-            title="Ver cambios de valores numéricos"
+            title="Ver cambios de valores"
           >
             Cambios de Valores
           </button>
@@ -72,9 +87,17 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
             onClick={() => setTipoControlCambios('proyecto')}
             className={`px-4 py-2 rounded-lg font-medium transition-all ${tipoControlCambios === 'proyecto' ? 'text-white' : 'bg-gray-200 text-gray-800'}`}
             style={{ backgroundColor: tipoControlCambios === 'proyecto' ? '#FF5100' : '' }}
-            title="Ver creación/eliminación de proyectos"
+            title="Ver creacion y eliminacion de proyectos"
           >
             Cambios de Proyectos
+          </button>
+          <button
+            onClick={() => setTipoControlCambios('estado')}
+            className={`px-4 py-2 rounded-lg font-medium transition-all ${tipoControlCambios === 'estado' ? 'text-white' : 'bg-gray-200 text-gray-800'}`}
+            style={{ backgroundColor: tipoControlCambios === 'estado' ? '#FF5100' : '' }}
+            title="Ver cambios de estado"
+          >
+            Estados
           </button>
         </div>
       </div>
@@ -83,11 +106,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
         <table className="w-full" style={{ tableLayout: 'fixed' }}>
           <thead>
             <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-              {tipoControlCambios === 'valor' && (
+              {muestraProyecto && (
                 <FilterableTh
                   col="proyecto"
                   label="Proyecto"
-                  style={{ width: '160px' }}
+                  style={{ width: '180px' }}
                   opciones={opcionesProyecto}
                   filtro={filtros.proyecto || ''}
                   onFiltro={setFiltro}
@@ -113,26 +136,28 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 ordenDir={ordenDir}
                 onOrdenar={toggleOrden}
               />
-              <FilterableTh
-                col="campo"
-                label="Campo"
-                style={{ width: '130px' }}
-                opciones={opcionesCampo}
-                filtro={filtros.campo || ''}
-                onFiltro={setFiltro}
-                dropdownAbierto={dropdownFiltro === 'campo'}
-                onToggleDropdown={setDropdownFiltro}
-                sortable
-                ordenActiva={ordenCol === 'campo'}
-                ordenDir={ordenDir}
-                onOrdenar={toggleOrden}
-              />
-              {tipoControlCambios === 'valor' && (
+              {muestraCampo && (
+                <FilterableTh
+                  col="campo"
+                  label="Campo"
+                  style={{ width: '130px' }}
+                  opciones={opcionesCampo}
+                  filtro={filtros.campo || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'campo'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'campo'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+              )}
+              {muestraAnteriorNuevo && (
                 <>
                   <FilterableTh
                     col="anterior"
-                    label="Anterior"
-                    style={{ width: '110px' }}
+                    label={esVistaEstados ? 'Estado anterior' : 'Anterior'}
+                    style={{ width: '130px' }}
                     opciones={[]}
                     filtro={[]}
                     onFiltro={() => {}}
@@ -145,13 +170,13 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                   />
                   <FilterableTh
                     col="nuevo"
-                    label="Nuevo"
-                    style={{ width: '110px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    label={esVistaEstados ? 'Estado nuevo' : 'Nuevo'}
+                    style={{ width: '130px' }}
+                    opciones={esVistaEstados ? opcionesEstadoNuevo : []}
+                    filtro={esVistaEstados ? (filtros.estadoNuevo || '') : []}
+                    onFiltro={esVistaEstados ? ((_, valor) => setFiltro('estadoNuevo', valor)) : (() => {})}
+                    dropdownAbierto={esVistaEstados ? dropdownFiltro === 'estadoNuevo' : false}
+                    onToggleDropdown={esVistaEstados ? ((abierto) => setDropdownFiltro(abierto === 'nuevo' ? 'estadoNuevo' : abierto)) : (() => {})}
                     sortable
                     ordenActiva={ordenCol === 'nuevo'}
                     ordenDir={ordenDir}
@@ -162,7 +187,7 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
               <FilterableTh
                 col="usuario"
                 label="Usuario"
-                style={{ width: '160px' }}
+                style={{ width: '170px' }}
                 opciones={opcionesUsuario}
                 filtro={filtros.usuario || ''}
                 onFiltro={setFiltro}
@@ -189,14 +214,14 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
             </tr>
           </thead>
           <tbody>
-            {cambiosConFiltros.map(c => (
+            {cambiosConFiltros.map((c) => (
               <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                {tipoControlCambios === 'valor' && (
+                {muestraProyecto && (
                   <td className="py-3 px-4 text-gray-800 font-medium">{c.proyecto_nombre || 'N/A'}</td>
                 )}
                 <td className="py-3 px-4 text-gray-800 text-sm">{new Date(c.fecha).toLocaleString()}</td>
-                <td className="py-3 px-4 text-gray-800">{c.campo}</td>
-                {tipoControlCambios === 'valor' && (
+                {muestraCampo && <td className="py-3 px-4 text-gray-800">{c.campo}</td>}
+                {muestraAnteriorNuevo && (
                   <>
                     <td className="py-3 px-4 text-gray-800">{fmtVal(c.valor_anterior)}</td>
                     <td className="py-3 px-4 text-gray-800">{fmtVal(c.valor_nuevo)}</td>
@@ -206,6 +231,13 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 <td className="py-3 px-4 text-gray-800">{c.motivo}</td>
               </tr>
             ))}
+            {cambiosConFiltros.length === 0 && (
+              <tr>
+                <td colSpan={muestraProyecto ? (muestraCampo ? (muestraAnteriorNuevo ? 7 : 5) : 6) : (muestraCampo ? 6 : 5)} className="py-8 px-4 text-center text-gray-500">
+                  No hay registros para esta vista.
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>

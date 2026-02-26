@@ -577,11 +577,18 @@ function App() {
   }
   totales.margen = totales.ingresos - totales.hh - totales.gastos
 
-  const cambiosFiltrados = cambios.filter(c => {
-    if (tipoControlCambios === 'valor') {
-      return c.tipo_cambio === 'valor' || c.tipo_cambio === 'oportunidad'
+  const cambiosFiltrados = cambios.filter((c) => {
+    const campo = (c.campo || '').toString().trim().toUpperCase()
+    const esCambioValor = ['INGRESOS', 'HH', 'GGOO', 'GASTOS'].includes(campo)
+    const esEliminacionOportunidad = campo === 'OPORTUNIDAD ELIMINADA'
+
+    if (tipoControlCambios === 'estado') {
+      return campo === 'ESTADO'
     }
-    return c.tipo_cambio === tipoControlCambios
+    if (tipoControlCambios === 'valor') {
+      return esCambioValor
+    }
+    return (c.tipo_cambio === 'proyecto' && campo !== 'ESTADO') || esEliminacionOportunidad
   })
 
   if (loading) {
@@ -855,7 +862,7 @@ function App() {
             )}
 
             {vista === 'proyectos-base' && (
-              <VistaProyectosBase user={user} perfil={perfil} />
+              <VistaProyectosBase user={user} perfil={perfil} onCambioRegistrado={cargarCambios} />
             )}
 
             {vista === 'colaboradores' && (
@@ -863,7 +870,7 @@ function App() {
             )}
 
             {vista === 'oportunidades' && (
-              <VistaOportunidades user={user} />
+              <VistaOportunidades user={user} onCambioRegistrado={cargarCambios} />
             )}
 
             {vista === 'cambios' && (

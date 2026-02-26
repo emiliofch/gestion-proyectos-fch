@@ -35,6 +35,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const [proyectosGuardados, setProyectosGuardados] = useState([])
   const [selectedProyectoId, setSelectedProyectoId] = useState(null)
   const [porcentajes, setPorcentajes] = useState(DEFAULT_PORCENTAJES)
+  const [ivaAplica, setIvaAplica] = useState(null)
   const [cargandoDatos, setCargandoDatos] = useState(true)
   const [guardandoDatos, setGuardandoDatos] = useState(false)
   const [hidratado, setHidratado] = useState(false)
@@ -46,6 +47,11 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const empresa = perfil?.empresa || 'CGV'
   const userId = user?.id || null
 
+  const rowsRH = useMemo(() => rows.filter((row) => row.tipo === 'GASTO_RH'), [rows])
+  const rowsOperacionales = useMemo(() => rows.filter((row) => row.tipo === 'GASTO_OPERACIONAL'), [rows])
+  const rowsOrdenadas = useMemo(() => [...rowsRH, ...rowsOperacionales], [rowsRH, rowsOperacionales])
+  const editingRow = useMemo(() => rows.find((row) => row.id === editingId) || null, [rows, editingId])
+
   const proyectosUsuario = useMemo(
     () => proyectosGuardados.filter((p) => !p.owner_id || p.owner_id === userId),
     [proyectosGuardados, userId]
@@ -56,18 +62,23 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     return Array.from({ length: count }, (_, idx) => idx + 1)
   }, [duracionMeses])
 
-  const totalesPorItem = useMemo(() => rows.map((row) => meses.reduce((acc, mes) => {
-    const key = `${mes}-${row.id}`
-    return acc + (celdasActivas[key] ? Number(row.valor) || 0 : 0)
-  }, 0)), [meses, rows, celdasActivas])
+  const totalesPorItem = useMemo(() => rows.reduce((acc, row) => {
+    acc[row.id] = meses.reduce((sum, mes) => {
+      const key = `${mes}-${row.id}`
+      return sum + (celdasActivas[key] ? Number(row.valor) || 0 : 0)
+    }, 0)
+    return acc
+  }, {}), [meses, rows, celdasActivas])
 
-  const costoFch = useMemo(() => totalesPorItem.reduce((acc, value) => acc + (Number(value) || 0), 0), [totalesPorItem])
+  const costoFch = useMemo(() => Object.values(totalesPorItem).reduce((acc, value) => acc + (Number(value) || 0), 0), [totalesPorItem])
   const imprevistosMonto = useMemo(() => costoFch * ((Number(porcentajes.imprevistos) || 0) / 100), [costoFch, porcentajes.imprevistos])
   const subtotal1 = costoFch + imprevistosMonto
   const overheadMonto = useMemo(() => costoFch * ((Number(porcentajes.overhead) || 0) / 100), [costoFch, porcentajes.overhead])
   const subtotal2 = subtotal1 + overheadMonto
   const margenMonto = useMemo(() => costoFch * ((Number(porcentajes.margen) || 0) / 100), [costoFch, porcentajes.margen])
-  const pricingMasIva = subtotal2 + margenMonto
+  const pricingSinIva = subtotal2 + margenMonto
+  const ivaMonto = useMemo(() => (ivaAplica ? pricingSinIva * 0.19 : 0), [ivaAplica, pricingSinIva])
+  const pricingMasIva = pricingSinIva + ivaMonto
 
   function resetForm() {
     setEditingId(null)
@@ -80,6 +91,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       duracionMeses: Number(overrides.duracionMeses ?? duracionMeses) || 1,
       celdasActivas: cloneData(overrides.celdasActivas ?? celdasActivas),
       porcentajes: cloneData(overrides.porcentajes ?? porcentajes),
+      ivaAplica: overrides.ivaAplica ?? ivaAplica,
     }
   }
 
@@ -89,6 +101,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     setDuracionMeses(1)
     setCeldasActivas({})
     setPorcentajes(DEFAULT_PORCENTAJES)
+    setIvaAplica(null)
     setNombreProyecto('')
     setSelectedProyectoId(null)
   }
@@ -103,6 +116,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       overhead: Number(snapshot.porcentajes.overhead) || 0,
       margen: Number(snapshot.porcentajes.margen) || 0,
     } : DEFAULT_PORCENTAJES)
+    setIvaAplica(typeof snapshot?.ivaAplica === 'boolean' ? snapshot.ivaAplica : null)
     setNombreProyecto(meta.nombre || '')
     setSelectedProyectoId(meta.id || null)
   }
@@ -143,10 +157,22 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
           if (selected?.snapshot) {
             cargarSnapshot(selected.snapshot, { nombre: selected.nombre, id: selected.id })
           } else {
-            cargarSnapshot({ rows: data.inputs || [], duracionMeses: data.duracion_meses || 1, celdasActivas: meta, porcentajes: meta.__porcentajes || DEFAULT_PORCENTAJES }, { nombre: meta.__nombre_proyecto || '' })
+            cargarSnapshot({
+              rows: data.inputs || [],
+              duracionMeses: data.duracion_meses || 1,
+              celdasActivas: meta,
+              porcentajes: meta.__porcentajes || DEFAULT_PORCENTAJES,
+              ivaAplica: typeof meta.__iva_aplica === 'boolean' ? meta.__iva_aplica : null,
+            }, { nombre: meta.__nombre_proyecto || '' })
           }
         } else {
-          cargarSnapshot({ rows: data.inputs || [], duracionMeses: data.duracion_meses || 1, celdasActivas: meta, porcentajes: meta.__porcentajes || DEFAULT_PORCENTAJES }, { nombre: meta.__nombre_proyecto || '' })
+          cargarSnapshot({
+            rows: data.inputs || [],
+            duracionMeses: data.duracion_meses || 1,
+            celdasActivas: meta,
+            porcentajes: meta.__porcentajes || DEFAULT_PORCENTAJES,
+            ivaAplica: typeof meta.__iva_aplica === 'boolean' ? meta.__iva_aplica : null,
+          }, { nombre: meta.__nombre_proyecto || '' })
         }
       }
 
@@ -167,7 +193,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     if (!hidratado || !userId) return undefined
     const timeoutId = setTimeout(() => { guardarProceso(true) }, 800)
     return () => clearTimeout(timeoutId)
-  }, [rows, duracionMeses, celdasActivas, porcentajes, nombreProyecto, proyectosGuardados, selectedProyectoId, hidratado, userId, empresa])
+  }, [rows, duracionMeses, celdasActivas, porcentajes, ivaAplica, nombreProyecto, proyectosGuardados, selectedProyectoId, hidratado, userId, empresa])
 
   async function guardarProceso(silencioso = false, overrides = {}) {
     if (!userId) return
@@ -183,6 +209,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
         __nombre_proyecto: overrides.nombreProyecto ?? nombreProyecto,
         __proyectos_guardados: overrides.proyectosGuardados ?? proyectosGuardados,
         __porcentajes: overrides.porcentajes ?? porcentajes,
+        __iva_aplica: overrides.ivaAplica ?? ivaAplica,
         __selected_proyecto_id: overrides.selectedProyectoId ?? selectedProyectoId,
       },
     }
@@ -198,22 +225,26 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     if (!silencioso) toast.success('Proceso de costeo guardado')
   }
 
-  function handleSubmit(event) {
+  function handleSubmit(event, forcedTipo = form.tipo) {
     event.preventDefault()
 
     const item = form.item.trim()
     const valor = Number(form.valor)
+    const tipo = forcedTipo
     if (!item) return toast.warning('Debes ingresar un item.')
     if (!Number.isFinite(valor) || valor < 0) return toast.warning('Debes ingresar un valor numerico valido.')
-    if (!TIPOS.some((tipo) => tipo.value === form.tipo)) return toast.warning('Tipo de input invalido.')
+    if (!TIPOS.some((t) => t.value === tipo)) return toast.warning('Tipo de input invalido.')
+    if (isEditing && editingRow && editingRow.tipo !== tipo) {
+      return toast.warning('Finaliza la edicion en su misma seccion.')
+    }
 
     if (isEditing) {
-      setRows((prev) => prev.map((row) => row.id === editingId ? { ...row, item, valor, tipo: form.tipo } : row))
+      setRows((prev) => prev.map((row) => row.id === editingId ? { ...row, item, valor, tipo } : row))
       toast.success('Input actualizado.')
       return resetForm()
     }
 
-    setRows((prev) => [...prev, { id: makeId(), item, valor, tipo: form.tipo }])
+    setRows((prev) => [...prev, { id: makeId(), item, valor, tipo }])
     toast.success('Input agregado.')
     resetForm()
   }
@@ -242,6 +273,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   async function guardarCosteoProyecto({ guardarComo = false } = {}) {
     const nombre = nombreProyecto.trim()
     if (!nombre) return toast.warning('Debes ingresar el nombre del proyecto a costear.')
+    if (ivaAplica === null) return toast.warning('Debes indicar si el IVA aplica (si/no) antes de guardar.')
 
     const snapshot = snapshotActual()
     const base = {
@@ -292,6 +324,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       duracionMeses: 1,
       celdasActivas: {},
       porcentajes: DEFAULT_PORCENTAJES,
+      ivaAplica: null,
     })
 
     limpiarCosteoActual()
@@ -339,6 +372,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
         duracionMeses: 1,
         celdasActivas: {},
         porcentajes: DEFAULT_PORCENTAJES,
+        ivaAplica: null,
       })
     } else {
       await guardarProceso(false, { proyectosGuardados: next })
@@ -354,6 +388,15 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
 
   function exportarExcelCosteo() {
     const data = [
+      ['Temporalidad de Proyecto'],
+      ['Item', 'Tipo', ...meses.map((m) => `Mes ${m}`), 'Total'],
+      ...rowsOrdenadas.map((row) => [
+        row.item,
+        TIPOS.find((t) => t.value === row.tipo)?.label || row.tipo,
+        ...meses.map((mes) => (celdasActivas[`${mes}-${row.id}`] ? 'X' : '')),
+        Number(totalesPorItem[row.id] || 0),
+      ]),
+      [],
       ['Concepto', 'Valor'],
       ['Costo FCH', costoFch],
       ['Imprevistos (%)', Number(porcentajes.imprevistos) || 0],
@@ -364,6 +407,9 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       ['Subtotal 2', subtotal2],
       ['Margen (%)', Number(porcentajes.margen) || 0],
       ['Margen ($)', margenMonto],
+      ['Pricing (sin IVA)', pricingSinIva],
+      ['IVA aplica', ivaAplica === null ? 'No definido' : ivaAplica ? 'Si' : 'No'],
+      ['IVA ($)', ivaMonto],
       ['Pricing (+ IVA)', pricingMasIva],
     ]
     const wb = XLSX.utils.book_new()
@@ -390,6 +436,9 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
         ['Subtotal 2', formatCLP(subtotal2)],
         ['Margen (%)', `${Number(porcentajes.margen) || 0}%`],
         ['Margen ($)', formatCLP(margenMonto)],
+        ['Pricing (sin IVA)', formatCLP(pricingSinIva)],
+        ['IVA aplica', ivaAplica === null ? 'No definido' : ivaAplica ? 'Si' : 'No'],
+        ['IVA ($)', formatCLP(ivaMonto)],
         ['Pricing (+ IVA)', formatCLP(pricingMasIva)],
       ],
       headStyles: { fillColor: [255, 81, 0] },
@@ -454,47 +503,76 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       )}
 
       <h2 className="text-2xl font-bold mt-8 mb-4" style={{ color: '#FF5100' }}>Costos</h2>
-      <form onSubmit={handleSubmit} className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
-          <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value })} className="px-3 py-2 border rounded-lg" placeholder="Item" />
-          <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
-          <select value={form.tipo} onChange={(e) => setForm({ ...form, tipo: e.target.value })} className="px-3 py-2 border rounded-lg">{TIPOS.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}</select>
-          <div className="flex gap-2">
-            <button type="submit" className="flex-1 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing ? 'Guardar' : 'Agregar'}</button>
-            {isEditing && <button type="button" onClick={resetForm} className="px-4 py-2 rounded-lg bg-gray-200 font-medium">Cancelar</button>}
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+        <h3 className="text-lg font-semibold mb-3">Costo de Recurso Humano</h3>
+        <form onSubmit={(event) => handleSubmit(event, 'GASTO_RH')} className="mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value, tipo: 'GASTO_RH' })} className="px-3 py-2 border rounded-lg" placeholder="Item" />
+            <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value, tipo: 'GASTO_RH' })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing && editingRow?.tipo === 'GASTO_RH' ? 'Guardar' : 'Agregar'}</button>
+              {isEditing && <button type="button" onClick={resetForm} className="px-4 py-2 rounded-lg bg-gray-200 font-medium">Cancelar</button>}
+            </div>
           </div>
+        </form>
+        <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Item</th><th className="text-right px-4 py-3 font-semibold">Valor</th><th className="text-left px-4 py-3 font-semibold">Acciones</th></tr></thead>
+            <tbody>
+              {rowsRH.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-500">No hay costos de recurso humano.</td></tr>}
+              {rowsRH.map((row) => (
+                <tr key={row.id} className="border-t border-gray-100">
+                  <td className="px-4 py-3">{row.item}</td>
+                  <td className="px-4 py-3 text-right">{formatCLP(row.valor)}</td>
+                  <td className="px-4 py-3"><div className="flex gap-2"><button type="button" onClick={() => handleEdit(row)} className="px-3 py-1 rounded bg-blue-50 text-blue-700 font-medium">Editar</button><button type="button" onClick={() => handleDelete(row.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 font-medium">Quitar</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      </form>
+      </div>
 
-      <div className="overflow-x-auto border border-gray-200 rounded-lg">
-        <table className="w-full text-sm">
-          <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Item</th><th className="text-right px-4 py-3 font-semibold">Valor</th><th className="text-left px-4 py-3 font-semibold">Tipo</th><th className="text-left px-4 py-3 font-semibold">Acciones</th></tr></thead>
-          <tbody>
-            {rows.length === 0 && <tr><td colSpan={4} className="px-4 py-8 text-center text-gray-500">No hay inputs cargados.</td></tr>}
-            {rows.map((row) => (
-              <tr key={row.id} className="border-t border-gray-100">
-                <td className="px-4 py-3">{row.item}</td>
-                <td className="px-4 py-3 text-right">{formatCLP(row.valor)}</td>
-                <td className="px-4 py-3">{TIPOS.find((t) => t.value === row.tipo)?.label || row.tipo}</td>
-                <td className="px-4 py-3"><div className="flex gap-2"><button type="button" onClick={() => handleEdit(row)} className="px-3 py-1 rounded bg-blue-50 text-blue-700 font-medium">Editar</button><button type="button" onClick={() => handleDelete(row.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 font-medium">Quitar</button></div></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+        <h3 className="text-lg font-semibold mb-3">Costos Operacionales</h3>
+        <form onSubmit={(event) => handleSubmit(event, 'GASTO_OPERACIONAL')} className="mb-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value, tipo: 'GASTO_OPERACIONAL' })} className="px-3 py-2 border rounded-lg" placeholder="Item" />
+            <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value, tipo: 'GASTO_OPERACIONAL' })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
+            <div className="flex gap-2">
+              <button type="submit" className="flex-1 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing && editingRow?.tipo === 'GASTO_OPERACIONAL' ? 'Guardar' : 'Agregar'}</button>
+              {isEditing && <button type="button" onClick={resetForm} className="px-4 py-2 rounded-lg bg-gray-200 font-medium">Cancelar</button>}
+            </div>
+          </div>
+        </form>
+        <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
+          <table className="w-full text-sm">
+            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Item</th><th className="text-right px-4 py-3 font-semibold">Valor</th><th className="text-left px-4 py-3 font-semibold">Acciones</th></tr></thead>
+            <tbody>
+              {rowsOperacionales.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-500">No hay costos operacionales.</td></tr>}
+              {rowsOperacionales.map((row) => (
+                <tr key={row.id} className="border-t border-gray-100">
+                  <td className="px-4 py-3">{row.item}</td>
+                  <td className="px-4 py-3 text-right">{formatCLP(row.valor)}</td>
+                  <td className="px-4 py-3"><div className="flex gap-2"><button type="button" onClick={() => handleEdit(row)} className="px-3 py-1 rounded bg-blue-50 text-blue-700 font-medium">Editar</button><button type="button" onClick={() => handleDelete(row.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 font-medium">Quitar</button></div></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
 
       <h2 className="text-2xl font-bold mt-8 mb-4" style={{ color: '#FF5100' }}>Temporalidad de Proyecto</h2>
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mb-4">
           <div><label className="block text-sm font-medium text-gray-700 mb-1">Duracion del proyecto (meses)</label><input type="number" min="1" step="1" value={duracionMeses} onChange={(e) => setDuracionMeses(Math.max(1, Number(e.target.value) || 1))} className="w-full px-3 py-2 border rounded-lg" /></div>
-          <div className="md:col-span-2 text-sm text-gray-600">Matriz generada: <strong>{meses.length}</strong> meses x <strong>{rows.length}</strong> inputs = <strong>{meses.length * rows.length}</strong> celdas.</div>
+          <div className="md:col-span-2" />
         </div>
         <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Item</th>{meses.map((mes) => <th key={mes} className="text-center px-4 py-3 font-semibold min-w-24">Mes {mes}</th>)}<th className="text-right px-4 py-3 font-semibold">Total</th></tr></thead>
+            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Tipo de costo</th><th className="text-left px-4 py-3 font-semibold">Item</th>{meses.map((mes) => <th key={mes} className="text-center px-4 py-3 font-semibold min-w-24">Mes {mes}</th>)}<th className="text-right px-4 py-3 font-semibold">Total</th></tr></thead>
             <tbody>
-              {rows.map((row, idx) => (<tr key={row.id} className="border-t border-gray-100"><td className="px-4 py-3 font-medium">{row.item}</td>{meses.map((mes) => { const key = `${mes}-${row.id}`; return <td key={key} className="px-4 py-3 text-center"><input type="checkbox" checked={Boolean(celdasActivas[key])} onChange={() => toggleCelda(mes, row.id)} className="h-4 w-4 accent-[#FF5100]" /></td> })}<td className="px-4 py-3 text-right font-semibold">{formatCLP(totalesPorItem[idx] || 0)}</td></tr>))}
-              {rows.length === 0 && <tr><td colSpan={meses.length + 2} className="px-4 py-8 text-center text-gray-500">Agrega inputs para generar la matriz de costeo.</td></tr>}
+              {rowsOrdenadas.map((row) => (<tr key={row.id} className="border-t border-gray-100"><td className="px-4 py-3">{TIPOS.find((t) => t.value === row.tipo)?.label || row.tipo}</td><td className="px-4 py-3 font-medium">{row.item}</td>{meses.map((mes) => { const key = `${mes}-${row.id}`; return <td key={key} className="px-4 py-3 text-center"><input type="checkbox" checked={Boolean(celdasActivas[key])} onChange={() => toggleCelda(mes, row.id)} className="h-4 w-4 accent-[#FF5100]" /></td> })}<td className="px-4 py-3 text-right font-semibold">{formatCLP(totalesPorItem[row.id] || 0)}</td></tr>))}
+              {rows.length === 0 && <tr><td colSpan={meses.length + 3} className="px-4 py-8 text-center text-gray-500">Agrega inputs para generar la matriz de costeo.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -517,6 +595,9 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
             <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">Subtotal 2</td><td className="px-3 py-2 text-right font-semibold">{formatCLP(subtotal2)}</td></tr>
             <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">Margen (%)</td><td className="px-3 py-2 text-right"><input type="number" step="0.01" min="0" value={porcentajes.margen} onChange={(e) => setPorcentajes((p) => ({ ...p, margen: Math.max(0, Number(e.target.value) || 0) }))} className="w-24 px-2 py-1 border rounded text-right" /></td></tr>
             <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">Margen ($)</td><td className="px-3 py-2 text-right">{formatCLP(margenMonto)}</td></tr>
+            <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">Pricing (sin IVA)</td><td className="px-3 py-2 text-right font-semibold">{formatCLP(pricingSinIva)}</td></tr>
+            <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">IVA</td><td className="px-3 py-2 text-right"><select value={ivaAplica === null ? '' : ivaAplica ? 'SI' : 'NO'} onChange={(e) => setIvaAplica(e.target.value === '' ? null : e.target.value === 'SI')} className="w-24 px-2 py-1 border rounded text-right"><option value="">Elegir</option><option value="SI">Si</option><option value="NO">No</option></select></td></tr>
+            <tr className="border-b border-gray-200"><td className="px-3 py-2 font-semibold bg-gray-100">IVA ($)</td><td className="px-3 py-2 text-right">{formatCLP(ivaMonto)}</td></tr>
             <tr><td className="px-3 py-2 font-semibold bg-gray-100">Pricing (+ IVA)</td><td className="px-3 py-2 text-right font-bold">{formatCLP(pricingMasIva)}</td></tr>
           </tbody></table>
         </div>

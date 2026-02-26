@@ -204,3 +204,44 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 
 
+
+## [2026-02-26] - Costeo: separacion de costos RH y Operacionales en Nuevo costeo
+
+- En `VistaCosteoInputs` se separo el bloque `Costos` en dos contenedores:
+  - `Costo de Recurso Humano`
+  - `Costos Operacionales`
+- Cada contenedor permite agregar/editar/quitar items en su propio tipo.
+- La matriz de `Temporalidad de Proyecto` mantiene meses como columnas y ahora renderiza filas agrupadas:
+  - primero `GASTO_RH`
+  - luego `GASTO_OPERACIONAL`
+- Se ajusto el calculo de totales por item para usar clave por `row.id`.
+
+### Archivos modificados
+- `src/components/VistaCosteoInputs.jsx`
+- Se agrego decision obligatoria de `IVA` (Si/No) en tabla de `Costeo`:
+  - se calcula `IVA ($)` con 19% sobre `Pricing (sin IVA)` cuando aplica
+  - se actualiza `Pricing (+ IVA)` en base a la seleccion
+  - bloqueo de guardado de costeo si IVA no esta definido
+- Se persiste `ivaAplica` dentro del snapshot y metadata en Supabase.
+- Exportacion Excel de costeo ahora incluye arriba la matriz completa de `Temporalidad de Proyecto` (items, tipo, meses y total).
+
+## [2026-02-26] - Control de Cambios: refresco inmediato de cambios de valores
+
+- Se conecto `VistaOportunidades` con callback a `App` para recargar `cambios` tras registrar auditoria en:
+  - edicion de valores (ingresos/hh/gastos)
+  - cambios de estado
+  - eliminacion de oportunidad
+- Con esto, la pestaña `Cambios de Valores` se actualiza sin necesidad de recargar manualmente la app.
+
+### Archivos modificados
+- `src/App.jsx`
+- `src/components/VistaOportunidades.jsx`
+
+## [2026-02-26] - Control de Cambios: criterio correcto para Valores vs Proyectos
+
+- `Cambios de Valores` ahora muestra solo cambios de campos numericos: `INGRESOS`, `HH`, `GGOO`/`GASTOS`.
+- `OPORTUNIDAD ELIMINADA` se mueve a la vista `Cambios de Proyectos`.
+- `Estados` se mantiene exclusivo para cambios de campo `ESTADO`.
+
+### Archivos modificados
+- `src/App.jsx`
