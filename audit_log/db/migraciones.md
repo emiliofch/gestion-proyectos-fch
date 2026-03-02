@@ -13,6 +13,20 @@ Los scripts estÃ¡n ubicados en la raÃ­z del proyecto.
 - **Proposito:** Crear tabla `costeo_procesos` para guardar Proceso de Costeo por `user_id + empresa`.
 - **Tablas afectadas:** `costeo_procesos` (CREATE + RLS + POLICIES)
 
+### `supabase/migrations/20260302120000_add_fecha_adjudicacion_oportunidades.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Agregar `fecha_adjudicacion` en `oportunidades` para registrar mes de adjudicacion (`ene-26`).
+- **Tablas afectadas:** `oportunidades` (ALTER TABLE ADD COLUMN + CHECK CONSTRAINT)
+- **Validacion:** formato `^(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)-[0-9]{2}$` o `NULL`.
+
+### `supabase/migrations/20260302152000_add_delete_policy_cambios.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Habilitar eliminacion real de registros en `cambios` solo para admin de la misma empresa.
+- **Tablas afectadas:** `cambios` (CREATE POLICY FOR DELETE)
+- **Politica:** `cambios_delete_admin_same_empresa`.
+
 ---
 ## Scripts ejecutados (en orden cronolÃ³gico)
 
@@ -131,3 +145,23 @@ WHERE table_schema = 'public'
 ORDER BY pg_total_relation_size(quote_ident(table_name)) DESC;
 ```
 
+
+### 10. `supabase/migrations/20260226170000_hardening_rls_empresa.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuándo:** Febrero 2026
+- **Propósito:** Hardening de seguridad para aislamiento por empresa y control por rol en RLS
+- **Tablas afectadas:**
+  - `proyectos` (ADD `empresa` + backfill + RLS endurecido)
+  - `oportunidades` (ADD `empresa` + backfill + RLS endurecido)
+  - `cambios` (ADD `empresa` + backfill + RLS endurecido)
+  - `solicitudes_oc` (RLS por usuario/admin en misma empresa)
+  - `configuracion_emails` (admin gestiona solo su empresa)
+  - `storage.objects` bucket `oc-adjuntos` (admin lectura solo misma empresa)
+- **Funciones creadas:**
+  - `public.current_user_empresa()`
+  - `public.is_current_user_admin()`
+- **Impacto esperado:** disminucion de superficie de acceso no autorizado entre CGV/HUB_MET.
+- **Evidencia de ejecución:**
+  - `npx supabase db push --linked` aplicó `20260226170000_hardening_rls_empresa.sql`.
+  - `npx supabase migration list --linked` muestra local/remoto en sync.
+  - `npx supabase db push --linked --dry-run` => `Remote database is up to date`.

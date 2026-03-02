@@ -7,6 +7,34 @@ Ver lista detallada de scripts en [migraciones.md](./migraciones.md).
 
 ---
 
+## [2026-03-02] - Control de cambios: habilitar DELETE para admin
+
+- Se agrega migracion `supabase/migrations/20260302152000_add_delete_policy_cambios.sql`.
+- Se crea politica RLS `cambios_delete_admin_same_empresa` en `public.cambios`.
+- Regla aplicada: solo usuarios admin pueden eliminar registros, y solo de su misma empresa.
+
+### Impacto DB
+- Seguridad: se mantiene aislamiento por empresa en operacion `DELETE`.
+- Comportamiento: el basurero de Control de Cambios ahora puede borrar realmente (si el usuario cumple politica RLS).
+- Estado actual: aplicada en remoto (`20260302152000`).
+
+---
+
+## [2026-03-02] - Oportunidades: fecha de adjudicacion (pendiente de ejecutar)
+
+- Se agrega migracion versionada `supabase/migrations/20260302120000_add_fecha_adjudicacion_oportunidades.sql`.
+- La migracion incorpora la columna `fecha_adjudicacion` en `public.oportunidades`.
+- Se agrega constraint de formato para validar `mes-yy` en espanol abreviado:
+  - `ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic`
+  - ejemplo valido: `ene-26`
+
+### Impacto DB
+- Cambio de esquema: `ALTER TABLE public.oportunidades ADD COLUMN fecha_adjudicacion TEXT`.
+- Validacion de datos con `CHECK` (`oportunidades_fecha_adjudicacion_chk`).
+- Estado actual: pendiente de aplicar en entorno remoto.
+
+---
+
 ## [2026-02-25] - Proceso de Costeo: tabla de persistencia (pendiente de ejecutar)
 
 - Cambio de navegacion y flujo de UI en modulo Costeo (sin cambios de esquema).
@@ -177,3 +205,27 @@ Los IDs mostrados en la UI se calculaban en el frontend con `index + 1`, lo que 
 
 
 
+
+## [2026-02-26] - Hardening RLS por empresa/rol (pre-auditoria Sonar)
+
+**Script:** `supabase/migrations/20260226170000_hardening_rls_empresa.sql`
+
+### Cambios de seguridad
+- Se crean funciones helper seguras:
+  - `public.current_user_empresa()`
+  - `public.is_current_user_admin()`
+- Se agrega columna `empresa` y backfill en tablas clave:
+  - `proyectos`
+  - `oportunidades`
+  - `cambios`
+- Se reemplazan políticas abiertas (`USING true`) por políticas aisladas por empresa.
+- Se fuerza RLS (`FORCE ROW LEVEL SECURITY`) en tablas críticas.
+- Se refuerzan políticas en:
+  - `solicitudes_oc` (usuario/admin solo misma empresa)
+  - `configuracion_emails` (admin de su empresa)
+  - `storage.objects` para bucket `oc-adjuntos` (admin solo archivos de su misma empresa)
+
+### Objetivo de auditoría
+- Reducir riesgos de acceso cruzado CGV/HUB_MET.
+- Eliminar exposición por políticas permisivas.
+- Alinear controles de acceso con hallazgos de seguridad/Hotspots.

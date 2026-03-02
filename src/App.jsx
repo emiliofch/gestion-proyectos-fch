@@ -25,11 +25,15 @@ import VistaCosteoInputs from './components/VistaCosteoInputs'
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
 
+function buildTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
+
 function App() {
   const [user, setUser] = useState(null)
   const [perfil, setPerfil] = useState(null)
   const [loading, setLoading] = useState(true)
-  const [procesando, setProcesando] = useState(false)
+  const [_procesando, setProcesando] = useState(false)
   const [proyectos, setProyectos] = useState([])
   const [confirmacion, setConfirmacion] = useState(null)
   const [cambios, setCambios] = useState([])
@@ -39,11 +43,10 @@ function App() {
   const [submenuOC, setSubmenuOC] = useState(false)
   const [submenuTablas, setSubmenuTablas] = useState(false)
   const [submenuCosteo, setSubmenuCosteo] = useState(false)
-  const [filtroJefe, setFiltroJefe] = useState('')
-  const [busqueda, setBusqueda] = useState('')
+  const [filtroJefe] = useState('')
+  const [busqueda] = useState('')
   const [ordenColumna, setOrdenColumna] = useState('nombre')
   const [ordenDireccion, setOrdenDireccion] = useState('asc')
-  const [mostrarInstrucciones, setMostrarInstrucciones] = useState(false)
   const [modalAbierto, setModalAbierto] = useState(false)
   const [edicionActual, setEdicionActual] = useState(null)
   const [tipoControlCambios, setTipoControlCambios] = useState('valor')
@@ -52,6 +55,7 @@ function App() {
   const [votos, setVotos] = useState([])
   const [filtroEstadoSugerencias, setFiltroEstadoSugerencias] = useState('')
 
+  // Intencional: se inicializa una sola vez al montar App.
   useEffect(() => {
     verificarSesion()
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
@@ -70,6 +74,7 @@ function App() {
     }
   }, [])
 
+  // Intencional: refresco de datos cuando cambia sesion/perfil.
   useEffect(() => {
     if (user && perfil) {
       if (perfil.primera_vez) {
@@ -103,7 +108,7 @@ function App() {
     setFavoritos(data?.map(f => f.proyecto_id) || [])
   }
 
-  async function toggleFavorito(proyectoId) {
+  async function _toggleFavorito(proyectoId) {
     if (favoritos.includes(proyectoId)) {
       await supabase.from('favoritos').delete().eq('user_id', user.id).eq('proyecto_id', proyectoId)
       setFavoritos(favoritos.filter(id => id !== proyectoId))
@@ -127,6 +132,31 @@ function App() {
   async function cargarCambios() {
     const { data } = await supabase.from('cambios').select('*').order('fecha', { ascending: false })
     setCambios(data || [])
+  }
+
+  async function eliminarCambioRegistro(cambioId) {
+    if (perfil?.rol !== 'admin') {
+      toast.error('No tienes permisos para eliminar registros')
+      return
+    }
+    if (!window.confirm('¿Eliminar este registro del control de cambios?')) return
+
+    const { data: eliminados, error } = await supabase
+      .from('cambios')
+      .delete()
+      .eq('id', cambioId)
+      .select('id')
+    if (error) {
+      toast.error('Error al eliminar registro: ' + error.message)
+      return
+    }
+    if (!eliminados || eliminados.length === 0) {
+      toast.error('No fue posible eliminar el registro (permisos RLS o registro inexistente)')
+      await cargarCambios()
+      return
+    }
+    toast.success('Registro eliminado')
+    await cargarCambios()
   }
 
   async function cargarSugerencias() {
@@ -217,7 +247,7 @@ function App() {
     })
   }
 
-  async function importarExcel(e) {
+  async function _importarExcel(e) {
     const file = e.target.files[0]
     if (!file) return
 
@@ -244,8 +274,6 @@ function App() {
 
         for (let i = 0; i < data.length; i++) {
           const row = data[i]
-          console.log(`--- Fila ${i + 1} ---`)
-          console.log('Row:', JSON.stringify(row))
 
           const proyectoNombre = row.PROYECTO || row.proyecto || row['PROYECTO '] || ''
           const ingresos = parseNumero(row.INGRESOS || row.ingresos)
@@ -321,7 +349,7 @@ function App() {
     e.target.value = ''
   }
 
-  async function crearProyecto() {
+  async function _crearProyecto() {
     const nombre = prompt('Nombre del proyecto:')
     if (!nombre) return
     
@@ -376,7 +404,7 @@ function App() {
     setProcesando(false)
   }
 
-  async function borrarProyecto(proyecto) {
+  async function _borrarProyecto(proyecto) {
     setConfirmacion({
       mensaje: `¿Seguro que deseas eliminar el proyecto "${proyecto.nombre}"?`,
       tipo: 'danger',
@@ -407,7 +435,7 @@ function App() {
     })
   }
 
-  async function borrarTodosProyectos() {
+  async function _borrarTodosProyectos() {
     setConfirmacion({
       mensaje: '⚠️ ¿Estás SEGURO de eliminar TODOS los proyectos? Esta acción es irreversible.',
       tipo: 'danger',
@@ -424,7 +452,7 @@ function App() {
     })
   }
 
-  function abrirModalEdicion(proyecto, campo, valorActual) {
+  function _abrirModalEdicion(proyecto, campo, valorActual) {
     setEdicionActual({
       proyecto,
       campo,
@@ -485,7 +513,7 @@ function App() {
     setEdicionActual(null)
   }
 
-  function exportarExcel() {
+  function _exportarExcel() {
     const datos = proyectosFiltrados.map(p => ({
       'Proyecto': p.nombre,
       'Jefe': p.jefe,
@@ -498,10 +526,10 @@ function App() {
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(datos)
     XLSX.utils.book_append_sheet(wb, ws, "Proyectos")
-    XLSX.writeFile(wb, `proyectos_${new Date().toISOString().split('T')[0]}.xlsx`)
+    XLSX.writeFile(wb, `proyectos_${buildTimestamp()}.xlsx`)
   }
 
-  function exportarPDF() {
+  function _exportarPDF() {
     const doc = new jsPDF()
     
     doc.setFontSize(18)
@@ -524,10 +552,10 @@ function App() {
       headStyles: { fillColor: [255, 81, 0] }
     })
 
-    doc.save(`proyectos_${new Date().toISOString().split('T')[0]}.pdf`)
+    doc.save(`proyectos_${buildTimestamp()}.pdf`)
   }
 
-  function ordenarPor(columna) {
+  function _ordenarPor(columna) {
     if (ordenColumna === columna) {
       setOrdenDireccion(ordenDireccion === 'asc' ? 'desc' : 'asc')
     } else {
@@ -536,7 +564,7 @@ function App() {
     }
   }
 
-  const jefes = [...new Set(proyectos.map(p => p.jefe))]
+  const _jefes = [...new Set(proyectos.map(p => p.jefe))]
   
   let proyectosFiltrados = proyectos
   
@@ -878,6 +906,8 @@ function App() {
                 cambiosFiltrados={cambiosFiltrados}
                 tipoControlCambios={tipoControlCambios}
                 setTipoControlCambios={setTipoControlCambios}
+                perfil={perfil}
+                onEliminarCambio={eliminarCambioRegistro}
               />
             )}
 
@@ -902,7 +932,7 @@ function App() {
             )}
 
             {vista === 'solicitud-oc' && (
-              <VistaSolicitudOC key={Date.now()} user={user} perfil={perfil} />
+              <VistaSolicitudOC key={`solicitud-oc-${perfil?.empresa || 'CGV'}`} user={user} perfil={perfil} />
             )}
 
             {vista === 'admin-oc' && perfil?.rol === 'admin' && (
@@ -964,5 +994,6 @@ function App() {
 }
 
 export default App
+
 
 

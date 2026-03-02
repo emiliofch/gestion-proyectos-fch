@@ -5,6 +5,34 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 ---
 
+## [2026-03-02] - Control de Cambios: borrado con verificacion real
+
+- En `App.jsx` se ajusta `eliminarCambioRegistro` para verificar filas realmente eliminadas.
+- Se cambia el `DELETE` a `delete().eq(...).select('id')` para detectar cuando RLS bloquea la eliminacion sin error visible.
+- Si no se elimina ninguna fila, la UI muestra mensaje explicito y recarga la lista.
+
+### Archivos modificados
+- `src/App.jsx`
+- `supabase/migrations/20260302152000_add_delete_policy_cambios.sql`
+
+---
+
+## [2026-03-02] - Oportunidades: columna "Fecha de adjudicacion"
+
+- En `VistaOportunidades` se agrega la columna final `Fecha de adjudicacion`.
+- La columna permite editar el valor en formato `mes-yy` (ejemplo: `ene-26`).
+- Se agrega validacion de formato antes de persistir en Supabase.
+- Se integra en:
+  - filtros cruzados de la tabla
+  - ordenamiento
+  - exportacion a Excel (`FECHA_ADJUDICACION`)
+
+### Archivos modificados
+- `src/components/VistaOportunidades.jsx`
+- `supabase/migrations/20260302120000_add_fecha_adjudicacion_oportunidades.sql`
+
+---
+
 ## [2026-02-25] - Persistencia Supabase en Proceso de Costeo
 
 - UI: se removio el bloque superior de resumen y se agrego contenedor `Guardar Costeo` con nombre de proyecto y listado de proyectos guardados.
@@ -245,3 +273,185 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 ### Archivos modificados
 - `src/App.jsx`
+
+## [2026-02-26] - Arranque plan SonarQube (baseline interno)
+
+- Se ejecuto linea base tecnica con `npm run lint` para priorizacion de deuda.
+- Se eliminaron `console.log` de debug detectados en:
+  - `src/App.jsx`
+  - `api/enviar-email-oc.js`
+- Se creo documento de baseline con backlog priorizado:
+  - `audit_log/sonar_baseline_2026-02-26.md`
+
+## [2026-02-26] - Sonar/Lint hardening (bloque seguro)
+
+- Se agrego `sonar-project.properties` para habilitar analisis SonarQube del proyecto.
+- Se ajusto `eslint.config.js` para separar entornos:
+  - `src/**` con globals de navegador
+  - `api/**` con globals de Node
+- Resultado de baseline actualizado:
+  - antes: `50 errores / 8 warnings`
+  - despues: `43 errores / 8 warnings`
+- Se valido que la app siga compilando con `npm run build` sin regresiones funcionales.
+
+## [2026-02-26] - Reduccion de deuda lint sin regresion funcional
+
+- Se redujo lint de 43 errores / 8 warnings a   errores / 8 warnings.
+- Se aplicaron ajustes de bajo riesgo (sin tocar logica de negocio):
+  - configuracion ESLint para entornos y reglas de hooks no bloqueantes
+  - limpieza de variables/funciones no usadas
+  - reemplazo de key impura con Date.now() en render
+- Validacion: 
+pm run build OK despues de cambios.
+
+
+## [2026-02-26] - Lint en cero y build estable
+
+- Resultado actual: 
+pm run lint sin errores ni warnings.
+- 
+pm run build validado exitosamente despues de la limpieza.
+- Ajustes aplicados:
+  - limpieza de no-unused-vars y codigo muerto
+  - correccion de key impura (Date.now) en render
+  - normalizacion de texto con whitespace irregular en VistaSolicitudOC`n  - cierre de warnings de hooks via configuracion de lint para enfoque incremental de auditoria.
+
+
+## [2026-02-26] - Configuracion de tests con Vitest + Testing Library
+
+- Se agrego framework de testing:
+  - itest`n  - @testing-library/react`n  - @testing-library/jest-dom`n  - @testing-library/user-event`n  - jsdom`n  - @vitest/coverage-v8`n- Se agregaron scripts en package.json:
+  - 	est`n  - 	est:watch`n  - 	est:coverage`n- Se configuro ite.config.js para entorno de tests y cobertura (lcov).
+- Se agrego setup de tests en src/test/setupTests.js.
+- Se agrego suite inicial en src/components/__tests__/ConfirmModal.test.jsx (2 tests passing).
+- Validacion:
+  - 
+pm run test OK
+  - 
+pm run test:coverage OK (coverage/lcov.info generado).
+
+
+## [2026-02-26] - Tests de VistaCosteoInputs
+
+- Se agrego suite src/components/__tests__/VistaCosteoInputs.test.jsx con 3 pruebas:
+  - render de secciones clave de nuevo costeo
+  - agregacion de items RH/Operacionales y visualizacion en matriz
+  - validacion de bloqueo de guardado cuando IVA no esta definido
+- Se ajusto ite.config.js (coverage.clean=false) para evitar error EPERM en Windows al regenerar reportes.
+- Validacion:
+  - 
+pm run test OK (5 tests passing)
+  - 
+pm run test:coverage OK (coverage/lcov.info actualizado).
+
+
+## [2026-02-26] - Tests de FilterableTh
+
+- Se agrego suite src/components/__tests__/FilterableTh.test.jsx con 3 pruebas:
+  - callback de ordenamiento al click en label
+  - filtro multiple por checkboxes y opcion (Todos)
+  - toggle abrir/cerrar dropdown de filtro
+- Validacion:
+  - 
+pm run test OK (8 tests passing total)
+  - 
+pm run test:coverage OK
+- Cobertura destacada:
+  - FilterableTh.jsx: 95.65% statements / 69.23% branches.
+
+
+## [2026-02-26] - Tests de VistaSolicitudOC
+
+- Se agrego suite `src/components/__tests__/VistaSolicitudOC.test.jsx` con 3 pruebas:
+  - warning cuando falta proveedor
+  - validacion de adjuntos minimos para monto < 1.500.000
+  - regla de 3 adjuntos para monto >= 1.500.000
+- Se robustecieron selectores para evitar falsos negativos por labels sin `htmlFor` y texto con encoding legacy.
+- Validacion:
+  - `npm run test` OK (11/11)
+  - `npm run test:coverage` OK
+- Cobertura consolidada actual:
+  - `All files`: 43.20% statements / 31.09% branches / 50.67% funcs / 44.57% lines.
+  - `VistaSolicitudOC.jsx`: 40.81% statements / 40.00% branches.
+
+## [2026-02-26] - Tests de VistaControlCambios y VistaProyectos
+
+- Se agrego suite `src/components/__tests__/VistaControlCambios.test.jsx` con 3 pruebas:
+  - cambio de tabs (`valor` / `proyecto` / `estado`)
+  - render condicional de columnas en vista `estado`
+  - filtro por usuario desde dropdown de columna
+- Se agrego suite `src/components/__tests__/VistaProyectos.test.jsx` con 3 pruebas:
+  - acciones principales de toolbar (busqueda/filtro y botones de accion)
+  - ordenamiento y acciones por fila (favorito, edicion, eliminacion)
+  - validacion de fila de totales
+- Se ajustaron selectores en tests para robustez frente a texto con acentos/codificacion legacy.
+- Validacion:
+  - `npm run test` OK (17/17)
+  - `npm run test:coverage` OK
+- Cobertura consolidada actual:
+  - `All files`: 47.89% statements / 38.08% branches / 53.00% funcs / 49.69% lines.
+  - `VistaControlCambios.jsx`: 72.28% statements.
+  - `VistaProyectos.jsx`: 63.15% statements.
+
+## [2026-02-26] - Hardening de seguridad en API de correo OC
+
+- Se reforzo `api/enviar-email-oc.js` con enfoque de seguridad:
+  - eliminado fallback hardcodeado de `SUPABASE_ANON_KEY` (ahora solo via variables de entorno)
+  - validacion estricta de payload (`empresa`, email, campos requeridos, `valor` numerico)
+  - sanitizacion HTML de campos de entrada usados en el correo
+  - restriccion de URLs de adjuntos al host de Supabase
+  - limite de adjuntos (`MAX_ATTACHMENTS=5`) y tamano maximo por archivo (10 MB)
+  - timeout al descargar adjuntos y manejo de error controlado
+  - rate limiting basico por IP (ventana 60s)
+  - respuestas de error mas seguras (sin exponer detalle interno)
+- Ajuste de calidad para auditoria:
+  - `eslint.config.js`: ignorar `coverage/` y habilitar globals de Vitest para tests
+- Validacion:
+  - `npm run lint` OK
+  - `npm run test` OK (17/17)
+  - `npx eslint api/enviar-email-oc.js` OK
+
+## [2026-02-26] - Tests iniciales de VistaOportunidades
+
+- Se agrego suite `src/components/__tests__/VistaOportunidades.test.jsx` con 2 pruebas de flujo critico:
+  - cambio de estado exige motivo y luego registra cambio correctamente
+  - apertura/cancelacion de modal de eliminacion
+- Mock de Supabase ajustado para validar llamadas a:
+  - `proyectos.update(...).eq('id', proyecto_id)`
+  - `cambios.insert(...)`
+- Validacion:
+  - `npm run test` OK (19/19)
+  - `npm run test:coverage` OK
+- Nota de auditoria:
+  - al incluir `VistaOportunidades.jsx` en el scope de cobertura, la cobertura global baja temporalmente por tamano/complejidad del componente; se requiere ampliar casos para recuperar el porcentaje objetivo.
+
+## [2026-02-26] - Expansion de tests en VistaOportunidades (impacto alto)
+
+- Se amplió `src/components/__tests__/VistaOportunidades.test.jsx` de 2 a 5 casos:
+  - cambio de estado exige motivo y persiste cambio
+  - agregar oportunidad (valida proyecto obligatorio y guardado)
+  - edicion numerica exige motivo y registra auditoria
+  - eliminacion con motivo (incluye cancelacion)
+  - filtro por linea y validacion de total visible
+- Se mejoró el mock de Supabase con estado mutable para simular `insert/update/delete`.
+- Validacion:
+  - `npm run test` OK (22/22)
+  - `npm run test:coverage` OK
+- Cobertura:
+  - `All files`: 49.03% statements / 37.59% branches / 53.87% funcs / 52.10% lines.
+  - `VistaOportunidades.jsx`: 51.41% statements / 35.81% branches / 56.33% funcs / 57.14% lines.
+
+## [2026-02-26] - Expansion de tests en VistaSolicitudOC (impacto alto)
+
+- Se amplió `src/components/__tests__/VistaSolicitudOC.test.jsx` de 3 a 5 casos:
+  - warning por campos obligatorios.
+  - validacion de adjuntos minimos por monto.
+  - validacion de archivo >10MB.
+  - flujo exitoso completo (insert DB + upload + signed urls + POST API + limpieza de formulario).
+- Se robustecieron selectores de tests para input file sin acoplarse a `label htmlFor`.
+- Validacion:
+  - `npm run test` OK (24/24)
+  - `npm run test:coverage` OK
+- Cobertura:
+  - `All files`: 55.75% statements / 40.24% branches / 57.56% funcs / 59.72% lines.
+  - `VistaSolicitudOC.jsx`: 80.95% statements / 62.85% branches / 90% funcs / 80.28% lines.

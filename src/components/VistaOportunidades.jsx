@@ -6,11 +6,32 @@ import { toast } from 'react-toastify'
 import ResizableTh from './ResizableTh'
 import FilterableTh from './FilterableTh'
 
-const ESTADOS_OPT = ['Efectivo', 'No Efectivo', 'Adjudicado']
+const ESTADOS_OPT = ['Efectivo', 'No Efectivo', 'Adjudicado', 'Cancelado']
+const MESES_ADJUDICACION = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
+
+function buildTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
 
 function fmt(val) {
   const millones = (parseFloat(val) || 0) / 1_000_000
   return '$' + millones.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+function normalizarMesAdjudicacion(raw) {
+  const txt = String(raw || '').trim().toLowerCase()
+  if (!txt) return null
+  const match = txt.match(/^([a-z]{3})-(\d{2})$/)
+  if (!match) return undefined
+  const mes = match[1]
+  const anio = match[2]
+  if (!MESES_ADJUDICACION.includes(mes)) return undefined
+  return `${mes}-${anio}`
+}
+
+function puedeEditarFechaAdjudicacion(estado) {
+  return ESTADOS_ADJUDICACION_EDITABLE.includes(estado || '')
 }
 
 function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opciones, filtro, onFiltro, dropdownAbierto, onToggleDropdown }) {
@@ -86,6 +107,7 @@ function badgeEstado(estado, oportunidad, onSolicitar) {
     'Efectivo':    'bg-green-100 text-green-800 border-green-300',
     'No Efectivo': 'bg-red-100 text-red-800 border-red-300',
     'Adjudicado':  'bg-blue-100 text-blue-800 border-blue-300',
+    'Cancelado':   'bg-gray-200 text-gray-800 border-gray-400',
   }
   const cls = colores[estado] || 'bg-gray-100 text-gray-600 border-gray-300'
   return (
@@ -107,7 +129,6 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   const [procesando, setProcesando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
   const [mostrarInstrucciones, setMostrarInstrucciones] = useState(false)
-  const [filtroLinea, setFiltroLinea] = useState('')
   const [ordenCol, setOrdenCol] = useState(null)
   const [ordenDir, setOrdenDir] = useState('asc')
 
@@ -326,6 +347,41 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     cargarDatos()
   }
 
+  async function actualizarFechaAdjudicacion(oportunidad, valor, onInvalid) {
+    if (!puedeEditarFechaAdjudicacion(oportunidad.proyectos?.estado)) {
+      toast.error('Fecha de adjudicacion solo editable en estado Efectivo o No Efectivo')
+      onInvalid?.(oportunidad.fecha_adjudicacion || '')
+      return
+    }
+
+    const normalizado = normalizarMesAdjudicacion(valor)
+    if (normalizado === undefined) {
+      toast.error('Formato invalido. Usa mes en formato "ene-26"')
+      onInvalid?.(oportunidad.fecha_adjudicacion || '')
+      return
+    }
+
+    const actual = oportunidad.fecha_adjudicacion || null
+    if (normalizado === actual) return
+
+    const { error } = await supabase
+      .from('oportunidades')
+      .update({ fecha_adjudicacion: normalizado })
+      .eq('id', oportunidad.id)
+
+    if (error) {
+      toast.error('Error al actualizar fecha de adjudicacion: ' + error.message)
+      onInvalid?.(oportunidad.fecha_adjudicacion || '')
+      return
+    }
+
+    setOportunidades((prev) => prev.map((o) => (
+      o.id === oportunidad.id
+        ? { ...o, fecha_adjudicacion: normalizado }
+        : o
+    )))
+  }
+
   // â”€â”€ IMPORTAR EXCEL â”€â”€
   async function importarExcel(e) {
     const file = e.target.files[0]
@@ -447,34 +503,64 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   }
 
   // â”€â”€ LÃNEAS ÃšNICAS PARA EL FILTRO SUPERIOR â”€â”€
-  const lineasUnicas = [...new Set(
-    oportunidades.map(o => o.proyectos?.ceco).filter(Boolean)
-  )].sort()
+  function coincideFiltros(o, omitirCol = null) {
+    const q = busqueda.toLowerCase()
+    const jefe = o.proyectos?.colaboradores?.colaborador
+    const matchBusqueda = (
+      o.proyectos?.nombre?.toLowerCase().includes(q) ||
+      o.proyectos?.ceco?.toLowerCase().includes(q) ||
+      o.proyectos?.estado?.toLowerCase().includes(q) ||
+      jefe?.toLowerCase().includes(q)
+    )
+    const matchFLinea = omitirCol === 'linea' || !filtros.linea?.length || filtros.linea.includes(o.proyectos?.ceco)
+    const matchFProy = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(o.proyectos?.nombre)
+    const matchFJefe = omitirCol === 'jefe' || !filtros.jefe?.length || filtros.jefe.includes(jefe)
+    const matchFEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(o.proyectos?.estado)
+    const matchFFechaAdjudicacion = omitirCol === 'fechaAdjudicacion' || !filtros.fechaAdjudicacion?.length || filtros.fechaAdjudicacion.includes(o.fecha_adjudicacion)
+    return matchBusqueda && matchFLinea && matchFProy && matchFJefe && matchFEstado && matchFFechaAdjudicacion
+  }
+
+  function exportarExcel() {
+    const filas = oportunidadesFiltradas.map((o) => {
+      const ingresos = parseFloat(o.ingresos) || 0
+      const hh = parseFloat(o.hh) || 0
+      const gastos = parseFloat(o.gastos) || 0
+      const margen = ingresos - hh - gastos
+      return {
+        LINEA: o.proyectos?.ceco || '',
+        PROYECTO: o.proyectos?.nombre || '',
+        JEFE: o.proyectos?.colaboradores?.colaborador || '',
+        INGRESOS: ingresos,
+        HH: hh,
+        GGOO: gastos,
+        MARGEN: margen,
+        ESTADO: o.proyectos?.estado || '',
+        FECHA_ADJUDICACION: o.fecha_adjudicacion || '',
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(filas)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'Oportunidades')
+    XLSX.writeFile(wb, `oportunidades_filtradas_${buildTimestamp()}.xlsx`)
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = oportunidades.filter((o) => coincideFiltros(o, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
 
   // â”€â”€ OPCIONES ÃšNICAS POR COLUMNA (para dropdowns) â”€â”€
-  const opcionesLinea    = [...new Set(oportunidades.map(o => o.proyectos?.ceco).filter(Boolean))].sort()
-  const opcionesProyecto = [...new Set(oportunidades.map(o => o.proyectos?.nombre).filter(Boolean))].sort()
-  const opcionesJefe     = [...new Set(oportunidades.map(o => o.proyectos?.colaboradores?.colaborador).filter(Boolean))].sort()
-  const opcionesEstado   = [...new Set(oportunidades.map(o => o.proyectos?.estado).filter(Boolean))].sort()
+  const opcionesLinea = opcionesPorColumna('linea', (o) => o.proyectos?.ceco)
+  const opcionesProyecto = opcionesPorColumna('proyecto', (o) => o.proyectos?.nombre)
+  const opcionesJefe = opcionesPorColumna('jefe', (o) => o.proyectos?.colaboradores?.colaborador)
+  const opcionesEstado = opcionesPorColumna('estado', (o) => o.proyectos?.estado)
+  const opcionesFechaAdjudicacion = opcionesPorColumna('fechaAdjudicacion', (o) => o.fecha_adjudicacion)
 
   // â”€â”€ FILTRO Y ORDEN â”€â”€
   const oportunidadesFiltradas = oportunidades
-    .filter(o => {
-      const q = busqueda.toLowerCase()
-      const jefe = o.proyectos?.colaboradores?.colaborador
-      const matchBusqueda = (
-        o.proyectos?.nombre?.toLowerCase().includes(q) ||
-        o.proyectos?.ceco?.toLowerCase().includes(q) ||
-        o.proyectos?.estado?.toLowerCase().includes(q) ||
-        jefe?.toLowerCase().includes(q)
-      )
-      const matchLinea    = !filtroLinea        || o.proyectos?.ceco === filtroLinea
-      const matchFLinea   = !filtros.linea?.length || filtros.linea.includes(o.proyectos?.ceco)
-      const matchFProy    = !filtros.proyecto?.length || filtros.proyecto.includes(o.proyectos?.nombre)
-      const matchFJefe    = !filtros.jefe?.length || filtros.jefe.includes(jefe)
-      const matchFEstado  = !filtros.estado?.length || filtros.estado.includes(o.proyectos?.estado)
-      return matchBusqueda && matchLinea && matchFLinea && matchFProy && matchFJefe && matchFEstado
-    })
+    .filter((o) => coincideFiltros(o))
     .sort((a, b) => {
       if (!ordenCol) return 0
       let vA, vB
@@ -489,6 +575,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
         case 'gastos':   vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0; break
         case 'margen':   vA = margenA; vB = margenB; break
         case 'estado':   vA = a.proyectos?.estado  || ''; vB = b.proyectos?.estado  || ''; break
+        case 'fechaAdjudicacion': vA = a.fecha_adjudicacion || ''; vB = b.fecha_adjudicacion || ''; break
         default: return 0
       }
       if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
@@ -525,16 +612,15 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
               onChange={(e) => setBusqueda(e.target.value)}
               className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
-            <select
-              value={filtroLinea}
-              onChange={(e) => setFiltroLinea(e.target.value)}
-              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500 max-w-[220px]"
+            <button
+              onClick={exportarExcel}
+              disabled={oportunidadesFiltradas.length === 0}
+              className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#6366F1' }}
+              title="Exportar oportunidades visibles a Excel"
             >
-              <option value="">Todas las lÃ­neas</option>
-              {lineasUnicas.map(l => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
+              Exportar Excel
+            </button>
             <button
               onClick={() => setMostrarInstrucciones(!mostrarInstrucciones)}
               className="px-4 py-2 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-all"
@@ -611,6 +697,21 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                 <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="estado" label="Estado" align="center" style={{ width: '130px' }} opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <ResizableTh style={{ width: '42px', backgroundColor: '#FFF5F0' }}></ResizableTh>
+                <FilterableTh
+                  col="fechaAdjudicacion"
+                  label="Fecha de adjudicación"
+                  align="center"
+                  style={{ width: '170px' }}
+                  opciones={opcionesFechaAdjudicacion}
+                  filtro={filtros.fechaAdjudicacion || ''}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro==='fechaAdjudicacion'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol==='fechaAdjudicacion'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
               </tr>
             </thead>
             <tbody>
@@ -619,6 +720,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                 const hh       = parseFloat(o.hh)       || 0
                 const gastos   = parseFloat(o.gastos)   || 0
                 const margen   = ingresos - hh - gastos
+                const fechaAdjudicacionEditable = puedeEditarFechaAdjudicacion(o.proyectos?.estado)
                 return (
                   <tr key={o.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                     <td className="py-3 px-4 text-gray-600 text-sm max-w-[180px] truncate" title={o.proyectos?.ceco}>
@@ -677,6 +779,33 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                         </svg>
                       </button>
                     </td>
+                    <td className="py-3 px-4 text-center">
+                      <input
+                        type="text"
+                        defaultValue={o.fecha_adjudicacion || ''}
+                        placeholder="ene-26"
+                        maxLength={6}
+                        disabled={!fechaAdjudicacionEditable}
+                        title={fechaAdjudicacionEditable ? 'Formato: ene-26' : 'Solo editable para estado Efectivo o No Efectivo'}
+                        className={`w-20 px-2 py-1 rounded border text-sm text-center ${
+                          fechaAdjudicacionEditable
+                            ? 'border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500'
+                            : 'border-gray-200 bg-gray-100 text-gray-400 cursor-not-allowed'
+                        }`}
+                        onBlur={(e) => actualizarFechaAdjudicacion(
+                          o,
+                          e.target.value,
+                          (fallback) => { e.target.value = fallback || '' },
+                        )}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') e.currentTarget.blur()
+                          if (e.key === 'Escape') {
+                            e.currentTarget.value = o.fecha_adjudicacion || ''
+                            e.currentTarget.blur()
+                          }
+                        }}
+                      />
+                    </td>
                   </tr>
                 )
               })}
@@ -692,7 +821,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                 <td className={`py-3 px-4 text-right ${totales.margen >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {fmt(totales.margen)}
                 </td>
-                <td colSpan={2}></td>
+                <td colSpan={3}></td>
               </tr>
             </tbody>
           </table>
