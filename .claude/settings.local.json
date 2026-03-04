@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git -C \"c:/Users/emilio.lopez/OneDrive - Fundacion Chile/Documentos/Proyectos/gestion-proyectos-fch\" status)",
+      "Bash(git -C \"c:/Users/emilio.lopez/OneDrive - Fundacion Chile/Documentos/Proyectos/gestion-proyectos-fch\" log --oneline -3)"
+    ]
+  }
+}

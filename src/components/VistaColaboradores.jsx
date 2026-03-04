@@ -5,7 +5,7 @@ import * as XLSX from 'xlsx'
 import ResizableTh from './ResizableTh'
 import FilterableTh from './FilterableTh'
 
-export default function VistaColaboradores({ user, perfil }) {
+export default function VistaColaboradores({ perfil }) {
   const esAdmin = perfil?.rol === 'admin'
 
   const [colaboradores, setColaboradores] = useState([])
@@ -176,17 +176,28 @@ export default function VistaColaboradores({ user, perfil }) {
     }
   }
 
-  const opcionesColaborador = [...new Set(colaboradores.map((c) => c.colaborador).filter(Boolean))].sort()
-  const opcionesRut = [...new Set(colaboradores.map((c) => c.rut).filter(Boolean))].sort()
-
-  const filtrados = colaboradores.filter(c =>
+  const colaboradoresBusqueda = colaboradores.filter(c =>
     c.colaborador?.toLowerCase().includes(busqueda.toLowerCase()) ||
     c.rut?.toLowerCase().includes(busqueda.toLowerCase())
-  ).filter((c) => {
-    const matchColaborador = !filtros.colaborador?.length || filtros.colaborador.includes(c.colaborador)
-    const matchRut = !filtros.rut?.length || filtros.rut.includes(c.rut)
+  )
+
+  function coincideFiltros(c, omitirCol = null) {
+    const matchColaborador = omitirCol === 'colaborador' || !filtros.colaborador?.length || filtros.colaborador.includes(c.colaborador)
+    const matchRut = omitirCol === 'rut' || !filtros.rut?.length || filtros.rut.includes(c.rut)
     return matchColaborador && matchRut
-  }).sort((a, b) => {
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = colaboradoresBusqueda.filter((c) => coincideFiltros(c, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesColaborador = opcionesPorColumna('colaborador', (c) => c.colaborador)
+  const opcionesRut = opcionesPorColumna('rut', (c) => c.rut)
+
+  const filtrados = colaboradoresBusqueda.filter((c) => coincideFiltros(c)).sort((a, b) => {
     const vA = ordenCol === 'rut' ? (a.rut || '') : (a.colaborador || '')
     const vB = ordenCol === 'rut' ? (b.rut || '') : (b.colaborador || '')
     return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')

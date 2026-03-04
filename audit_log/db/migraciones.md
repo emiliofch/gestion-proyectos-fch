@@ -27,6 +27,62 @@ Los scripts estÃ¡n ubicados en la raÃ­z del proyecto.
 - **Tablas afectadas:** `cambios` (CREATE POLICY FOR DELETE)
 - **Politica:** `cambios_delete_admin_same_empresa`.
 
+### `supabase/migrations/20260304164000_create_centros_costo.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Crear catalogo de `centros_costo` por empresa para poblar dropdown de CECO en Proyectos.
+- **Tablas afectadas:** `centros_costo` (CREATE TABLE + UNIQUE + RLS + POLICIES)
+- **Politicas RLS:**
+  - `centros_costo_select_same_empresa`
+  - `centros_costo_insert_same_empresa`
+  - `centros_costo_update_admin_same_empresa`
+  - `centros_costo_delete_admin_same_empresa`
+
+### `supabase/migrations/20260304172000_create_lineas.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Crear catalogo de `lineas` por empresa para poblar dropdown de linea en Proyectos.
+- **Tablas afectadas:** `lineas` (CREATE TABLE + UNIQUE + RLS + POLICIES)
+- **Politicas RLS:**
+  - `lineas_select_same_empresa`
+  - `lineas_insert_same_empresa`
+  - `lineas_update_admin_same_empresa`
+  - `lineas_delete_admin_same_empresa`
+
+### `supabase/migrations/20260304174500_seed_lineas_base.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Cargar lineas iniciales para `CGV` y `HUB_MET`.
+- **Tablas afectadas:** `lineas` (INSERT)
+- **Datos cargados (por empresa):**
+  - `Desarrollo de Negocios`
+  - `Gerencia de Área`
+  - `Hub Metropolitano`
+  - `Proyectos Corporativos`
+  - `Startup Lab.01`
+  - `Venture Capital`
+
+### `supabase/migrations/20260304183000_add_fecha_adjudicacion_proyectos.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Agregar `fecha_adjudicacion` en `proyectos` y validar formato `ene-26`.
+- **Tablas afectadas:** `proyectos` (ALTER TABLE ADD COLUMN + CHECK CONSTRAINT)
+- **Validacion:** formato `^(ene|feb|mar|abr|may|jun|jul|ago|sep|oct|nov|dic)-[0-9]{2}$` o `NULL`.
+
+### `supabase/migrations/20260304191000_create_ingreso_hh.sql`
+- **Estado:** ✅ Ejecutado
+- **Cuando:** Marzo 2026
+- **Proposito:** Crear tabla de ingreso mensual de HH por usuario/proyecto.
+- **Tablas afectadas:** `ingreso_hh` (CREATE TABLE + UNIQUE + INDEX + RLS + POLICIES)
+- **Restricciones clave:**
+  - `UNIQUE (user_id, proyecto_id, mes)`
+  - `horas > 0 AND horas <= 170`
+- **Politicas RLS:**
+  - `ingreso_hh_select_same_user_or_admin_same_empresa`
+  - `ingreso_hh_insert_same_user_or_admin_same_empresa`
+  - `ingreso_hh_update_same_user_or_admin_same_empresa`
+  - `ingreso_hh_delete_same_user_or_admin_same_empresa`
+
 ---
 ## Scripts ejecutados (en orden cronolÃ³gico)
 

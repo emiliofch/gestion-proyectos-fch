@@ -1,95 +1,237 @@
-import nodemailer from 'nodemailer';
-import { createClient } from '@supabase/supabase-js';
+﻿import nodemailer from 'nodemailer'
+import { createClient } from '@supabase/supabase-js'
 
-// Crear cliente Supabase para el API
-const supabaseUrl = 'https://bisccrlqcixkaguspntw.supabase.co';
-const supabaseKey = process.env.SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJpc2NjcmxxY2l4a2FndXNwbnR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3Njk0MzA5MTMsImV4cCI6MjA4NTAwNjkxM30.VU4obOq-oceRK7-rdwzDT9XB98XL_O-z7xRhxqS_H8Y';
-const supabase = createClient(supabaseUrl, supabaseKey);
+const SUPABASE_URL = process.env.SUPABASE_URL || 'https://bisccrlqcixkaguspntw.supabase.co'
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY
+const GMAIL_USER = process.env.GMAIL_USER
+const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD
 
-// Fallback si no hay config en BD
-const FALLBACK_CGV = ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl'];
-const FALLBACK_HUBMET = ['emilio.lopez@fch.cl', 'milena.quintanilla@fch.cl'];
+const ALLOWED_EMPRESAS = new Set(['CGV', 'HUB_MET'])
+const MAX_ATTACHMENTS = 5
+const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+
+const FALLBACK_CGV = ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']
+const FALLBACK_HUBMET = ['emilio.lopez@fch.cl', 'milena.quintanilla@fch.cl']
+
+const rateWindowMs = 60_000
+const rateMax = 20
+const requestCounter = new Map()
+
+function isValidEmail(email) {
+  if (typeof email !== 'string') return false
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())
+}
+
+function sanitizeText(value, maxLen = 500) {
+  if (value === null || value === undefined) return ''
+  const text = String(value).trim().slice(0, maxLen)
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+function normalizeEmpresa(value) {
+  const empresa = typeof value === 'string' ? value.trim() : 'CGV'
+  return ALLOWED_EMPRESAS.has(empresa) ? empresa : 'CGV'
+}
+
+function getBody(req) {
+  if (!req?.body) return {}
+  if (typeof req.body === 'string') {
+    try {
+      return JSON.parse(req.body)
+    } catch {
+      return {}
+    }
+  }
+  return req.body
+}
+
+function getClientIp(req) {
+  const forwarded = req.headers['x-forwarded-for']
+  if (typeof forwarded === 'string' && forwarded.length > 0) {
+    return forwarded.split(',')[0].trim()
+  }
+  return req.socket?.remoteAddress || 'unknown'
+}
+
+function checkRateLimit(ip) {
+  const now = Date.now()
+  const state = requestCounter.get(ip)
+  if (!state || now - state.start > rateWindowMs) {
+    requestCounter.set(ip, { start: now, count: 1 })
+    return true
+  }
+  if (state.count >= rateMax) return false
+  state.count += 1
+  requestCounter.set(ip, state)
+  return true
+}
+
+function isAllowedAttachmentUrl(rawUrl) {
+  if (typeof rawUrl !== 'string' || !rawUrl.trim()) return false
+  try {
+    const target = new URL(rawUrl)
+    const expected = new URL(SUPABASE_URL)
+    return target.protocol === 'https:' && target.hostname === expected.hostname
+  } catch {
+    return false
+  }
+}
+
+function validatePayload(rawData) {
+  const data = rawData || {}
+  const errors = []
+
+  const empresa = normalizeEmpresa(data.empresa)
+  const usuarioEmail = typeof data.usuarioEmail === 'string' ? data.usuarioEmail.trim() : ''
+  const proveedor = sanitizeText(data.proveedor, 150)
+  const tipo = sanitizeText(data.tipo, 80)
+  const rut = sanitizeText(data.rut, 30)
+  const proyectoNombre = sanitizeText(data.proyectoNombre, 180)
+  const subproyecto = sanitizeText(data.subproyecto, 180)
+  const ceco = sanitizeText(data.ceco, 80)
+  const glosa = sanitizeText(data.glosa, 500)
+  const detalle = sanitizeText(data.detalle, 2000)
+  const idCorrelativo = sanitizeText(data.idCorrelativo, 40)
+  const valor = Number(data.valor)
+
+  if (!isValidEmail(usuarioEmail)) errors.push('usuarioEmail invalido')
+  if (!proveedor) errors.push('proveedor requerido')
+  if (!tipo) errors.push('tipo requerido')
+  if (!rut) errors.push('rut requerido')
+  if (!proyectoNombre) errors.push('proyectoNombre requerido')
+  if (!ceco) errors.push('ceco requerido')
+  if (!glosa) errors.push('glosa requerida')
+  if (!idCorrelativo) errors.push('idCorrelativo requerido')
+  if (!Number.isFinite(valor) || valor < 0) errors.push('valor invalido')
+
+  let archivosAdjuntos = Array.isArray(data.archivosAdjuntos) ? data.archivosAdjuntos.slice(0, MAX_ATTACHMENTS) : []
+  archivosAdjuntos = archivosAdjuntos
+    .filter((a) => a && isAllowedAttachmentUrl(a.url))
+    .map((a) => ({
+      nombre: sanitizeText(a.nombre || 'adjunto', 120),
+      url: String(a.url).trim(),
+    }))
+
+  return {
+    errors,
+    payload: {
+      empresa,
+      usuarioEmail,
+      proveedor,
+      tipo,
+      rut,
+      proyectoNombre,
+      subproyecto,
+      ceco,
+      glosa,
+      detalle,
+      idCorrelativo,
+      valor,
+      archivosAdjuntos,
+    },
+  }
+}
+
+async function fetchAttachmentBuffer(url) {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 10_000)
+
+  try {
+    const response = await fetch(url, { signal: controller.signal })
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`)
+    }
+
+    const arrayBuffer = await response.arrayBuffer()
+    const buffer = Buffer.from(arrayBuffer)
+
+    if (buffer.length > MAX_ATTACHMENT_BYTES) {
+      throw new Error('attachment too large')
+    }
+
+    return buffer
+  } finally {
+    clearTimeout(timeout)
+  }
+}
 
 export default async function handler(req, res) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Origin', '*')
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
 
   if (req.method === 'OPTIONS') {
-    return res.status(200).end();
+    return res.status(200).end()
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' })
+  }
+
+  const clientIp = getClientIp(req)
+  if (!checkRateLimit(clientIp)) {
+    return res.status(429).json({ error: 'Too many requests' })
+  }
+
+  if (!SUPABASE_ANON_KEY || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
+    console.error('Missing required server environment variables')
+    return res.status(500).json({ error: 'Server email configuration is incomplete' })
   }
 
   try {
-    const data = req.body;
-    const empresa = data.empresa || 'CGV';
+    const body = getBody(req)
+    const { errors, payload } = validatePayload(body)
 
-    // Obtener lista de correos desde la BD
-    let destinatariosConfig = [];
+    if (errors.length > 0) {
+      return res.status(400).json({ error: 'Invalid request payload', details: errors })
+    }
+
+    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+
+    let destinatariosConfig = []
     const { data: configData, error: configError } = await supabase
       .from('configuracion_emails')
       .select('correos')
-      .eq('tipo', empresa)
-      .single();
+      .eq('tipo', payload.empresa)
+      .single()
 
     if (configError || !configData) {
-      console.warn('⚠️ No se encontró config de correos para', empresa, '- usando fallback');
-      destinatariosConfig = empresa === 'HUB_MET' ? FALLBACK_HUBMET : FALLBACK_CGV;
+      destinatariosConfig = payload.empresa === 'HUB_MET' ? FALLBACK_HUBMET : FALLBACK_CGV
     } else {
-      destinatariosConfig = configData.correos || [];
+      destinatariosConfig = Array.isArray(configData.correos) ? configData.correos : []
     }
 
-    if (!process.env.GMAIL_USER || !process.env.GMAIL_APP_PASSWORD) {
-      console.error('❌ Faltan credenciales de Gmail');
-      return res.status(500).json({
-        error: 'Credenciales de Gmail no configuradas en el servidor'
-      });
-    }
+    const emailsValidos = destinatariosConfig.filter(isValidEmail)
+    const todosDestinatarios = [payload.usuarioEmail, ...emailsValidos]
+    const destinatariosUnicos = [...new Set(todosDestinatarios)]
 
-    // Configurar transporter de Gmail
     const transporter = nodemailer.createTransport({
       service: 'gmail',
       auth: {
-        user: process.env.GMAIL_USER,
-        pass: process.env.GMAIL_APP_PASSWORD
-      }
-    });
+        user: GMAIL_USER,
+        pass: GMAIL_APP_PASSWORD,
+      },
+    })
 
-    // Descargar archivos desde Supabase Storage
-    const attachments = [];
-
-    if (data.archivosAdjuntos && data.archivosAdjuntos.length > 0) {
-      for (const archivo of data.archivosAdjuntos) {
-        if (archivo.url) {
-          try {
-            const response = await fetch(archivo.url);
-
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-
-            const arrayBuffer = await response.arrayBuffer();
-            const buffer = Buffer.from(arrayBuffer);
-
-            attachments.push({
-              filename: archivo.nombre,
-              content: buffer
-            });
-          } catch (error) {
-            console.error('❌ Error descargando adjunto:', archivo.nombre, error.message);
-          }
-        }
+    const attachments = []
+    for (const archivo of payload.archivosAdjuntos) {
+      try {
+        const content = await fetchAttachmentBuffer(archivo.url)
+        attachments.push({ filename: archivo.nombre || 'adjunto', content })
+      } catch (error) {
+        console.error('Error downloading attachment', { file: archivo.nombre, reason: error?.message })
       }
     }
 
     const valorFormateado = new Intl.NumberFormat('es-CL', {
       style: 'currency',
-      currency: 'CLP'
-    }).format(data.valor);
+      currency: 'CLP',
+    }).format(payload.valor)
 
     const htmlContent = `
       <!DOCTYPE html>
@@ -114,56 +256,49 @@ export default async function handler(req, res) {
         <body>
           <div class="container">
             <div class="header">
-              <h2>Nueva Solicitud de Orden de Compra #${data.idCorrelativo}</h2>
-              <span class="empresa-badge ${empresa === 'HUB_MET' ? 'empresa-hubmet' : 'empresa-cgv'}">${empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</span>
+              <h2>Nueva Solicitud de Orden de Compra #${payload.idCorrelativo}</h2>
+              <span class="empresa-badge ${payload.empresa === 'HUB_MET' ? 'empresa-hubmet' : 'empresa-cgv'}">${payload.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</span>
             </div>
             <div class="content">
-              <div class="field"><span class="label">Tipo:</span><span class="value">${data.tipo}</span></div>
-              <div class="field"><span class="label">Proveedor:</span><span class="value">${data.proveedor}</span></div>
-              <div class="field"><span class="label">RUT:</span><span class="value">${data.rut}</span></div>
-              <div class="field"><span class="label">Proyecto:</span><span class="value">${data.proyectoNombre}</span></div>
-              ${data.subproyecto ? `<div class="field"><span class="label">Subproyecto:</span><span class="value">${data.subproyecto}</span></div>` : ''}
-              <div class="field"><span class="label">CECO:</span><span class="value">${data.ceco}</span></div>
-              <div class="field"><span class="label">Glosa:</span><span class="value">${data.glosa}</span></div>
+              <div class="field"><span class="label">Tipo:</span><span class="value">${payload.tipo}</span></div>
+              <div class="field"><span class="label">Proveedor:</span><span class="value">${payload.proveedor}</span></div>
+              <div class="field"><span class="label">RUT:</span><span class="value">${payload.rut}</span></div>
+              <div class="field"><span class="label">Proyecto:</span><span class="value">${payload.proyectoNombre}</span></div>
+              ${payload.subproyecto ? `<div class="field"><span class="label">Subproyecto:</span><span class="value">${payload.subproyecto}</span></div>` : ''}
+              <div class="field"><span class="label">CECO:</span><span class="value">${payload.ceco}</span></div>
+              <div class="field"><span class="label">Glosa:</span><span class="value">${payload.glosa}</span></div>
               <div class="highlight">
                 <div class="field"><span class="label">Valor:</span><span class="value" style="font-size: 18px; font-weight: bold;">${valorFormateado}</span></div>
               </div>
-              ${data.detalle ? `<div class="field"><span class="label">Detalle:</span><div style="margin-top: 5px; padding: 10px; background: white; border-radius: 4px;">${data.detalle}</div></div>` : ''}
+              ${payload.detalle ? `<div class="field"><span class="label">Detalle:</span><div style="margin-top: 5px; padding: 10px; background: white; border-radius: 4px;">${payload.detalle}</div></div>` : ''}
             </div>
             <div class="footer">
-              <p>Solicitud enviada por: <strong>${data.usuarioEmail}</strong></p>
+              <p>Solicitud enviada por: <strong>${payload.usuarioEmail}</strong></p>
               <p>Fecha: ${new Date().toLocaleString('es-CL')}</p>
             </div>
           </div>
         </body>
       </html>
-    `;
-
-    // Combinar destinatarios (usuario + lista configurada) y eliminar duplicados
-    const todosDestinatarios = [data.usuarioEmail, ...destinatariosConfig];
-    const destinatariosUnicos = [...new Set(todosDestinatarios)];
+    `
 
     const mailOptions = {
-      from: `DeskFlow ${empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'} <${process.env.GMAIL_USER}>`,
+      from: `DeskFlow ${payload.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'} <${GMAIL_USER}>`,
       to: destinatariosUnicos.join(', '),
-      subject: `[${empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}] Nueva Solicitud OC #${data.idCorrelativo} - ${data.proveedor} (${valorFormateado})`,
+      subject: `[${payload.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}] Nueva Solicitud OC #${payload.idCorrelativo} - ${payload.proveedor} (${valorFormateado})`,
       html: htmlContent,
-      attachments: attachments
-    };
+      attachments,
+    }
 
-    const info = await transporter.sendMail(mailOptions);
-
-    console.log('✅ Correo enviado:', info.messageId);
+    const info = await transporter.sendMail(mailOptions)
 
     return res.status(200).json({
       success: true,
       messageId: info.messageId,
       recipients: destinatariosUnicos,
-      empresa: empresa
-    });
-
+      empresa: payload.empresa,
+    })
   } catch (error) {
-    console.error('❌ Error:', error);
-    return res.status(500).json({ error: error.message });
+    console.error('Error sending OC email', { message: error?.message })
+    return res.status(500).json({ error: 'Internal server error while sending email' })
   }
 }

@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
 
-export default function Login({ loading, setLoading }) {
+export default function Login({ loading }) {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -12,17 +12,39 @@ export default function Login({ loading, setLoading }) {
   const [mostrarPassword, setMostrarPassword] = useState(false)
   const [errorLogin, setErrorLogin] = useState('')
   const [modo, setModo] = useState('login') // 'login', 'signup', 'forgot'
+  const [authLoading, setAuthLoading] = useState(false)
+
+  function emailNormalizado() {
+    return String(email || '').trim().toLowerCase()
+  }
+
+  function mensajeAuth(error) {
+    const msg = String(error?.message || '').toLowerCase()
+    if (msg.includes('invalid login credentials')) return 'Email o contraseña incorrectos.'
+    if (msg.includes('email not confirmed')) return 'Debes confirmar tu correo antes de iniciar sesión.'
+    if (msg.includes('for security purposes')) return 'Demasiados intentos. Espera un momento y vuelve a intentar.'
+    return error?.message || 'No se pudo iniciar sesión.'
+  }
 
   async function login(e) {
     e.preventDefault()
     setErrorLogin('')
-    setLoading(true)
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) {
-      setErrorLogin(error.message)
-      setLoading(false)
-    } else {
-      setLoading(false)
+    setAuthLoading(true)
+    try {
+      const emailLimpio = emailNormalizado()
+      const { data, error } = await supabase.auth.signInWithPassword({ email: emailLimpio, password })
+      if (error) {
+        setErrorLogin(mensajeAuth(error))
+        return
+      }
+
+      if (!data?.session?.user) {
+        setErrorLogin('No se pudo crear la sesion. Verifica confirmacion de correo y vuelve a intentar.')
+      }
+    } catch (error) {
+      setErrorLogin(mensajeAuth(error))
+    } finally {
+      setAuthLoading(false)
     }
   }
 
@@ -40,49 +62,55 @@ export default function Login({ loading, setLoading }) {
       return
     }
 
-    setLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          primera_vez: true,
-          empresa: empresa
+    setAuthLoading(true)
+    try {
+      const emailLimpio = emailNormalizado()
+      const { error } = await supabase.auth.signUp({
+        email: emailLimpio,
+        password,
+        options: {
+          data: {
+            primera_vez: true,
+            empresa: empresa
+          }
         }
-      }
-    })
+      })
 
-    if (error) {
-      setErrorLogin(error.message)
-      setLoading(false)
-    } else {
-      toast.success('Registro exitoso. Revisa tu correo para confirmar tu cuenta.')
-      setModo('login')
-      setEmail('')
-      setPassword('')
-      setConfirmPassword('')
-      setEmpresa('CGV')
-      setLoading(false)
+      if (error) {
+        setErrorLogin(mensajeAuth(error))
+      } else {
+        toast.success('Registro exitoso. Revisa tu correo para confirmar tu cuenta.')
+        setModo('login')
+        setEmail('')
+        setPassword('')
+        setConfirmPassword('')
+        setEmpresa('CGV')
+      }
+    } catch (error) {
+      setErrorLogin(mensajeAuth(error))
+    } finally {
+      setAuthLoading(false)
     }
   }
 
   async function resetPassword(e) {
     e.preventDefault()
     setErrorLogin('')
-    setLoading(true)
+    setAuthLoading(true)
 
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const emailLimpio = emailNormalizado()
+    const { error } = await supabase.auth.resetPasswordForEmail(emailLimpio, {
       redirectTo: window.location.origin
     })
 
     if (error) {
-      setErrorLogin(error.message)
-      setLoading(false)
+      setErrorLogin(mensajeAuth(error))
+      setAuthLoading(false)
     } else {
       toast.success('Se ha enviado un correo para restablecer tu contraseña')
       setModo('login')
       setEmail('')
-      setLoading(false)
+      setAuthLoading(false)
     }
   }
 
@@ -160,7 +188,7 @@ export default function Login({ loading, setLoading }) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || authLoading}
               className="w-full py-3 rounded-lg text-white font-medium transition-all disabled:opacity-50 mb-4"
               style={{ backgroundColor: '#FF5100' }}
             >
@@ -255,7 +283,7 @@ export default function Login({ loading, setLoading }) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || authLoading}
               className="w-full py-3 rounded-lg text-white font-medium transition-all disabled:opacity-50 mb-4"
               style={{ backgroundColor: '#FF5100' }}
             >
@@ -298,7 +326,7 @@ export default function Login({ loading, setLoading }) {
 
             <button
               type="submit"
-              disabled={loading}
+              disabled={loading || authLoading}
               className="w-full py-3 rounded-lg text-white font-medium transition-all disabled:opacity-50 mb-4"
               style={{ backgroundColor: '#FF5100' }}
             >

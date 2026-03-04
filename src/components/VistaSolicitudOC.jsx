@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 
@@ -28,11 +28,13 @@ export default function VistaSolicitudOC({ user, perfil }) {
     { value: 'otro', label: 'Otro' }
   ]
 
+  // Intencional: carga inicial al montar la vista.
   useEffect(() => {
     cargarProyectos()
     cargarSolicitudes()
   }, [])
 
+  // Intencional: recalculo de CECO cuando cambia proyecto seleccionado.
   useEffect(() => {
     if (proyectoId) {
       cargarCecosProyecto(proyectoId)
@@ -144,7 +146,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
         .upload(nombreArchivo, archivo)
 
       if (error) {
-        console.error('❌ Error subiendo archivo:', archivo.name, error.message)
+        console.error('Error subiendo archivo:', archivo.name, error.message)
         throw new Error(`Error al subir ${archivo.name}: ${error.message}`)
       }
 
@@ -324,7 +326,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6" style={{ color: '#FF5100' }}>
-        🧾 Solicitud de Orden de Compra
+        Solicitud de Orden de Compra
       </h2>
 
       <form onSubmit={handleSubmit} className="bg-gray-50 rounded-lg p-6 mb-8">
@@ -496,7 +498,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
             </div>
             {valor && parseFloat(valor) >= 1500000 && (
               <p className="text-sm text-orange-600 mt-1">
-                ⚠️ Para valores mayores o iguales a $1,500,000 se requieren 3 archivos adjuntos
+                Importante: para valores mayores o iguales a $1,500,000 se requieren 3 archivos adjuntos
               </p>
             )}
           </div>
@@ -547,7 +549,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
                 </tr>
               </thead>
               <tbody>
-                {solicitudes.map((s, index) => (
+                {solicitudes.map((s) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-800 font-medium">
                       {s.id_correlativo || '-'}
@@ -587,3 +589,4 @@ export default function VistaSolicitudOC({ user, perfil }) {
     </div>
   )
 }
+

@@ -5,6 +5,134 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 ---
 
+## [2026-03-04] - Regla preventiva contra texto corrupto (mojibake)
+
+- Se agrega script `scripts/check-mojibake.mjs` para detectar secuencias corruptas comunes (`Ã`, `Â`, `â`, `ðŸ`, `�`) en `src/` y `api/`.
+- Se incorpora el chequeo a `npm run lint` para bloquear cambios con texto mal codificado.
+- Se agrega `.editorconfig` con `charset = utf-8` para estandarizar guardado de archivos.
+- Ajuste menor de test: reemplazo de `global.fetch` por `globalThis.fetch` para compatibilidad de lint.
+
+### Archivos modificados
+- `package.json`
+- `.editorconfig` (nuevo)
+- `scripts/check-mojibake.mjs` (nuevo)
+- `src/components/__tests__/VistaSolicitudOC.test.jsx`
+
+---
+
+## [2026-03-04] - Ingreso HH: subpágina admin para consulta y descarga
+
+- Se agrega subpágina `HH Cargadas` visible solo para rol `admin`.
+- La vista permite:
+  - ver registros de HH por mes
+  - filtrar por texto (usuario/proyecto)
+  - descargar planilla Excel de los registros visibles
+- Se integra al menú lateral y routing de `App.jsx` con control de acceso por rol.
+
+### Archivos modificados
+- `src/components/VistaIngresoHHAdmin.jsx` (nuevo)
+- `src/App.jsx`
+
+---
+
+## [2026-03-04] - Nuevo módulo Ingreso de HH (170 horas/mes)
+
+- Se agrega nueva página `Ingreso de HH`.
+- Flujo implementado:
+  - seleccionar mes
+  - elegir proyecto (dropdown desde tabla `proyectos`)
+  - ingresar horas por proyecto
+  - editar/quitar líneas
+- Regla de negocio aplicada:
+  - solo permite guardar cuando el total del mes es exactamente `170` horas.
+- Persistencia en Supabase mediante tabla `ingreso_hh`.
+
+### Archivos modificados
+- `src/components/VistaIngresoHH.jsx` (nuevo)
+- `src/App.jsx`
+- `supabase/migrations/20260304191000_create_ingreso_hh.sql`
+
+---
+
+## [2026-03-04] - Proyectos: validaciones obligatorias + tipo controlado + fecha de adjudicación
+
+- En crear/editar proyecto, `Tipo` deja de ser texto libre y pasa a dropdown con:
+  - `Público`
+  - `Privado`
+- Se endurece validación del formulario para exigir selección de opciones clave (sin `sin definir`):
+  - Línea
+  - Jefe de proyecto
+  - Estado válido
+  - Tipo (`Público/Privado`)
+  - Rendible
+  - CECO
+- Se agrega campo `Fecha de adjudicación` (`ene-26`) en crear/editar proyecto.
+- Regla aplicada: si estado es distinto de `Adjudicado`, la fecha de adjudicación es obligatoria.
+- Se sincroniza fecha de adjudicación proyecto -> oportunidades para que la vista Oportunidades refleje el mismo valor.
+- Se centraliza normalización de fecha en `src/constants/fechaAdjudicacion.js`.
+
+### Archivos modificados
+- `src/components/VistaProyectosBase.jsx`
+- `src/components/VistaOportunidades.jsx`
+- `src/constants/fechaAdjudicacion.js` (nuevo)
+- `supabase/migrations/20260304183000_add_fecha_adjudicacion_proyectos.sql`
+
+---
+
+## [2026-03-04] - Tablas: nuevo módulo Líneas + dropdown Línea en Proyectos
+
+- Se agrega nueva vista `Líneas` en el submenu `Tablas`.
+- La vista muestra una tabla de una columna (`LÍNEA`) con:
+  - busqueda
+  - importacion desde Excel (primera columna)
+  - exportacion a Excel
+- En `VistaProyectosBase`, el dropdown `Línea` (crear/editar proyecto) ahora se alimenta desde la tabla `lineas`.
+- `CECO` se mantiene como dropdown separado desde `centros_costo`.
+
+### Archivos modificados
+- `src/components/VistaLineas.jsx` (nuevo)
+- `src/App.jsx`
+- `src/components/VistaProyectosBase.jsx`
+- `supabase/migrations/20260304172000_create_lineas.sql`
+
+---
+
+## [2026-03-04] - Tablas: nuevo módulo Centros de Costo + dropdown en Proyectos
+
+- Se agrega nueva vista `Centros de Costo` en el submenu `Tablas` (antes de `Proyectos`).
+- La vista muestra una tabla de una columna (`CECO`) con:
+  - busqueda
+  - importacion desde Excel (primera columna)
+  - exportacion a Excel
+- En `VistaProyectosBase`, el campo `CECO` de crear/editar proyecto deja de ser texto libre y pasa a dropdown alimentado desde `centros_costo`.
+- El dropdown mantiene compatibilidad con valores existentes que no esten aun en el catalogo.
+
+### Archivos modificados
+- `src/components/VistaCentrosCosto.jsx` (nuevo)
+- `src/App.jsx`
+- `src/components/VistaProyectosBase.jsx`
+- `supabase/migrations/20260304164000_create_centros_costo.sql`
+
+---
+
+## [2026-03-04] - Estados de proyecto unificados entre Proyectos y Oportunidades
+
+- Se unifican los estados de proyecto a:
+  - `Efectivo`
+  - `No Efectivo`
+  - `Adjudicado`
+  - `Cancelado`
+- El popup de `Nuevo Proyecto` y `Editar Proyecto` ahora usa esos mismos estados.
+- `VistaOportunidades` usa la misma fuente de estados para selector, filtros, orden y exportacion.
+- Se normalizan estados legacy (`Activo`, `En pausa`, `Terminado`) para mantener compatibilidad visual y converger al estandar.
+
+### Archivos modificados
+- `src/constants/estadosProyecto.js` (nuevo)
+- `src/components/VistaProyectosBase.jsx`
+- `src/components/VistaOportunidades.jsx`
+
+---
+
 ## [2026-03-02] - Control de Cambios: borrado con verificacion real
 
 - En `App.jsx` se ajusta `eliminarCambioRegistro` para verificar filas realmente eliminadas.

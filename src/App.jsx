@@ -21,6 +21,10 @@ import VistaOportunidades from './components/VistaOportunidades'
 import VistaColaboradores from './components/VistaColaboradores'
 import VistaCosteo from './components/VistaCosteo'
 import VistaCosteoInputs from './components/VistaCosteoInputs'
+import VistaCentrosCosto from './components/VistaCentrosCosto'
+import VistaLineas from './components/VistaLineas'
+import VistaIngresoHH from './components/VistaIngresoHH'
+import VistaIngresoHHAdmin from './components/VistaIngresoHHAdmin'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -41,6 +45,7 @@ function App() {
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [submenuOC, setSubmenuOC] = useState(false)
+  const [submenuHH, setSubmenuHH] = useState(false)
   const [submenuTablas, setSubmenuTablas] = useState(false)
   const [submenuCosteo, setSubmenuCosteo] = useState(false)
   const [filtroJefe] = useState('')
@@ -59,14 +64,15 @@ function App() {
   useEffect(() => {
     verificarSesion()
     const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
-      if (event === 'SIGNED_IN') {
-        setUser(session?.user ?? null)
-        if (session?.user) {
-          cargarPerfil(session.user.id)
-        }
-      } else if (event === 'SIGNED_OUT') {
+      if (event === 'SIGNED_OUT') {
         setUser(null)
         setPerfil(null)
+        return
+      }
+
+      if (session?.user) {
+        setUser(session.user)
+        cargarPerfil(session.user.id)
       }
     })
     return () => {
@@ -660,7 +666,7 @@ function App() {
 
             <div className="absolute left-1/2 transform -translate-x-1/2 text-center">
               <h1 className="text-3xl md:text-4xl font-bold text-white whitespace-nowrap">
-                DeskFlow {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
+                DeskFlow FCh
               </h1>
               <p className="text-white text-sm mt-1 whitespace-nowrap">{user.email} | {perfil?.rol} | {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}</p>
             </div>
@@ -691,7 +697,7 @@ function App() {
       )}
 
       {/* Menú Lateral */}
-      <div className={`fixed top-32 right-0 h-screen w-72 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out overflow-y-auto ${
+      <div className={`fixed top-32 right-0 h-[calc(100vh-8rem)] w-72 bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-in-out overflow-y-auto ${
         menuAbierto ? 'translate-x-0' : 'translate-x-full'
       }`}>
         <div className="p-4 space-y-2">
@@ -742,7 +748,7 @@ function App() {
             <button
               onClick={() => setSubmenuTablas(!submenuTablas)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['proyectos-base', 'colaboradores'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['proyectos-base', 'colaboradores'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>🗂 Tablas</span>
               <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -752,6 +758,20 @@ function App() {
 
             {submenuTablas && (
               <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('lineas'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'lineas' ? '#FF5100' : '#374151', backgroundColor: vista === 'lineas' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📏 Líneas
+                </button>
+                <button
+                  onClick={() => { setVista('centros-costo'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'centros-costo' ? '#FF5100' : '#374151', backgroundColor: vista === 'centros-costo' ? '#FFF5F0' : 'transparent' }}
+                >
+                  🧮 Centros de Costo
+                </button>
                 <button
                   onClick={() => { setVista('proyectos-base'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
@@ -806,7 +826,42 @@ function App() {
             )}
           </div>
 
-          {/* 4. Solicitud egreso */}
+          {/* 4. HH (con submenú) */}
+          <div>
+            <button
+              onClick={() => setSubmenuHH(!submenuHH)}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
+              style={{ color: ['ingreso-hh', 'ingreso-hh-admin'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['ingreso-hh', 'ingreso-hh-admin'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+            >
+              <span>🕒 HH</span>
+              <svg className={`w-5 h-5 transition-transform ${submenuHH ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+
+            {submenuHH && (
+              <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
+                <button
+                  onClick={() => { setVista('ingreso-hh'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'ingreso-hh' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-hh' ? '#FFF5F0' : 'transparent' }}
+                >
+                  Ingreso de HH
+                </button>
+                {perfil?.rol === 'admin' && (
+                  <button
+                    onClick={() => { setVista('ingreso-hh-admin'); setMenuAbierto(false) }}
+                    className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                    style={{ color: vista === 'ingreso-hh-admin' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-hh-admin' ? '#FFF5F0' : 'transparent' }}
+                  >
+                    HH Cargadas
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 5. Solicitud egreso */}
           <button
             onClick={() => { setVista('solicitud-egreso'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
@@ -889,6 +944,14 @@ function App() {
               <Dashboard />
             )}
 
+            {vista === 'lineas' && (
+              <VistaLineas perfil={perfil} />
+            )}
+
+            {vista === 'centros-costo' && (
+              <VistaCentrosCosto perfil={perfil} />
+            )}
+
             {vista === 'proyectos-base' && (
               <VistaProyectosBase user={user} perfil={perfil} onCambioRegistrado={cargarCambios} />
             )}
@@ -949,6 +1012,14 @@ function App() {
                   <p className="text-gray-500 text-sm">Aquí podrás crear y gestionar solicitudes de egreso.</p>
                 </div>
               </div>
+            )}
+
+            {vista === 'ingreso-hh' && (
+              <VistaIngresoHH user={user} perfil={perfil} />
+            )}
+
+            {vista === 'ingreso-hh-admin' && perfil?.rol === 'admin' && (
+              <VistaIngresoHHAdmin perfil={perfil} />
             )}
 
             {vista === 'costeo' && (

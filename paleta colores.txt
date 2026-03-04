@@ -1,17 +1,23 @@
-estos son los colores que se deben usar cuando necesites colores. EL HEADER NO SE CAMBIA.
+solo se usará en header este color::
 
-RGB
+#FF5100 
 
-89,121,149
+los siguientes colores, son para los botones::
 
-233,184,86
+#00334A
 
-156,90,45
+#FFB600
 
-242,238,234
+#DDE5ED
 
-183,107,51
+#86C300
 
-225,174,81
+#009ADE
 
-219,104,70
+#AF1758
+
+#722181
+
+#3E0985
+
+#2A7DE2

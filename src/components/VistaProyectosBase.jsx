@@ -4,8 +4,14 @@ import { toast } from 'react-toastify'
 import * as XLSX from 'xlsx'
 import ResizableTh from './ResizableTh'
 import FilterableTh from './FilterableTh'
+import { ESTADOS_PROYECTO, clasesBadgeEstadoProyecto, normalizarEstadoProyecto } from '../constants/estadosProyecto'
+import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 
-const ESTADOS = ['Activo', 'En pausa', 'Terminado', 'Cancelado']
+const TIPOS_PROYECTO = ['Público', 'Privado']
+
+function buildTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
 
 function badgeRendible(rendible) {
   if (rendible === true)  return <span className="px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">Sí</span>
@@ -14,22 +20,19 @@ function badgeRendible(rendible) {
 }
 
 function badgeEstado(estado) {
-  if (!estado) return <span className="text-gray-400 text-xs italic">-</span>
-  const colores = {
-    'Activo':    'bg-green-100 text-green-800',
-    'En pausa':  'bg-yellow-100 text-yellow-800',
-    'Terminado': 'bg-blue-100 text-blue-800',
-    'Cancelado': 'bg-red-100 text-red-800',
-  }
-  const cls = colores[estado] || 'bg-gray-100 text-gray-700'
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{estado}</span>
+  const estadoNormalizado = normalizarEstadoProyecto(estado)
+  if (!estadoNormalizado) return <span className="text-gray-400 text-xs italic">-</span>
+  const cls = clasesBadgeEstadoProyecto(estadoNormalizado)
+  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{estadoNormalizado}</span>
 }
 
 export default function VistaProyectosBase({ user, perfil }) {
   const esAdmin = perfil?.rol === 'admin'
 
   const [proyectos, setProyectos] = useState([])
+  const [lineas, setLineas] = useState([])
   const [colaboradores, setColaboradores] = useState([])
+  const [centrosCosto, setCentrosCosto] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [procesando, setProcesando] = useState(false)
@@ -42,11 +45,13 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   const [modalCrear, setModalCrear] = useState(false)
   const [modalEditar, setModalEditar] = useState(null)
-  const [formData, setFormData] = useState({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '' })
+  const [formData, setFormData] = useState({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '' })
   const [motivoCambio, setMotivoCambio] = useState('')
 
   useEffect(() => {
+    cargarLineas()
     cargarColaboradores()
+    cargarCentrosCosto()
     cargarProyectos()
   }, [])
 
@@ -57,12 +62,42 @@ export default function VistaProyectosBase({ user, perfil }) {
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
 
+  async function cargarLineas() {
+    const { data, error } = await supabase
+      .from('lineas')
+      .select('linea')
+      .order('linea', { ascending: true })
+
+    if (error) {
+      console.error('Error cargando lineas:', error)
+      setLineas([])
+      return
+    }
+
+    setLineas((data || []).map((l) => l.linea).filter(Boolean))
+  }
+
   async function cargarColaboradores() {
     const { data } = await supabase
       .from('colaboradores')
       .select('id, colaborador')
       .order('colaborador', { ascending: true })
     setColaboradores(data || [])
+  }
+
+  async function cargarCentrosCosto() {
+    const { data, error } = await supabase
+      .from('centros_costo')
+      .select('ceco')
+      .order('ceco', { ascending: true })
+
+    if (error) {
+      console.error('Error cargando centros de costo:', error)
+      setCentrosCosto([])
+      return
+    }
+
+    setCentrosCosto((data || []).map((c) => c.ceco).filter(Boolean))
   }
 
   async function cargarProyectos() {
@@ -116,7 +151,8 @@ export default function VistaProyectosBase({ user, perfil }) {
 
           const nombre      = row.PROYECTO  || row.proyecto  || row.NOMBRE   || row.nombre   || ''
           const ceco        = row.LINEA     || row.linea     || row['CENTRO DE COSTO'] || ''
-          const estado      = row.ESTADO    || row.estado    || ''
+          const estadoRaw   = row.ESTADO    || row.estado    || ''
+          const estado      = normalizarEstadoProyecto(estadoRaw)
           const tipo        = row.TIPO      || row.tipo      || ''
           const rendStr     = row.RENDIBLE  || row.rendible  || ''
           const ceco_codigo = row.CECO      || row.ceco      || ''
@@ -157,7 +193,7 @@ export default function VistaProyectosBase({ user, perfil }) {
             .insert({
               nombre:      nombre.trim(),
               ceco:        ceco.trim(),
-              estado:      estado.trim()      || null,
+              estado,
               tipo:        tipo.trim()        || null,
               rendible,
               ceco_codigo: ceco_codigo.trim() || null,
@@ -205,7 +241,7 @@ export default function VistaProyectosBase({ user, perfil }) {
       PROYECTO:   p.nombre,
       LINEA:      p.ceco || '',
       JEFE:       p.colaboradores?.colaborador || '',
-      ESTADO:     p.estado || '',
+      ESTADO:     normalizarEstadoProyecto(p.estado) || '',
       TIPO:       p.tipo || '',
       RENDIBLE:   p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : '',
       CECO:       p.ceco_codigo || '',
@@ -213,7 +249,7 @@ export default function VistaProyectosBase({ user, perfil }) {
     const ws = XLSX.utils.json_to_sheet(filas)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Proyectos')
-    XLSX.writeFile(wb, 'proyectos.xlsx')
+    XLSX.writeFile(wb, `proyectos_${buildTimestamp()}.xlsx`)
   }
 
   async function eliminarTodos() {
@@ -236,29 +272,48 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   function abrirModalCrear() {
-    setFormData({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '' })
+    setFormData({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '' })
     setModalCrear(true)
   }
 
+  function validarFormularioProyecto() {
+    if (!formData.nombre.trim()) return 'El nombre del proyecto es requerido'
+    if (!formData.ceco.trim()) return 'Debes seleccionar una línea'
+    if (!formData.jefe_id) return 'Debes seleccionar un jefe de proyecto'
+    if (!normalizarEstadoProyecto(formData.estado)) return 'Debes seleccionar un estado válido'
+    if (!TIPOS_PROYECTO.includes(formData.tipo)) return 'Debes seleccionar un tipo (Público o Privado)'
+    if (!['true', 'false'].includes(formData.rendible)) return 'Debes seleccionar si es rendible'
+    if (!formData.ceco_codigo.trim()) return 'Debes seleccionar un CECO'
+
+    const fechaAdjudicacion = normalizarMesAdjudicacion(formData.fecha_adjudicacion)
+    if (fechaAdjudicacion === undefined) return 'Fecha de adjudicación inválida. Usa formato "ene-26"'
+    if (normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' && !fechaAdjudicacion) {
+      return 'Debes seleccionar fecha de adjudicación cuando el estado no es "Adjudicado"'
+    }
+    return null
+  }
+
   async function crearProyecto() {
-    if (!formData.nombre.trim()) { toast.error('El nombre del proyecto es requerido'); return }
-    if (!formData.ceco.trim())   { toast.error('La línea es requerida'); return }
+    const errorValidacion = validarFormularioProyecto()
+    if (errorValidacion) { toast.error(errorValidacion); return }
 
     const { data: nuevoProyecto, error } = await supabase
       .from('proyectos')
       .insert({
         nombre:      formData.nombre.trim(),
         ceco:        formData.ceco.trim(),
-        estado:      formData.estado          || null,
-        tipo:        formData.tipo.trim()     || null,
+        estado:      normalizarEstadoProyecto(formData.estado),
+        tipo:        formData.tipo.trim(),
         rendible:    parseRendible(formData.rendible),
-        ceco_codigo: formData.ceco_codigo.trim() || null,
-        jefe_id:     formData.jefe_id         || null
+        ceco_codigo: formData.ceco_codigo.trim(),
+        jefe_id:     formData.jefe_id,
+        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion)
       })
       .select()
       .single()
 
     if (error) { toast.error('Error al crear proyecto: ' + error.message); return }
+    await sincronizarFechaAdjudicacionOportunidades(nuevoProyecto.id, normalizarMesAdjudicacion(formData.fecha_adjudicacion))
 
     await supabase.from('cambios').insert({
       proyecto_id:     nuevoProyecto.id,
@@ -280,11 +335,12 @@ export default function VistaProyectosBase({ user, perfil }) {
     setFormData({
       nombre:      proyecto.nombre,
       ceco:        proyecto.ceco,
-      estado:      proyecto.estado       || '',
+      estado:      normalizarEstadoProyecto(proyecto.estado) || '',
       tipo:        proyecto.tipo         || '',
       rendible:    rendibleToString(proyecto.rendible),
       ceco_codigo: proyecto.ceco_codigo  || '',
-      jefe_id:     proyecto.jefe_id      || ''
+      jefe_id:     proyecto.jefe_id      || '',
+      fecha_adjudicacion: proyecto.fecha_adjudicacion || ''
     })
     setMotivoCambio('')
     setModalEditar(proyecto)
@@ -292,8 +348,8 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   async function guardarEdicion() {
     if (!modalEditar) return
-    if (!formData.nombre.trim()) { toast.error('El nombre del proyecto es requerido'); return }
-    if (!formData.ceco.trim())   { toast.error('La línea es requerida'); return }
+    const errorValidacion = validarFormularioProyecto()
+    if (errorValidacion) { toast.error(errorValidacion); return }
     if (!motivoCambio.trim())    { toast.error('Debes ingresar un motivo para el cambio'); return }
 
     const cambiosList = []
@@ -302,14 +358,18 @@ export default function VistaProyectosBase({ user, perfil }) {
       cambiosList.push({ campo: 'NOMBRE',   anterior: modalEditar.nombre,           nuevo: formData.nombre.trim() })
     if (modalEditar.ceco !== formData.ceco.trim())
       cambiosList.push({ campo: 'LINEA',    anterior: modalEditar.ceco,             nuevo: formData.ceco.trim() })
-    if ((modalEditar.estado || '') !== (formData.estado || ''))
-      cambiosList.push({ campo: 'ESTADO',   anterior: modalEditar.estado || '',     nuevo: formData.estado || '' })
-    if ((modalEditar.tipo || '') !== formData.tipo.trim())
-      cambiosList.push({ campo: 'TIPO',     anterior: modalEditar.tipo || '',       nuevo: formData.tipo.trim() })
+    const estadoNuevo = normalizarEstadoProyecto(formData.estado) || ''
+    const estadoAnterior = normalizarEstadoProyecto(modalEditar.estado) || ''
+    if (estadoAnterior !== estadoNuevo)
+      cambiosList.push({ campo: 'ESTADO',   anterior: estadoAnterior, nuevo: estadoNuevo })
+    if ((modalEditar.tipo || '') !== formData.tipo)
+      cambiosList.push({ campo: 'TIPO',     anterior: modalEditar.tipo || '',       nuevo: formData.tipo })
     if (rendibleToString(modalEditar.rendible) !== formData.rendible)
       cambiosList.push({ campo: 'RENDIBLE', anterior: rendibleToString(modalEditar.rendible), nuevo: formData.rendible })
     if ((modalEditar.ceco_codigo || '') !== formData.ceco_codigo.trim())
       cambiosList.push({ campo: 'CECO',     anterior: modalEditar.ceco_codigo || '', nuevo: formData.ceco_codigo.trim() })
+    if ((modalEditar.fecha_adjudicacion || '') !== (normalizarMesAdjudicacion(formData.fecha_adjudicacion) || ''))
+      cambiosList.push({ campo: 'FECHA_ADJUDICACION', anterior: modalEditar.fecha_adjudicacion || '', nuevo: normalizarMesAdjudicacion(formData.fecha_adjudicacion) || '' })
     if ((modalEditar.jefe_id || '') !== (formData.jefe_id || '')) {
       const anterior = colaboradores.find(c => c.id === modalEditar.jefe_id)?.colaborador || '-'
       const nuevo    = colaboradores.find(c => c.id === formData.jefe_id)?.colaborador    || '-'
@@ -327,15 +387,17 @@ export default function VistaProyectosBase({ user, perfil }) {
       .update({
         nombre:      formData.nombre.trim(),
         ceco:        formData.ceco.trim(),
-        estado:      formData.estado          || null,
-        tipo:        formData.tipo.trim()     || null,
+        estado:      normalizarEstadoProyecto(formData.estado),
+        tipo:        formData.tipo,
         rendible:    parseRendible(formData.rendible),
-        ceco_codigo: formData.ceco_codigo.trim() || null,
-        jefe_id:     formData.jefe_id         || null
+        ceco_codigo: formData.ceco_codigo.trim(),
+        jefe_id:     formData.jefe_id,
+        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion)
       })
       .eq('id', modalEditar.id)
 
     if (error) { toast.error('Error al actualizar: ' + error.message); return }
+    await sincronizarFechaAdjudicacionOportunidades(modalEditar.id, normalizarMesAdjudicacion(formData.fecha_adjudicacion))
 
     for (const c of cambiosList) {
       await supabase.from('cambios').insert({
@@ -381,6 +443,17 @@ export default function VistaProyectosBase({ user, perfil }) {
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
+
+  async function sincronizarFechaAdjudicacionOportunidades(proyectoId, fechaAdjudicacion) {
+    const { error } = await supabase
+      .from('oportunidades')
+      .update({ fecha_adjudicacion: fechaAdjudicacion })
+      .eq('proyecto_id', proyectoId)
+
+    if (error) {
+      console.error('Error sincronizando fecha de adjudicación en oportunidades:', error)
+    }
+  }
   function toggleOrden(col) {
     if (ordenCol === col) {
       setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -395,35 +468,48 @@ export default function VistaProyectosBase({ user, perfil }) {
     return (
       p.nombre?.toLowerCase().includes(q) ||
       p.ceco?.toLowerCase().includes(q) ||
-      p.estado?.toLowerCase().includes(q) ||
+      (normalizarEstadoProyecto(p.estado) || '').toLowerCase().includes(q) ||
       p.tipo?.toLowerCase().includes(q) ||
       p.colaboradores?.colaborador?.toLowerCase().includes(q)
     )
   })
 
-  const opcionesLinea = [...new Set(proyectos.map((p) => p.ceco).filter(Boolean))].sort()
-  const opcionesProyecto = [...new Set(proyectos.map((p) => p.nombre).filter(Boolean))].sort()
-  const opcionesJefe = [...new Set(proyectos.map((p) => p.colaboradores?.colaborador).filter(Boolean))].sort()
-  const opcionesEstado = [...new Set(proyectos.map((p) => p.estado).filter(Boolean))].sort()
-  const opcionesTipo = [...new Set(proyectos.map((p) => p.tipo).filter(Boolean))].sort()
-  const opcionesRendible = ['Sí', 'No']
-
-  const proyectosFiltrados = proyectosBusqueda.filter((p) => {
+  function coincideFiltros(p, omitirCol = null) {
     const rendibleTxt = p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''
-    const matchLinea = !filtros.linea?.length || filtros.linea.includes(p.ceco)
-    const matchProyecto = !filtros.proyecto?.length || filtros.proyecto.includes(p.nombre)
-    const matchJefe = !filtros.jefe?.length || filtros.jefe.includes(p.colaboradores?.colaborador)
-    const matchEstado = !filtros.estado?.length || filtros.estado.includes(p.estado)
-    const matchTipo = !filtros.tipo?.length || filtros.tipo.includes(p.tipo)
-    const matchRendible = !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
+    const matchLinea = omitirCol === 'linea' || !filtros.linea?.length || filtros.linea.includes(p.ceco)
+    const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(p.nombre)
+    const matchJefe = omitirCol === 'jefe' || !filtros.jefe?.length || filtros.jefe.includes(p.colaboradores?.colaborador)
+    const estadoNormalizado = normalizarEstadoProyecto(p.estado)
+    const matchEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(estadoNormalizado)
+    const matchTipo = omitirCol === 'tipo' || !filtros.tipo?.length || filtros.tipo.includes(p.tipo)
+    const matchRendible = omitirCol === 'rendible' || !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
     return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchRendible
-  }).sort((a, b) => {
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = proyectosBusqueda.filter((p) => coincideFiltros(p, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesLinea = opcionesPorColumna('linea', (p) => p.ceco)
+  const opcionesProyecto = opcionesPorColumna('proyecto', (p) => p.nombre)
+  const opcionesJefe = opcionesPorColumna('jefe', (p) => p.colaboradores?.colaborador)
+  const opcionesEstado = opcionesPorColumna('estado', (p) => normalizarEstadoProyecto(p.estado))
+  const opcionesTipo = opcionesPorColumna('tipo', (p) => p.tipo)
+  const opcionesRendible = opcionesPorColumna(
+    'rendible',
+    (p) => (p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''),
+  )
+
+  const proyectosFiltrados = proyectosBusqueda.filter((p) => coincideFiltros(p)).sort((a, b) => {
     let vA = ''
     let vB = ''
     if (ordenCol === 'linea') { vA = a.ceco || ''; vB = b.ceco || '' }
     if (ordenCol === 'proyecto') { vA = a.nombre || ''; vB = b.nombre || '' }
     if (ordenCol === 'jefe') { vA = a.colaboradores?.colaborador || ''; vB = b.colaboradores?.colaborador || '' }
-    if (ordenCol === 'estado') { vA = a.estado || ''; vB = b.estado || '' }
+    if (ordenCol === 'estado') { vA = normalizarEstadoProyecto(a.estado) || ''; vB = normalizarEstadoProyecto(b.estado) || '' }
     if (ordenCol === 'tipo') { vA = a.tipo || ''; vB = b.tipo || '' }
     if (ordenCol === 'rendible') { vA = a.rendible === true ? 1 : a.rendible === false ? 0 : -1; vB = b.rendible === true ? 1 : b.rendible === false ? 0 : -1 }
     if (ordenCol === 'ceco') { vA = a.ceco_codigo || ''; vB = b.ceco_codigo || '' }
@@ -442,6 +528,42 @@ export default function VistaProyectosBase({ user, perfil }) {
         <option value="">Sin asignar</option>
         {colaboradores.map(c => (
           <option key={c.id} value={c.id}>{c.colaborador}</option>
+        ))}
+      </select>
+    )
+  }
+
+  function SelectLinea({ value, onChange }) {
+    const opciones = [...new Set([...(lineas || []), value].filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), 'es'))
+
+    return (
+      <select
+        value={value}
+        onChange={onChange}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+      >
+        <option value="">Seleccionar línea...</option>
+        {opciones.map((ceco) => (
+          <option key={ceco} value={ceco}>{ceco}</option>
+        ))}
+      </select>
+    )
+  }
+
+  function SelectCeco({ value, onChange }) {
+    const opciones = [...new Set([...(centrosCosto || []), value].filter(Boolean))]
+      .sort((a, b) => String(a).localeCompare(String(b), 'es'))
+
+    return (
+      <select
+        value={value}
+        onChange={onChange}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+      >
+        <option value="">Sin definir</option>
+        {opciones.map((ceco) => (
+          <option key={ceco} value={ceco}>{ceco}</option>
         ))}
       </select>
     )
@@ -527,7 +649,7 @@ export default function VistaProyectosBase({ user, perfil }) {
           <ul className="text-sm text-gray-600 space-y-1">
             <li>- <strong>PROYECTO</strong>: Nombre del proyecto (requerido)</li>
             <li>- <strong>LINEA</strong>: Línea de negocio (requerido)</li>
-            <li>- <strong>ESTADO</strong>: Activo, En pausa, Terminado, Cancelado (opcional)</li>
+            <li>- <strong>ESTADO</strong>: Efectivo, No Efectivo, Adjudicado, Cancelado (opcional)</li>
             <li>- <strong>TIPO</strong>: Tipo de proyecto (opcional)</li>
             <li>- <strong>RENDIBLE</strong>: Sí / No (opcional)</li>
             <li>- <strong>CECO</strong>: Código de centro de costo (opcional)</li>
@@ -716,10 +838,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Línea *</label>
-              <input type="text" value={formData.ceco}
-                onChange={(e) => setFormData({ ...formData, ceco: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Ej: Chileglobal Ventures" />
+              <SelectLinea value={formData.ceco} onChange={(e) => setFormData({ ...formData, ceco: e.target.value })} />
             </div>
 
             <div className="mb-4">
@@ -731,35 +850,47 @@ export default function VistaProyectosBase({ user, perfil }) {
               <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
               <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option value="">Sin definir</option>
-                {ESTADOS.map(e => <option key={e} value={e}>{e}</option>)}
+                <option value="">Seleccionar estado...</option>
+                {ESTADOS_PROYECTO.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             </div>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <input type="text" value={formData.tipo}
-                onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Ej: Consultoría, Investigación..." />
+              <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
+                <option value="">Seleccionar tipo...</option>
+                {TIPOS_PROYECTO.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Rendible</label>
               <select value={formData.rendible} onChange={(e) => setFormData({ ...formData, rendible: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option value="">Sin definir</option>
+                <option value="">Seleccionar...</option>
                 <option value="true">Sí</option>
                 <option value="false">No</option>
               </select>
             </div>
 
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha de adjudicación {normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' ? '*' : '(opcional)'}
+              </label>
+              <input
+                type="text"
+                value={formData.fecha_adjudicacion}
+                onChange={(e) => setFormData({ ...formData, fecha_adjudicacion: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="ene-26"
+                maxLength={6}
+              />
+            </div>
+
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-1">CECO</label>
-              <input type="text" value={formData.ceco_codigo}
-                onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Código de centro de costo (opcional)" />
+              <SelectCeco value={formData.ceco_codigo} onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })} />
             </div>
 
             <div className="flex gap-3 justify-end">
@@ -792,9 +923,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Línea *</label>
-              <input type="text" value={formData.ceco}
-                onChange={(e) => setFormData({ ...formData, ceco: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500" />
+              <SelectLinea value={formData.ceco} onChange={(e) => setFormData({ ...formData, ceco: e.target.value })} />
             </div>
 
             <div className="mb-4">
@@ -806,35 +935,47 @@ export default function VistaProyectosBase({ user, perfil }) {
               <label className="block text-sm font-medium text-gray-700 mb-1">Estado</label>
               <select value={formData.estado} onChange={(e) => setFormData({ ...formData, estado: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option value="">Sin definir</option>
-                {ESTADOS.map(e => <option key={e} value={e}>{e}</option>)}
+                <option value="">Seleccionar estado...</option>
+                {ESTADOS_PROYECTO.map(e => <option key={e} value={e}>{e}</option>)}
               </select>
             </div>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Tipo</label>
-              <input type="text" value={formData.tipo}
-                onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Ej: Consultoría, Investigación..." />
+              <select value={formData.tipo} onChange={(e) => setFormData({ ...formData, tipo: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
+                <option value="">Seleccionar tipo...</option>
+                {TIPOS_PROYECTO.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
             </div>
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Rendible</label>
               <select value={formData.rendible} onChange={(e) => setFormData({ ...formData, rendible: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
-                <option value="">Sin definir</option>
+                <option value="">Seleccionar...</option>
                 <option value="true">Sí</option>
                 <option value="false">No</option>
               </select>
             </div>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">CECO</label>
-              <input type="text" value={formData.ceco_codigo}
-                onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })}
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Fecha de adjudicación {normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' ? '*' : '(opcional)'}
+              </label>
+              <input
+                type="text"
+                value={formData.fecha_adjudicacion}
+                onChange={(e) => setFormData({ ...formData, fecha_adjudicacion: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Código de centro de costo (opcional)" />
+                placeholder="ene-26"
+                maxLength={6}
+              />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">CECO</label>
+              <SelectCeco value={formData.ceco_codigo} onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })} />
             </div>
 
             <div className="mb-6">

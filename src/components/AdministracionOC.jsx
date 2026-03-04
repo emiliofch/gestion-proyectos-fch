@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react'
+﻿import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 import FilterableTh from './FilterableTh'
 
 export default function AdministracionOC({ perfil }) {
   const [solicitudes, setSolicitudes] = useState([])
-  const [loading, setLoading] = useState(false)
+  const [_loading, setLoading] = useState(false)
   const [editando, setEditando] = useState(null)
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
@@ -23,6 +23,7 @@ export default function AdministracionOC({ perfil }) {
     'anulada'
   ]
 
+  // Intencional: recarga por empresa activa.
   useEffect(() => {
     cargarTodasLasSolicitudes()
   }, [empresaUsuario])
@@ -85,18 +86,27 @@ export default function AdministracionOC({ perfil }) {
     }
   }
 
-  const opcionesAutor = [...new Set(solicitudes.map((s) => s.usuario_email).filter(Boolean))].sort()
-  const opcionesProveedor = [...new Set(solicitudes.map((s) => s.proveedor).filter(Boolean))].sort()
-  const opcionesProyecto = [...new Set(solicitudes.map((s) => s.proyecto_nombre).filter(Boolean))].sort()
-  const opcionesEstado = [...new Set(solicitudes.map((s) => s.estado).filter(Boolean))].sort()
-
-  const solicitudesFiltradas = solicitudes.filter((s) => {
-    const matchAutor = !filtros.autor?.length || filtros.autor.includes(s.usuario_email)
-    const matchProveedor = !filtros.proveedor?.length || filtros.proveedor.includes(s.proveedor)
-    const matchProyecto = !filtros.proyecto?.length || filtros.proyecto.includes(s.proyecto_nombre)
-    const matchEstado = !filtros.estado?.length || filtros.estado.includes(s.estado)
+  function coincideFiltros(s, omitirCol = null) {
+    const matchAutor = omitirCol === 'autor' || !filtros.autor?.length || filtros.autor.includes(s.usuario_email)
+    const matchProveedor = omitirCol === 'proveedor' || !filtros.proveedor?.length || filtros.proveedor.includes(s.proveedor)
+    const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(s.proyecto_nombre)
+    const matchEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(s.estado)
     return matchAutor && matchProveedor && matchProyecto && matchEstado
-  }).sort((a, b) => {
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = solicitudes.filter((s) => coincideFiltros(s, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesAutor = opcionesPorColumna('autor', (s) => s.usuario_email)
+  const opcionesProveedor = opcionesPorColumna('proveedor', (s) => s.proveedor)
+  const opcionesProyecto = opcionesPorColumna('proyecto', (s) => s.proyecto_nombre)
+  const opcionesEstado = opcionesPorColumna('estado', (s) => s.estado)
+
+  const solicitudesFiltradas = solicitudes.filter((s) => coincideFiltros(s)).sort((a, b) => {
     let vA = ''
     let vB = ''
     if (ordenCol === 'autor') { vA = a.usuario_email || ''; vB = b.usuario_email || '' }
@@ -373,3 +383,4 @@ export default function AdministracionOC({ perfil }) {
     </div>
   )
 }
+

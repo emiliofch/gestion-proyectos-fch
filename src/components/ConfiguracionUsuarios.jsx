@@ -52,7 +52,7 @@ export default function ConfiguracionUsuarios({ user }) {
     const adminNombre = adminData?.email || 'El administrador'
 
     const redirectUrl = window.location.origin
-    const { data, error } = await supabase.auth.signInWithOtp({
+    const { error } = await supabase.auth.signInWithOtp({
       email: nuevoEmail,
       options: {
         emailRedirectTo: redirectUrl,

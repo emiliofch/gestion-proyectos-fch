@@ -5,9 +5,8 @@ import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import ResizableTh from './ResizableTh'
 import FilterableTh from './FilterableTh'
-
-const ESTADOS_OPT = ['Efectivo', 'No Efectivo', 'Adjudicado', 'Cancelado']
-const MESES_ADJUDICACION = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
+import { ESTADOS_PROYECTO, normalizarEstadoProyecto } from '../constants/estadosProyecto'
+import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
 
 function buildTimestamp() {
@@ -19,23 +18,18 @@ function fmt(val) {
   return '$' + millones.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
 }
 
-function normalizarMesAdjudicacion(raw) {
-  const txt = String(raw || '').trim().toLowerCase()
-  if (!txt) return null
-  const match = txt.match(/^([a-z]{3})-(\d{2})$/)
-  if (!match) return undefined
-  const mes = match[1]
-  const anio = match[2]
-  if (!MESES_ADJUDICACION.includes(mes)) return undefined
-  return `${mes}-${anio}`
+function puedeEditarFechaAdjudicacion(estado) {
+  return ESTADOS_ADJUDICACION_EDITABLE.includes(normalizarEstadoProyecto(estado) || '')
 }
 
-function puedeEditarFechaAdjudicacion(estado) {
-  return ESTADOS_ADJUDICACION_EDITABLE.includes(estado || '')
+function obtenerFechaAdjudicacion(oportunidad) {
+  return normalizarMesAdjudicacion(oportunidad?.proyectos?.fecha_adjudicacion)
+    ?? normalizarMesAdjudicacion(oportunidad?.fecha_adjudicacion)
+    ?? ''
 }
 
 function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opciones, filtro, onFiltro, dropdownAbierto, onToggleDropdown }) {
-  const arrow = activo ? (dir === 'asc' ? ' â†‘' : ' â†“') : ' â†•'
+  const arrow = activo ? (dir === 'asc' ? ' ↑' : ' ↓') : ' ↕'
   const tieneOpciones = opciones && opciones.length > 0
   const btnRef = useRef(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
@@ -69,7 +63,7 @@ function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opcio
               className={`text-xs px-0.5 py-1 rounded transition-all leading-none ${filtro ? 'text-orange-500 font-bold' : 'text-gray-400 hover:text-gray-700'}`}
               title={filtro ? `Filtro: ${filtro}` : 'Filtrar'}
             >
-              {filtro ? 'â–¼' : 'â·'}
+              {filtro ? '▼' : '⏷'}
             </button>
             {dropdownAbierto && createPortal(
               <div
@@ -103,21 +97,22 @@ function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opcio
 }
 
 function badgeEstado(estado, oportunidad, onSolicitar) {
+  const estadoNormalizado = normalizarEstadoProyecto(estado)
   const colores = {
     'Efectivo':    'bg-green-100 text-green-800 border-green-300',
     'No Efectivo': 'bg-red-100 text-red-800 border-red-300',
     'Adjudicado':  'bg-blue-100 text-blue-800 border-blue-300',
     'Cancelado':   'bg-gray-200 text-gray-800 border-gray-400',
   }
-  const cls = colores[estado] || 'bg-gray-100 text-gray-600 border-gray-300'
+  const cls = colores[estadoNormalizado] || 'bg-gray-100 text-gray-600 border-gray-300'
   return (
     <select
-      value={estado || ''}
+      value={estadoNormalizado || ''}
       onChange={(e) => onSolicitar(oportunidad, e.target.value)}
       className={`px-2 py-1 rounded-full text-xs font-medium border cursor-pointer focus:outline-none ${cls}`}
     >
       <option value="">Sin estado</option>
-      {ESTADOS_OPT.map(e => <option key={e} value={e}>{e}</option>)}
+      {ESTADOS_PROYECTO.map(e => <option key={e} value={e}>{e}</option>)}
     </select>
   )
 }
@@ -171,7 +166,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
       .from('oportunidades')
       .select(`
         *,
-        proyectos:proyecto_id (id, nombre, ceco, estado, colaboradores!jefe_id(colaborador))
+        proyectos:proyecto_id (id, nombre, ceco, estado, fecha_adjudicacion, colaboradores!jefe_id(colaborador))
       `)
       .order('created_at', { ascending: false })
 
@@ -183,7 +178,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     setLoading(false)
   }
 
-  // â”€â”€ SOLICITAR CAMBIO DE ESTADO (abre modal de motivo) â”€â”€
+  // ── SOLICITAR CAMBIO DE ESTADO (abre modal de motivo) ──
   function solicitarCambioEstado(oportunidad, nuevoEstado) {
     setModalMotivo({
       tipo: 'estado',
@@ -194,7 +189,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     setMotivoAccion('')
   }
 
-  // â”€â”€ SOLICITAR ELIMINAR (abre modal de motivo) â”€â”€
+  // ── SOLICITAR ELIMINAR (abre modal de motivo) ──
   function solicitarEliminar(oportunidad) {
     setModalMotivo({
       tipo: 'eliminar',
@@ -205,7 +200,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     setMotivoAccion('')
   }
 
-  // â”€â”€ CONFIRMAR ACCIÃ“N CON MOTIVO â”€â”€
+  // ── CONFIRMAR ACCIÓN CON MOTIVO ──
   async function confirmarAccionConMotivo() {
     if (!motivoAccion.trim()) {
       toast.error('Debes ingresar un motivo')
@@ -216,7 +211,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
 
     if (tipo === 'estado') {
       const { oportunidad, nuevoEstado } = payload
-      const estadoAnterior = oportunidad.proyectos?.estado || ''
+      const estadoAnterior = normalizarEstadoProyecto(oportunidad.proyectos?.estado) || ''
 
       const { error } = await supabase
         .from('proyectos')
@@ -270,7 +265,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     setMotivoAccion('')
   }
 
-  // â”€â”€ AGREGAR OPORTUNIDAD â”€â”€
+  // ── AGREGAR OPORTUNIDAD ──
   async function agregarOportunidad() {
     if (!formAgregar.proyecto_id) {
       toast.error('Selecciona un proyecto')
@@ -290,7 +285,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     cargarDatos()
   }
 
-  // â”€â”€ EDICIÃ“N NUMÃ‰RICA (Ingresos / HH / GGOO) â”€â”€
+  // ── EDICIÓN NUMÉRICA (Ingresos / HH / GGOO) ──
   function abrirModalEdicion(oportunidad, campo, valorActual) {
     setModalEdicion({ oportunidad, campo })
     setValorEditando(valorActual?.toString() || '0')
@@ -337,7 +332,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
 
     if (errorCambio) {
       console.error('Error registrando cambio:', errorCambio)
-      toast.warning('Valor actualizado pero no se registrÃ³ el cambio')
+      toast.warning('Valor actualizado pero no se registró el cambio')
     } else {
       await onCambioRegistrado?.()
     }
@@ -350,7 +345,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   async function actualizarFechaAdjudicacion(oportunidad, valor, onInvalid) {
     if (!puedeEditarFechaAdjudicacion(oportunidad.proyectos?.estado)) {
       toast.error('Fecha de adjudicacion solo editable en estado Efectivo o No Efectivo')
-      onInvalid?.(oportunidad.fecha_adjudicacion || '')
+      onInvalid?.(obtenerFechaAdjudicacion(oportunidad))
       return
     }
 
@@ -361,28 +356,39 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
       return
     }
 
-    const actual = oportunidad.fecha_adjudicacion || null
+    const actual = obtenerFechaAdjudicacion(oportunidad) || null
     if (normalizado === actual) return
 
-    const { error } = await supabase
+    const { error: errorProyecto } = await supabase
+      .from('proyectos')
+      .update({ fecha_adjudicacion: normalizado })
+      .eq('id', oportunidad.proyecto_id)
+
+    if (errorProyecto) {
+      toast.error('Error al actualizar fecha de adjudicacion: ' + errorProyecto.message)
+      onInvalid?.(obtenerFechaAdjudicacion(oportunidad))
+      return
+    }
+
+    const { error: errorOportunidades } = await supabase
       .from('oportunidades')
       .update({ fecha_adjudicacion: normalizado })
-      .eq('id', oportunidad.id)
+      .eq('proyecto_id', oportunidad.proyecto_id)
 
-    if (error) {
-      toast.error('Error al actualizar fecha de adjudicacion: ' + error.message)
-      onInvalid?.(oportunidad.fecha_adjudicacion || '')
+    if (errorOportunidades) {
+      toast.error('Error sincronizando fecha en oportunidades: ' + errorOportunidades.message)
+      onInvalid?.(obtenerFechaAdjudicacion(oportunidad))
       return
     }
 
     setOportunidades((prev) => prev.map((o) => (
-      o.id === oportunidad.id
-        ? { ...o, fecha_adjudicacion: normalizado }
+      o.proyecto_id === oportunidad.proyecto_id
+        ? { ...o, fecha_adjudicacion: normalizado, proyectos: { ...o.proyectos, fecha_adjudicacion: normalizado } }
         : o
     )))
   }
 
-  // â”€â”€ IMPORTAR EXCEL â”€â”€
+  // ── IMPORTAR EXCEL ──
   async function importarExcel(e) {
     const file = e.target.files[0]
     if (!file) return
@@ -400,7 +406,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
           if (val === null || val === undefined || val === '') return 0
           if (typeof val === 'number') return val
           // Formato latino: punto = separador de miles, coma = decimal
-          // Ej: "1.234,56" â†’ 1234.56
+          // Ej: "1.234,56" → 1234.56
           const str = String(val).trim().replace(/\./g, '').replace(',', '.')
           return parseFloat(str) || 0
         }
@@ -420,7 +426,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
             continue
           }
 
-          // Buscar proyecto â€” intenta match por cÃ³digo prefijo, si no por nombre exacto
+          // Buscar proyecto: intenta match por código prefijo, si no por nombre exacto
           const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
           const busq = codigoMatch ? codigoMatch[0] : proyectoNombre
 
@@ -432,7 +438,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
 
           if (!encontrados || encontrados.length === 0) {
             noEncontrados.push(proyectoNombre)
-            continue   // â† no insertar si no existe en proyectos
+            continue   // ← no insertar si no existe en proyectos
           }
 
           const { error: errorInsert } = await supabase.from('oportunidades').insert({
@@ -453,14 +459,14 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
 
         if (noEncontrados.length > 0) {
           toast.warning(
-            `${noEncontrados.length} proyecto(s) no encontrado(s) â€” no importados:\n${noEncontrados.slice(0, 5).join(', ')}${noEncontrados.length > 5 ? '...' : ''}`,
+            `${noEncontrados.length} proyecto(s) no encontrado(s) - no importados:\n${noEncontrados.slice(0, 5).join(', ')}${noEncontrados.length > 5 ? '...' : ''}`,
             { autoClose: 6000 }
           )
         }
         if (errores > 0) {
           toast.warning(`${errores} fila(s) con error al insertar`)
         }
-        toast.success(`ImportaciÃ³n: ${insertados} oportunidades creadas`)
+        toast.success(`Importación: ${insertados} oportunidades creadas`)
         cargarDatos()
       } catch (error) {
         console.error('Error:', error)
@@ -474,8 +480,8 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   }
 
   async function borrarTodas() {
-    if (!confirm('Â¿Eliminar TODAS las oportunidades? Esta acciÃ³n no se puede deshacer.')) return
-    if (!confirm('ConfirmaciÃ³n final: Â¿seguro?')) return
+    if (!confirm('¿Eliminar TODAS las oportunidades? Esta acción no se puede deshacer.')) return
+    if (!confirm('Confirmación final: ¿seguro?')) return
     const { error } = await supabase
       .from('oportunidades')
       .delete()
@@ -488,7 +494,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     }
   }
 
-  // â”€â”€ TOGGLE ORDEN â”€â”€
+  // ── TOGGLE ORDEN ──
   function toggleOrden(col) {
     if (ordenCol === col) {
       setOrdenDir(d => d === 'asc' ? 'desc' : 'asc')
@@ -502,21 +508,23 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     setFiltros(prev => ({ ...prev, [col]: valor }))
   }
 
-  // â”€â”€ LÃNEAS ÃšNICAS PARA EL FILTRO SUPERIOR â”€â”€
+  // ── LÍNEAS ÚNICAS PARA EL FILTRO SUPERIOR ──
   function coincideFiltros(o, omitirCol = null) {
     const q = busqueda.toLowerCase()
     const jefe = o.proyectos?.colaboradores?.colaborador
     const matchBusqueda = (
       o.proyectos?.nombre?.toLowerCase().includes(q) ||
       o.proyectos?.ceco?.toLowerCase().includes(q) ||
-      o.proyectos?.estado?.toLowerCase().includes(q) ||
+      (normalizarEstadoProyecto(o.proyectos?.estado) || '').toLowerCase().includes(q) ||
       jefe?.toLowerCase().includes(q)
     )
     const matchFLinea = omitirCol === 'linea' || !filtros.linea?.length || filtros.linea.includes(o.proyectos?.ceco)
     const matchFProy = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(o.proyectos?.nombre)
     const matchFJefe = omitirCol === 'jefe' || !filtros.jefe?.length || filtros.jefe.includes(jefe)
-    const matchFEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(o.proyectos?.estado)
-    const matchFFechaAdjudicacion = omitirCol === 'fechaAdjudicacion' || !filtros.fechaAdjudicacion?.length || filtros.fechaAdjudicacion.includes(o.fecha_adjudicacion)
+    const estadoNormalizado = normalizarEstadoProyecto(o.proyectos?.estado)
+    const matchFEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(estadoNormalizado)
+    const fechaAdj = obtenerFechaAdjudicacion(o)
+    const matchFFechaAdjudicacion = omitirCol === 'fechaAdjudicacion' || !filtros.fechaAdjudicacion?.length || filtros.fechaAdjudicacion.includes(fechaAdj)
     return matchBusqueda && matchFLinea && matchFProy && matchFJefe && matchFEstado && matchFFechaAdjudicacion
   }
 
@@ -534,8 +542,8 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
         HH: hh,
         GGOO: gastos,
         MARGEN: margen,
-        ESTADO: o.proyectos?.estado || '',
-        FECHA_ADJUDICACION: o.fecha_adjudicacion || '',
+        ESTADO: normalizarEstadoProyecto(o.proyectos?.estado) || '',
+        FECHA_ADJUDICACION: obtenerFechaAdjudicacion(o),
       }
     })
     const ws = XLSX.utils.json_to_sheet(filas)
@@ -551,14 +559,14 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
   }
 
-  // â”€â”€ OPCIONES ÃšNICAS POR COLUMNA (para dropdowns) â”€â”€
+  // ── OPCIONES ÚNICAS POR COLUMNA (para dropdowns) ──
   const opcionesLinea = opcionesPorColumna('linea', (o) => o.proyectos?.ceco)
   const opcionesProyecto = opcionesPorColumna('proyecto', (o) => o.proyectos?.nombre)
   const opcionesJefe = opcionesPorColumna('jefe', (o) => o.proyectos?.colaboradores?.colaborador)
-  const opcionesEstado = opcionesPorColumna('estado', (o) => o.proyectos?.estado)
-  const opcionesFechaAdjudicacion = opcionesPorColumna('fechaAdjudicacion', (o) => o.fecha_adjudicacion)
+  const opcionesEstado = opcionesPorColumna('estado', (o) => normalizarEstadoProyecto(o.proyectos?.estado))
+  const opcionesFechaAdjudicacion = opcionesPorColumna('fechaAdjudicacion', (o) => obtenerFechaAdjudicacion(o))
 
-  // â”€â”€ FILTRO Y ORDEN â”€â”€
+  // ── FILTRO Y ORDEN ──
   const oportunidadesFiltradas = oportunidades
     .filter((o) => coincideFiltros(o))
     .sort((a, b) => {
@@ -574,8 +582,8 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
         case 'hh':       vA = parseFloat(a.hh)       || 0; vB = parseFloat(b.hh)       || 0; break
         case 'gastos':   vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0; break
         case 'margen':   vA = margenA; vB = margenB; break
-        case 'estado':   vA = a.proyectos?.estado  || ''; vB = b.proyectos?.estado  || ''; break
-        case 'fechaAdjudicacion': vA = a.fecha_adjudicacion || ''; vB = b.fecha_adjudicacion || ''; break
+        case 'estado':   vA = normalizarEstadoProyecto(a.proyectos?.estado) || ''; vB = normalizarEstadoProyecto(b.proyectos?.estado) || ''; break
+        case 'fechaAdjudicacion': vA = obtenerFechaAdjudicacion(a); vB = obtenerFechaAdjudicacion(b); break
         default: return 0
       }
       if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
@@ -665,15 +673,15 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
               <span className="text-red-600 font-bold">GGOO</span>
             </div>
             <ul className="text-sm text-gray-600 space-y-1">
-              <li>- <strong>PROYECTO</strong>: CÃ³digo/nombre del proyecto (debe existir en tabla Proyectos)</li>
-              <li>- <strong>INGRESOS / HH / GGOO</strong>: Valores numÃ©ricos</li>
+              <li>- <strong>PROYECTO</strong>: Código/nombre del proyecto (debe existir en tabla Proyectos)</li>
+              <li>- <strong>INGRESOS / HH / GGOO</strong>: Valores numéricos</li>
             </ul>
             <p className="text-xs text-gray-500 mt-2">Si el proyecto no existe en la tabla, la fila no se importa.</p>
           </div>
         )}
       </div>
 
-      {/* Ãrea scrollable (tabla) */}
+      {/* Área scrollable (tabla) */}
       <div className="flex-1 overflow-auto min-h-0">
         {loading ? (
           <div className="text-center py-12">
@@ -688,7 +696,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <FilterableTh col="linea" label="LÃ­nea" align="left" style={{ width: '130px' }} opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="linea" label="Línea" align="left" style={{ width: '130px' }} opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="proyecto" label="Proyecto" align="left" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="jefe" label="Jefe" align="left" style={{ width: '140px' }} opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="ingresos" label="Ingresos" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='ingresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
@@ -782,7 +790,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                     <td className="py-3 px-4 text-center">
                       <input
                         type="text"
-                        defaultValue={o.fecha_adjudicacion || ''}
+                        defaultValue={obtenerFechaAdjudicacion(o)}
                         placeholder="ene-26"
                         maxLength={6}
                         disabled={!fechaAdjudicacionEditable}
@@ -800,7 +808,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') e.currentTarget.blur()
                           if (e.key === 'Escape') {
-                            e.currentTarget.value = o.fecha_adjudicacion || ''
+                            e.currentTarget.value = obtenerFechaAdjudicacion(o)
                             e.currentTarget.blur()
                           }
                         }}
@@ -944,7 +952,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
         </div>
       )}
 
-      {/* Modal ediciÃ³n numÃ©rica */}
+      {/* Modal edición numérica */}
       {modalEdicion && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4">

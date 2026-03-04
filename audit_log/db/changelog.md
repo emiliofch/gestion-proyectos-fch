@@ -7,6 +7,89 @@ Ver lista detallada de scripts en [migraciones.md](./migraciones.md).
 
 ---
 
+## [2026-03-04] - Nuevo esquema Ingreso de HH
+
+- Se agrega migracion `supabase/migrations/20260304191000_create_ingreso_hh.sql`.
+- Se crea tabla `public.ingreso_hh` con campos:
+  - `user_id`
+  - `proyecto_id`
+  - `mes`
+  - `horas`
+  - `empresa`
+- Restricciones:
+  - `UNIQUE (user_id, proyecto_id, mes)`
+  - `horas > 0 AND horas <= 170`
+- Se agrega RLS por usuario/admin y aislamiento por empresa.
+
+### Impacto DB
+- Habilita registro mensual de HH por proyecto y usuario.
+- Estado actual: aplicada en remoto (`20260304191000`).
+
+---
+
+## [2026-03-04] - Proyectos: fecha de adjudicación en esquema
+
+- Se agrega migracion `supabase/migrations/20260304183000_add_fecha_adjudicacion_proyectos.sql`.
+- La migracion incorpora `fecha_adjudicacion` en `public.proyectos`.
+- Se agrega constraint de formato `mes-yy` (ej: `ene-26`), alineado con oportunidades.
+
+### Impacto DB
+- Cambio de esquema: `ALTER TABLE public.proyectos ADD COLUMN fecha_adjudicacion text`.
+- Validacion de datos con `CHECK` (`proyectos_fecha_adjudicacion_chk`).
+- Estado actual: aplicada en remoto (`20260304183000`).
+
+---
+
+## [2026-03-04] - Seed inicial de líneas (CGV/HUB_MET)
+
+- Se agrega migracion `supabase/migrations/20260304174500_seed_lineas_base.sql`.
+- Inserta lineas base para ambas empresas (`CGV` y `HUB_MET`):
+  - Desarrollo de Negocios
+  - Gerencia de Área
+  - Hub Metropolitano
+  - Proyectos Corporativos
+  - Startup Lab.01
+  - Venture Capital
+- Usa `ON CONFLICT (linea, empresa) DO NOTHING` para evitar duplicados.
+
+### Impacto DB
+- Datos iniciales del catalogo `lineas` disponibles para dropdown de `Línea` en Proyectos.
+- Estado actual: aplicada en remoto (`20260304174500`).
+
+---
+
+## [2026-03-04] - Catálogo de Líneas por empresa
+
+- Se agrega migracion `supabase/migrations/20260304172000_create_lineas.sql`.
+- Se crea tabla `public.lineas` para administrar listado de líneas por empresa.
+- Se implementa RLS con aislamiento por empresa y politicas:
+  - `SELECT` por misma empresa
+  - `INSERT` por misma empresa
+  - `UPDATE/DELETE` solo admin de la misma empresa
+- Se agrega restriccion de unicidad `UNIQUE (linea, empresa)`.
+
+### Impacto DB
+- Nuevo catalogo para poblar dropdown de `Línea` en alta/edicion de proyectos.
+- Estado actual: aplicada en remoto (`20260304172000`).
+
+---
+
+## [2026-03-04] - Catálogo de Centros de Costo por empresa
+
+- Se agrega migracion `supabase/migrations/20260304164000_create_centros_costo.sql`.
+- Se crea tabla `public.centros_costo` para administrar listado de CECOs por empresa.
+- Se implementa RLS con aislamiento por empresa y politicas:
+  - `SELECT` por misma empresa
+  - `INSERT` por misma empresa
+  - `UPDATE/DELETE` solo admin de la misma empresa
+- Se agrega restriccion de unicidad `UNIQUE (ceco, empresa)`.
+
+### Impacto DB
+- Nuevo catalogo para poblar dropdown de `CECO` en alta/edicion de proyectos.
+- Estado actual: aplicada en remoto (`20260304164000`).
+
+---
+
 ## [2026-03-02] - Control de cambios: habilitar DELETE para admin
 
 - Se agrega migracion `supabase/migrations/20260302152000_add_delete_policy_cambios.sql`.
@@ -20,7 +103,7 @@ Ver lista detallada de scripts en [migraciones.md](./migraciones.md).
 
 ---
 
-## [2026-03-02] - Oportunidades: fecha de adjudicacion (pendiente de ejecutar)
+## [2026-03-02] - Oportunidades: fecha de adjudicacion
 
 - Se agrega migracion versionada `supabase/migrations/20260302120000_add_fecha_adjudicacion_oportunidades.sql`.
 - La migracion incorpora la columna `fecha_adjudicacion` en `public.oportunidades`.
@@ -31,7 +114,7 @@ Ver lista detallada de scripts en [migraciones.md](./migraciones.md).
 ### Impacto DB
 - Cambio de esquema: `ALTER TABLE public.oportunidades ADD COLUMN fecha_adjudicacion TEXT`.
 - Validacion de datos con `CHECK` (`oportunidades_fecha_adjudicacion_chk`).
-- Estado actual: pendiente de aplicar en entorno remoto.
+- Estado actual: aplicada en remoto (`20260302120000`).
 
 ---
 

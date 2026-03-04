@@ -1,20 +1,23 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+@import url('https://fonts.cdnfonts.com/css/nohemi');
 
 :root {
-  --fch-blue-gray: rgb(89, 121, 149);
-  --fch-sand: rgb(233, 184, 86);
-  --fch-brown-dark: rgb(156, 90, 45);
-  --fch-cream: rgb(242, 238, 234);
-  --fch-brown: rgb(183, 107, 51);
-  --fch-gold: rgb(225, 174, 81);
-  --fch-coral: rgb(219, 104, 70);
+  --fch-btn-primary: #00334A;
+  --fch-btn-yellow: #FFB600;
+  --fch-btn-soft: #DDE5ED;
+  --fch-btn-green: #86C300;
+  --fch-btn-cyan: #009ADE;
+  --fch-btn-magenta: #AF1758;
+  --fch-btn-violet: #722181;
+  --fch-btn-deep-violet: #3E0985;
+  --fch-btn-blue: #2A7DE2;
 }
 
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+  font-family: 'Nohemi', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
     'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
     sans-serif;
   background: #f9fafb;
@@ -33,7 +36,8 @@ input[type='button'][style*="backgroundColor: '#FF5100'"],
 input[type='submit'][style*="backgroundColor: '#FF5100'"],
 input[type='button'][style*='background-color: rgb(255, 81, 0)'],
 input[type='submit'][style*='background-color: rgb(255, 81, 0)'] {
-  background-color: var(--fch-brown) !important;
+  background-color: var(--fch-btn-primary) !important;
+  color: #fff !important;
 }
 
 button[style*='backgroundColor: "#10B981"'],
@@ -42,7 +46,7 @@ button[style*='background-color: rgb(16, 185, 129)'],
 label[style*='backgroundColor: "#10B981"'],
 label[style*="backgroundColor: '#10B981'"],
 label[style*='background-color: rgb(16, 185, 129)'] {
-  background-color: var(--fch-gold) !important;
+  background-color: var(--fch-btn-green) !important;
   color: #fff !important;
 }
 
@@ -52,7 +56,7 @@ button[style*='background-color: rgb(59, 130, 246)'],
 label[style*='backgroundColor: "#3B82F6"'],
 label[style*="backgroundColor: '#3B82F6'"],
 label[style*='background-color: rgb(59, 130, 246)'] {
-  background-color: var(--fch-blue-gray) !important;
+  background-color: var(--fch-btn-cyan) !important;
   color: #fff !important;
 }
 
@@ -62,7 +66,7 @@ button[style*='background-color: rgb(239, 68, 68)'],
 label[style*='backgroundColor: "#EF4444"'],
 label[style*="backgroundColor: '#EF4444'"],
 label[style*='background-color: rgb(239, 68, 68)'] {
-  background-color: var(--fch-coral) !important;
+  background-color: var(--fch-btn-magenta) !important;
   color: #fff !important;
 }
 
@@ -72,7 +76,7 @@ button[style*='background-color: rgb(99, 102, 241)'],
 label[style*='backgroundColor: "#6366F1"'],
 label[style*="backgroundColor: '#6366F1'"],
 label[style*='background-color: rgb(99, 102, 241)'] {
-  background-color: var(--fch-brown-dark) !important;
+  background-color: var(--fch-btn-violet) !important;
   color: #fff !important;
 }
 
@@ -86,7 +90,7 @@ input[type='button'].bg-blue-500,
 input[type='button'].bg-blue-600,
 input[type='submit'].bg-blue-500,
 input[type='submit'].bg-blue-600 {
-  background-color: var(--fch-blue-gray) !important;
+  background-color: var(--fch-btn-blue) !important;
   color: #fff !important;
 }
 
@@ -100,7 +104,7 @@ input[type='button'].bg-green-500,
 input[type='button'].bg-green-600,
 input[type='submit'].bg-green-500,
 input[type='submit'].bg-green-600 {
-  background-color: var(--fch-gold) !important;
+  background-color: var(--fch-btn-green) !important;
   color: #fff !important;
 }
 
@@ -114,7 +118,7 @@ input[type='button'].bg-red-500,
 input[type='button'].bg-red-600,
 input[type='submit'].bg-red-500,
 input[type='submit'].bg-red-600 {
-  background-color: var(--fch-coral) !important;
+  background-color: var(--fch-btn-magenta) !important;
   color: #fff !important;
 }
 
@@ -124,7 +128,7 @@ label.bg-purple-500,
 label.bg-purple-600,
 input[type='button'].bg-purple-500,
 input[type='submit'].bg-purple-500 {
-  background-color: var(--fch-brown-dark) !important;
+  background-color: var(--fch-btn-deep-violet) !important;
   color: #fff !important;
 }
 
@@ -134,8 +138,8 @@ label.bg-yellow-500,
 label.bg-yellow-600,
 input[type='button'].bg-yellow-500,
 input[type='submit'].bg-yellow-500 {
-  background-color: var(--fch-sand) !important;
-  color: #fff !important;
+  background-color: var(--fch-btn-yellow) !important;
+  color: #00334A !important;
 }
 
 button.bg-gray-100,
@@ -150,6 +154,6 @@ input[type='button'].bg-gray-100,
 input[type='button'].bg-gray-200,
 input[type='submit'].bg-gray-100,
 input[type='submit'].bg-gray-200 {
-  background-color: var(--fch-cream) !important;
-  color: #374151 !important;
+  background-color: var(--fch-btn-soft) !important;
+  color: #00334A !important;
 }

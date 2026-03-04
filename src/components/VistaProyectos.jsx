@@ -1,5 +1,3 @@
-import { useState } from 'react'
-
 export default function VistaProyectos({
   proyectos, jefes, filtroJefe, setFiltroJefe, busqueda, setBusqueda,
   mostrarInstrucciones, setMostrarInstrucciones, importarExcel, crearProyecto,

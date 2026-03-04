@@ -7,14 +7,15 @@ function fmtVal(v) {
   return Number.isNaN(n) ? v : n.toFixed(1)
 }
 
-export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoControlCambios }) {
+export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoControlCambios, perfil, onEliminarCambio }) {
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('fecha')
   const [ordenDir, setOrdenDir] = useState('desc')
+  const esAdmin = perfil?.rol === 'admin'
 
   const esVistaEstados = tipoControlCambios === 'estado'
-  const muestraProyecto = tipoControlCambios === 'valor' || esVistaEstados
+  const muestraProyecto = tipoControlCambios === 'valor' || tipoControlCambios === 'proyecto' || esVistaEstados
   const muestraCampo = !esVistaEstados
   const muestraAnteriorNuevo = tipoControlCambios === 'valor' || esVistaEstados
 
@@ -45,18 +46,27 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
     }
   }
 
-  const opcionesProyecto = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.proyecto_nombre).filter(Boolean))].sort(), [cambiosFiltrados])
-  const opcionesCampo = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.campo).filter(Boolean))].sort(), [cambiosFiltrados])
-  const opcionesUsuario = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.usuario).filter(Boolean))].sort(), [cambiosFiltrados])
-  const opcionesEstadoNuevo = useMemo(() => [...new Set(cambiosFiltrados.map((c) => c.valor_nuevo).filter(Boolean))].sort(), [cambiosFiltrados])
-
-  const cambiosConFiltros = useMemo(() => cambiosFiltrados.filter((c) => {
-    const matchProyecto = !filtros.proyecto?.length || filtros.proyecto.includes(c.proyecto_nombre)
-    const matchCampo = !filtros.campo?.length || filtros.campo.includes(c.campo)
-    const matchUsuario = !filtros.usuario?.length || filtros.usuario.includes(c.usuario)
-    const matchEstadoNuevo = !filtros.estadoNuevo?.length || filtros.estadoNuevo.includes(c.valor_nuevo)
+  const coincideFiltros = useMemo(() => (c, omitirCol = null) => {
+    const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(c.proyecto_nombre)
+    const matchCampo = omitirCol === 'campo' || !filtros.campo?.length || filtros.campo.includes(c.campo)
+    const matchUsuario = omitirCol === 'usuario' || !filtros.usuario?.length || filtros.usuario.includes(c.usuario)
+    const matchEstadoNuevo = omitirCol === 'estadoNuevo' || !filtros.estadoNuevo?.length || filtros.estadoNuevo.includes(c.valor_nuevo)
     return matchProyecto && matchCampo && matchUsuario && matchEstadoNuevo
-  }).sort((a, b) => {
+  }, [filtros])
+
+  const opcionesPorColumna = useMemo(() => (col, obtenerValor) => {
+    const visibles = cambiosFiltrados.filter((c) => coincideFiltros(c, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }, [cambiosFiltrados, coincideFiltros, filtros])
+
+  const opcionesProyecto = useMemo(() => opcionesPorColumna('proyecto', (c) => c.proyecto_nombre), [opcionesPorColumna])
+  const opcionesCampo = useMemo(() => opcionesPorColumna('campo', (c) => c.campo), [opcionesPorColumna])
+  const opcionesUsuario = useMemo(() => opcionesPorColumna('usuario', (c) => c.usuario), [opcionesPorColumna])
+  const opcionesEstadoNuevo = useMemo(() => opcionesPorColumna('estadoNuevo', (c) => c.valor_nuevo), [opcionesPorColumna])
+
+  const cambiosConFiltros = useMemo(() => cambiosFiltrados.filter((c) => coincideFiltros(c)).sort((a, b) => {
     let vA = ''
     let vB = ''
     if (ordenCol === 'proyecto') { vA = a.proyecto_nombre || ''; vB = b.proyecto_nombre || '' }
@@ -68,7 +78,9 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
     if (ordenCol === 'motivo') { vA = a.motivo || ''; vB = b.motivo || '' }
     if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
     return ordenDir === 'asc' ? vA - vB : vB - vA
-  }), [cambiosFiltrados, filtros, ordenCol, ordenDir])
+  }), [cambiosFiltrados, coincideFiltros, ordenCol, ordenDir])
+
+  const totalColumnas = (muestraProyecto ? 1 : 0) + 1 + (muestraCampo ? 1 : 0) + (muestraAnteriorNuevo ? 2 : 0) + 1 + 1 + (esAdmin ? 1 : 0)
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
@@ -211,6 +223,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 ordenDir={ordenDir}
                 onOrdenar={toggleOrden}
               />
+              {esAdmin && (
+                <th className="py-3 px-4 text-gray-800 font-semibold text-center" style={{ width: '76px', backgroundColor: '#FFF5F0' }}>
+                  Acciones
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
@@ -229,11 +246,28 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 )}
                 <td className="py-3 px-4 text-gray-800">{c.usuario}</td>
                 <td className="py-3 px-4 text-gray-800">{c.motivo}</td>
+                {esAdmin && (
+                  <td className="py-3 px-4 text-center">
+                    <button
+                      onClick={() => onEliminarCambio?.(c.id)}
+                      className="text-gray-400 hover:text-red-600 transition-colors"
+                      title="Eliminar registro"
+                      aria-label="Eliminar registro"
+                    >
+                      <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
+                      </svg>
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {cambiosConFiltros.length === 0 && (
               <tr>
-                <td colSpan={muestraProyecto ? (muestraCampo ? (muestraAnteriorNuevo ? 7 : 5) : 6) : (muestraCampo ? 6 : 5)} className="py-8 px-4 text-center text-gray-500">
+                <td colSpan={totalColumnas} className="py-8 px-4 text-center text-gray-500">
                   No hay registros para esta vista.
                 </td>
               </tr>

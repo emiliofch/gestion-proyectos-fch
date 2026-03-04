@@ -26,6 +26,10 @@ function cloneData(v) {
   return JSON.parse(JSON.stringify(v))
 }
 
+function buildTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
+
 export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const [rows, setRows] = useState([])
   const [editingId, setEditingId] = useState(null)
@@ -36,8 +40,8 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const [selectedProyectoId, setSelectedProyectoId] = useState(null)
   const [porcentajes, setPorcentajes] = useState(DEFAULT_PORCENTAJES)
   const [ivaAplica, setIvaAplica] = useState(null)
-  const [cargandoDatos, setCargandoDatos] = useState(true)
-  const [guardandoDatos, setGuardandoDatos] = useState(false)
+  const [, setCargandoDatos] = useState(true)
+  const [, setGuardandoDatos] = useState(false)
   const [hidratado, setHidratado] = useState(false)
   const [form, setForm] = useState({ item: '', valor: '', tipo: TIPOS[0].value })
 
@@ -121,6 +125,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     setSelectedProyectoId(meta.id || null)
   }
 
+  // Intencional: hidrata datos base del usuario/empresa al entrar a la vista.
   useEffect(() => {
     async function cargarProceso() {
       if (!userId) {
@@ -183,12 +188,14 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     cargarProceso()
   }, [userId, empresa, isModoNuevo])
 
+  // Intencional: en modo nuevo siempre se parte con formulario limpio.
   useEffect(() => {
     if (isModoNuevo) {
       limpiarCosteoActual()
     }
   }, [isModoNuevo])
 
+  // Intencional: autosave por debounce sobre estado actual.
   useEffect(() => {
     if (!hidratado || !userId) return undefined
     const timeoutId = setTimeout(() => { guardarProceso(true) }, 800)
@@ -416,7 +423,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     const ws = XLSX.utils.aoa_to_sheet(data)
     XLSX.utils.book_append_sheet(wb, ws, 'Costeo')
     const safe = (nombreProyecto || 'costeo').replace(/[\\/:*?"<>|]/g, '_')
-    XLSX.writeFile(wb, `costeo_${safe}.xlsx`)
+    XLSX.writeFile(wb, `costeo_${safe}_${buildTimestamp()}.xlsx`)
   }
 
   function exportarPdfCosteo() {
@@ -445,7 +452,7 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       styles: { fontSize: 10 },
     })
     const safe = (nombreProyecto || 'costeo').replace(/[\\/:*?"<>|]/g, '_')
-    doc.save(`costeo_${safe}.pdf`)
+    doc.save(`costeo_${safe}_${buildTimestamp()}.pdf`)
   }
 
   return (
@@ -620,3 +627,4 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     </div>
   )
 }
+
