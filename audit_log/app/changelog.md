@@ -5,6 +5,42 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 ---
 
+## [2026-03-04] - Iconos de header restaurados + expansion de filtros/orden
+
+- `FilterableTh` ahora usa iconos SVG (orden y filtro), evitando dependencias de fuente y simbolos que se veian como `?`.
+- Se mantiene el flujo de filtro con seleccion temporal y botones `Aceptar` / `Cancelar`.
+- Se agrega filtro/orden en tablas adicionales de listado:
+  - `VistaCentrosCosto`
+  - `VistaLineas`
+  - `ConfiguracionUsuarios` (tabla de usuarios)
+  - `VistaIngresoHH` (tabla de detalle mensual)
+  - `VistaIngresoHHAdmin` (tabla de HH cargadas)
+
+### Archivos modificados
+- `src/components/FilterableTh.jsx`
+- `src/components/VistaCentrosCosto.jsx`
+- `src/components/VistaLineas.jsx`
+- `src/components/ConfiguracionUsuarios.jsx`
+- `src/components/VistaIngresoHH.jsx`
+- `src/components/VistaIngresoHHAdmin.jsx`
+
+---
+
+## [2026-03-04] - Filtros de tablas con accion explicita (Aceptar/Cancelar)
+
+- `FilterableTh` ahora usa seleccion temporal en el dropdown:
+  - marcar opciones no aplica filtro inmediatamente.
+  - `Aceptar` aplica el filtro y cierra.
+  - `Cancelar` descarta cambios y cierra.
+- Se mantiene seleccion multiple y opcion `(Todos)`.
+- Se agregan/actualizan pruebas del componente para el nuevo flujo.
+
+### Archivos modificados
+- `src/components/FilterableTh.jsx`
+- `src/components/__tests__/FilterableTh.test.jsx`
+
+---
+
 ## [2026-03-04] - Regla preventiva contra texto corrupto (mojibake)
 
 - Se agrega script `scripts/check-mojibake.mjs` para detectar secuencias corruptas comunes (`Ã`, `Â`, `â`, `ðŸ`, `�`) en `src/` y `api/`.

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
+import FilterableTh from './FilterableTh'
 
 function mesActualIso() {
   return new Date().toISOString().slice(0, 7)
@@ -18,6 +19,10 @@ export default function VistaIngresoHH({ user, perfil }) {
   const [horasInput, setHorasInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [guardando, setGuardando] = useState(false)
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('proyecto')
+  const [ordenDir, setOrdenDir] = useState('asc')
 
   useEffect(() => {
     cargarProyectos()
@@ -26,6 +31,13 @@ export default function VistaIngresoHH({ user, perfil }) {
   useEffect(() => {
     cargarRegistrosMes()
   }, [mes, user?.id])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarProyectos() {
     const { data, error } = await supabase
@@ -83,7 +95,7 @@ export default function VistaIngresoHH({ user, perfil }) {
 
     const horas = Number(horasInput)
     if (!Number.isFinite(horas) || horas <= 0) {
-      toast.error('Debes ingresar horas válidas (> 0)')
+      toast.error('Debes ingresar horas validas (> 0)')
       return
     }
 
@@ -118,6 +130,42 @@ export default function VistaIngresoHH({ user, perfil }) {
   function eliminarFila(proyectoId) {
     setRegistros((prev) => prev.filter((r) => r.proyecto_id !== proyectoId))
   }
+
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
+
+  const opcionesProyecto = useMemo(() => {
+    const base = registros.map((r) => r.proyecto_nombre).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros.proyecto) ? filtros.proyecto : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [registros, filtros.proyecto])
+
+  const registrosFiltrados = useMemo(() => {
+    return registros
+      .filter((r) => !filtros.proyecto?.length || filtros.proyecto.includes(r.proyecto_nombre))
+      .sort((a, b) => {
+        if (ordenCol === 'horas') {
+          const vA = Number(a.horas) || 0
+          const vB = Number(b.horas) || 0
+          return ordenDir === 'asc' ? vA - vB : vB - vA
+        }
+        const aVal = a.proyecto_nombre || ''
+        const bVal = b.proyecto_nombre || ''
+        return ordenDir === 'asc'
+          ? aVal.localeCompare(bVal, 'es')
+          : bVal.localeCompare(aVal, 'es')
+      })
+  }, [registros, filtros.proyecto, ordenCol, ordenDir])
 
   async function guardarMes() {
     if (!puedeGuardar) {
@@ -229,13 +277,39 @@ export default function VistaIngresoHH({ user, perfil }) {
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</th>
-                <th className="text-right py-3 px-4 text-gray-800 font-semibold" style={{ width: '160px' }}>Horas</th>
-                <th className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '90px' }}>Acción</th>
+                <FilterableTh
+                  col="proyecto"
+                  label="Proyecto"
+                  opciones={opcionesProyecto}
+                  filtro={filtros.proyecto || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'proyecto'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'proyecto'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="horas"
+                  label="Horas"
+                  align="right"
+                  style={{ width: '160px' }}
+                  opciones={[]}
+                  filtro={[]}
+                  onFiltro={() => {}}
+                  dropdownAbierto={false}
+                  onToggleDropdown={() => {}}
+                  sortable
+                  ordenActiva={ordenCol === 'horas'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <th className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '90px' }}>Accion</th>
               </tr>
             </thead>
             <tbody>
-              {registros.map((r) => (
+              {registrosFiltrados.map((r) => (
                 <tr key={r.proyecto_id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                   <td className="py-3 px-4 text-gray-800">{r.proyecto_nombre}</td>
                   <td className="py-3 px-4 text-right">
@@ -258,7 +332,7 @@ export default function VistaIngresoHH({ user, perfil }) {
                   </td>
                 </tr>
               ))}
-              {registros.length === 0 && (
+              {registrosFiltrados.length === 0 && (
                 <tr>
                   <td colSpan={3} className="py-10 px-4 text-center text-gray-500">
                     No hay horas registradas para este mes.

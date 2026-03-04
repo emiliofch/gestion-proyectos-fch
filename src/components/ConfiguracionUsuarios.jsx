@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
+import FilterableTh from './FilterableTh'
 
 export default function ConfiguracionUsuarios({ user }) {
   const [usuarios, setUsuarios] = useState([])
@@ -16,11 +17,22 @@ export default function ConfiguracionUsuarios({ user }) {
   const [nuevoCorreoCGV, setNuevoCorreoCGV] = useState('')
   const [nuevoCorreoHUBMET, setNuevoCorreoHUBMET] = useState('')
   const [guardandoCorreos, setGuardandoCorreos] = useState(false)
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('fecha')
+  const [ordenDir, setOrdenDir] = useState('desc')
 
   useEffect(() => {
     cargarUsuarios()
     cargarConfiguracionCorreos()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarUsuarios() {
     const { data } = await supabase.from('perfiles').select('*').order('created_at', { ascending: false })
@@ -168,6 +180,50 @@ export default function ConfiguracionUsuarios({ user }) {
 
     setGuardandoCorreos(false)
   }
+
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
+
+  function coincideFiltros(u, omitirCol = null) {
+    const matchEmail = omitirCol === 'email' || !filtros.email?.length || filtros.email.includes(u.email)
+    const matchRol = omitirCol === 'rol' || !filtros.rol?.length || filtros.rol.includes(u.rol || 'usuario')
+    const matchEmpresa = omitirCol === 'empresa' || !filtros.empresa?.length || filtros.empresa.includes(u.empresa || 'CGV')
+    return matchEmail && matchRol && matchEmpresa
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = usuarios.filter((u) => coincideFiltros(u, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesEmail = opcionesPorColumna('email', (u) => u.email)
+  const opcionesRol = opcionesPorColumna('rol', (u) => u.rol || 'usuario')
+  const opcionesEmpresa = opcionesPorColumna('empresa', (u) => u.empresa || 'CGV')
+
+  const usuariosFiltrados = usuarios
+    .filter((u) => coincideFiltros(u))
+    .sort((a, b) => {
+      let vA = ''
+      let vB = ''
+      if (ordenCol === 'email') { vA = a.email || ''; vB = b.email || '' }
+      if (ordenCol === 'rol') { vA = a.rol || 'usuario'; vB = b.rol || 'usuario' }
+      if (ordenCol === 'empresa') { vA = a.empresa || 'CGV'; vB = b.empresa || 'CGV' }
+      if (ordenCol === 'fecha') { vA = new Date(a.created_at).getTime() || 0; vB = new Date(b.created_at).getTime() || 0 }
+      if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+      return ordenDir === 'asc' ? vA - vB : vB - vA
+    })
 
   return (
     <div>
@@ -330,14 +386,62 @@ export default function ConfiguracionUsuarios({ user }) {
         <table className="w-full">
           <thead>
             <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Email</th>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Rol</th>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Empresa</th>
-              <th className="text-left py-3 px-4 text-gray-800 font-semibold">Fecha Creacion</th>
+              <FilterableTh
+                col="email"
+                label="Email"
+                opciones={opcionesEmail}
+                filtro={filtros.email || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'email'}
+                onToggleDropdown={setDropdownFiltro}
+                sortable
+                ordenActiva={ordenCol === 'email'}
+                ordenDir={ordenDir}
+                onOrdenar={toggleOrden}
+              />
+              <FilterableTh
+                col="rol"
+                label="Rol"
+                opciones={opcionesRol}
+                filtro={filtros.rol || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'rol'}
+                onToggleDropdown={setDropdownFiltro}
+                sortable
+                ordenActiva={ordenCol === 'rol'}
+                ordenDir={ordenDir}
+                onOrdenar={toggleOrden}
+              />
+              <FilterableTh
+                col="empresa"
+                label="Empresa"
+                opciones={opcionesEmpresa}
+                filtro={filtros.empresa || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'empresa'}
+                onToggleDropdown={setDropdownFiltro}
+                sortable
+                ordenActiva={ordenCol === 'empresa'}
+                ordenDir={ordenDir}
+                onOrdenar={toggleOrden}
+              />
+              <FilterableTh
+                col="fecha"
+                label="Fecha Creacion"
+                opciones={[]}
+                filtro={[]}
+                onFiltro={() => {}}
+                dropdownAbierto={false}
+                onToggleDropdown={() => {}}
+                sortable
+                ordenActiva={ordenCol === 'fecha'}
+                ordenDir={ordenDir}
+                onOrdenar={toggleOrden}
+              />
             </tr>
           </thead>
           <tbody>
-            {usuarios.map(u => (
+            {usuariosFiltrados.map(u => (
               <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                 <td className="py-3 px-4 text-gray-800">{u.email}</td>
                 <td className="py-3 px-4">

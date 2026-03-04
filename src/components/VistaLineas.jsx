@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
+import FilterableTh from './FilterableTh'
 
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
@@ -26,10 +27,21 @@ export default function VistaLineas({ perfil }) {
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('linea')
+  const [ordenDir, setOrdenDir] = useState('asc')
 
   useEffect(() => {
     cargarLineas()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarLineas() {
     setLoading(true)
@@ -94,7 +106,7 @@ export default function VistaLineas({ perfil }) {
           return
         }
 
-        toast.success(`Importación completada: ${nuevos.length} linea(s)`)
+        toast.success(`Importacion completada: ${nuevos.length} linea(s)`)
         await cargarLineas()
       } catch (error) {
         toast.error('Error leyendo Excel: ' + error.message)
@@ -116,18 +128,50 @@ export default function VistaLineas({ perfil }) {
 
   const lineasFiltradas = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    if (!q) return lineas
-    return lineas.filter((l) => l.linea?.toLowerCase().includes(q))
-  }, [lineas, busqueda])
+    return lineas.filter((l) => {
+      const matchBusqueda = !q || l.linea?.toLowerCase().includes(q)
+      const matchFiltro = !filtros.linea?.length || filtros.linea.includes(l.linea)
+      return matchBusqueda && matchFiltro
+    }).sort((a, b) => {
+      const aVal = a.linea || ''
+      const bVal = b.linea || ''
+      return ordenDir === 'asc'
+        ? aVal.localeCompare(bVal, 'es')
+        : bVal.localeCompare(aVal, 'es')
+    })
+  }, [lineas, busqueda, filtros, ordenDir])
+
+  const opcionesLinea = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    const base = lineas
+      .filter((l) => !q || l.linea?.toLowerCase().includes(q))
+      .map((l) => l.linea)
+      .filter(Boolean)
+    const seleccionadas = Array.isArray(filtros.linea) ? filtros.linea : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [lineas, busqueda, filtros.linea])
+
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
-        <h2 className="text-2xl font-bold text-gray-800">Líneas</h2>
+        <h2 className="text-2xl font-bold text-gray-800">Lineas</h2>
         <div className="flex gap-2 flex-wrap items-center">
           <input
             type="text"
-            placeholder="Buscar línea..."
+            placeholder="Buscar linea..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
             className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -158,7 +202,7 @@ export default function VistaLineas({ perfil }) {
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
         <p className="text-sm text-gray-700">
-          Formato de importación: el archivo Excel debe tener encabezado <strong>LINEA</strong> en la columna A.
+          Formato de importacion: el archivo Excel debe tener encabezado <strong>LINEA</strong> en la columna A.
         </p>
       </div>
 
@@ -171,7 +215,19 @@ export default function VistaLineas({ perfil }) {
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">LÍNEA</th>
+                <FilterableTh
+                  col="linea"
+                  label="Linea"
+                  opciones={opcionesLinea}
+                  filtro={filtros.linea || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'linea'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'linea'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
               </tr>
             </thead>
             <tbody>

@@ -157,3 +157,15 @@ input[type='submit'].bg-gray-200 {
   background-color: var(--fch-btn-soft) !important;
   color: #00334A !important;
 }
+
+/* Separadores verticales para tablas (header + filas) */
+table {
+  border-collapse: collapse;
+}
+
+table thead th:not(:last-child),
+table tbody td:not(:last-child),
+table tfoot td:not(:last-child),
+table tfoot th:not(:last-child) {
+  border-right: 1px solid #e5e7eb;
+}

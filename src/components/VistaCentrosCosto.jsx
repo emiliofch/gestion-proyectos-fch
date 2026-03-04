@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
+import FilterableTh from './FilterableTh'
 
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
@@ -26,10 +27,21 @@ export default function VistaCentrosCosto({ perfil }) {
   const [loading, setLoading] = useState(true)
   const [procesando, setProcesando] = useState(false)
   const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('ceco')
+  const [ordenDir, setOrdenDir] = useState('asc')
 
   useEffect(() => {
     cargarCentros()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarCentros() {
     setLoading(true)
@@ -116,9 +128,41 @@ export default function VistaCentrosCosto({ perfil }) {
 
   const centrosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    if (!q) return centros
-    return centros.filter((c) => c.ceco?.toLowerCase().includes(q))
-  }, [centros, busqueda])
+    return centros.filter((c) => {
+      const matchBusqueda = !q || c.ceco?.toLowerCase().includes(q)
+      const matchFiltro = !filtros.ceco?.length || filtros.ceco.includes(c.ceco)
+      return matchBusqueda && matchFiltro
+    }).sort((a, b) => {
+      const aVal = a.ceco || ''
+      const bVal = b.ceco || ''
+      return ordenDir === 'asc'
+        ? aVal.localeCompare(bVal, 'es')
+        : bVal.localeCompare(aVal, 'es')
+    })
+  }, [centros, busqueda, filtros, ordenDir])
+
+  const opcionesCeco = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    const base = centros
+      .filter((c) => !q || c.ceco?.toLowerCase().includes(q))
+      .map((c) => c.ceco)
+      .filter(Boolean)
+    const seleccionadas = Array.isArray(filtros.ceco) ? filtros.ceco : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => a.localeCompare(b, 'es'))
+  }, [centros, busqueda, filtros.ceco])
+
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
@@ -174,7 +218,19 @@ export default function VistaCentrosCosto({ perfil }) {
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">CECO</th>
+                <FilterableTh
+                  col="ceco"
+                  label="CECO"
+                  opciones={opcionesCeco}
+                  filtro={filtros.ceco || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'ceco'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'ceco'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
               </tr>
             </thead>
             <tbody>

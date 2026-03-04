@@ -35,7 +35,7 @@ describe('FilterableTh', () => {
     expect(onOrdenar).toHaveBeenCalledWith('proyecto')
   })
 
-  it('abre dropdown y permite seleccionar multiples opciones', async () => {
+  it('permite seleccionar multiples opciones y aplica solo al aceptar', async () => {
     const user = userEvent.setup()
     const onFiltro = vi.fn()
     const onToggleDropdown = vi.fn()
@@ -56,13 +56,41 @@ describe('FilterableTh', () => {
     expect(checks.length).toBe(3) // (Todos) + 2 opciones
 
     await user.click(screen.getByText('Efectivo'))
-    expect(onFiltro).toHaveBeenCalledWith('estado', ['Efectivo'])
+    expect(onFiltro).not.toHaveBeenCalled()
 
     await user.click(screen.getByText('(Todos)'))
+    expect(onFiltro).not.toHaveBeenCalled()
+
+    await user.click(screen.getByRole('button', { name: 'Aceptar' }))
     expect(onFiltro).toHaveBeenCalledWith('estado', [])
+    expect(onToggleDropdown).toHaveBeenCalledWith(null)
   })
 
-  it('toggle del botón de filtro abre/cierra según estado', async () => {
+  it('cierra sin aplicar cambios al cancelar', async () => {
+    const user = userEvent.setup()
+    const onFiltro = vi.fn()
+    const onToggleDropdown = vi.fn()
+
+    renderInTable(
+      <FilterableTh
+        col="estado"
+        label="Estado"
+        opciones={['Efectivo', 'No Efectivo']}
+        filtro={[]}
+        onFiltro={onFiltro}
+        dropdownAbierto
+        onToggleDropdown={onToggleDropdown}
+      />
+    )
+
+    await user.click(screen.getByText('Efectivo'))
+    await user.click(screen.getByRole('button', { name: 'Cancelar' }))
+
+    expect(onFiltro).not.toHaveBeenCalled()
+    expect(onToggleDropdown).toHaveBeenCalledWith(null)
+  })
+
+  it('toggle del boton de filtro abre/cierra segun estado', async () => {
     const user = userEvent.setup()
     const onToggleDropdown = vi.fn()
 

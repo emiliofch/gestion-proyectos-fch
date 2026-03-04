@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
+import FilterableTh from './FilterableTh'
 
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
@@ -21,10 +22,21 @@ export default function VistaIngresoHHAdmin({ perfil }) {
   const [registros, setRegistros] = useState([])
   const [usuariosMap, setUsuariosMap] = useState({})
   const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('mes')
+  const [ordenDir, setOrdenDir] = useState('desc')
 
   useEffect(() => {
     cargarDatos()
   }, [mes, perfil?.empresa])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
 
   async function cargarDatos() {
     setLoading(true)
@@ -69,15 +81,58 @@ export default function VistaIngresoHHAdmin({ perfil }) {
     setLoading(false)
   }
 
+  function coincideFiltros(r, omitirCol = null) {
+    const usuario = usuariosMap[r.user_id] || r.user_id || ''
+    const proyecto = r.proyectos?.nombre || ''
+    const matchUsuario = omitirCol === 'usuario' || !filtros.usuario?.length || filtros.usuario.includes(usuario)
+    const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(proyecto)
+    const matchEmpresa = omitirCol === 'empresa' || !filtros.empresa?.length || filtros.empresa.includes(r.empresa || '')
+    return matchUsuario && matchProyecto && matchEmpresa
+  }
+
+  function opcionesPorColumna(col, obtenerValor) {
+    const visibles = registros.filter((r) => coincideFiltros(r, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesUsuario = opcionesPorColumna('usuario', (r) => usuariosMap[r.user_id] || r.user_id)
+  const opcionesProyecto = opcionesPorColumna('proyecto', (r) => r.proyectos?.nombre)
+  const opcionesEmpresa = opcionesPorColumna('empresa', (r) => r.empresa)
+
   const registrosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-    if (!q) return registros
     return registros.filter((r) => {
       const usuario = (usuariosMap[r.user_id] || r.user_id || '').toLowerCase()
       const proyecto = (r.proyectos?.nombre || '').toLowerCase()
-      return usuario.includes(q) || proyecto.includes(q)
+      const matchBusqueda = !q || usuario.includes(q) || proyecto.includes(q)
+      return matchBusqueda && coincideFiltros(r)
+    }).sort((a, b) => {
+      let vA = ''
+      let vB = ''
+      if (ordenCol === 'mes') { vA = new Date(a.mes).getTime() || 0; vB = new Date(b.mes).getTime() || 0 }
+      if (ordenCol === 'usuario') { vA = usuariosMap[a.user_id] || a.user_id || ''; vB = usuariosMap[b.user_id] || b.user_id || '' }
+      if (ordenCol === 'proyecto') { vA = a.proyectos?.nombre || ''; vB = b.proyectos?.nombre || '' }
+      if (ordenCol === 'horas') { vA = Number(a.horas) || 0; vB = Number(b.horas) || 0 }
+      if (ordenCol === 'empresa') { vA = a.empresa || ''; vB = b.empresa || '' }
+      if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+      return ordenDir === 'asc' ? vA - vB : vB - vA
     })
-  }, [registros, usuariosMap, busqueda])
+  }, [registros, usuariosMap, busqueda, filtros, ordenCol, ordenDir])
+
+  function setFiltro(col, valor) {
+    setFiltros((prev) => ({ ...prev, [col]: valor }))
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) {
+      setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
+    } else {
+      setOrdenCol(col)
+      setOrdenDir('asc')
+    }
+  }
 
   const totalHoras = useMemo(
     () => Number(registrosFiltrados.reduce((acc, r) => acc + (Number(r.horas) || 0), 0).toFixed(2)),
@@ -141,11 +196,72 @@ export default function VistaIngresoHHAdmin({ perfil }) {
           <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Mes</th>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Usuario</th>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</th>
-                <th className="text-right py-3 px-4 text-gray-800 font-semibold">Horas</th>
-                <th className="text-left py-3 px-4 text-gray-800 font-semibold">Empresa</th>
+                <FilterableTh
+                  col="mes"
+                  label="Mes"
+                  opciones={[]}
+                  filtro={[]}
+                  onFiltro={() => {}}
+                  dropdownAbierto={false}
+                  onToggleDropdown={() => {}}
+                  sortable
+                  ordenActiva={ordenCol === 'mes'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="usuario"
+                  label="Usuario"
+                  opciones={opcionesUsuario}
+                  filtro={filtros.usuario || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'usuario'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'usuario'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="proyecto"
+                  label="Proyecto"
+                  opciones={opcionesProyecto}
+                  filtro={filtros.proyecto || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'proyecto'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'proyecto'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="horas"
+                  label="Horas"
+                  align="right"
+                  opciones={[]}
+                  filtro={[]}
+                  onFiltro={() => {}}
+                  dropdownAbierto={false}
+                  onToggleDropdown={() => {}}
+                  sortable
+                  ordenActiva={ordenCol === 'horas'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="empresa"
+                  label="Empresa"
+                  opciones={opcionesEmpresa}
+                  filtro={filtros.empresa || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'empresa'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'empresa'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
               </tr>
             </thead>
             <tbody>
