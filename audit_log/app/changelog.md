@@ -5,6 +5,27 @@ Ordenado de mÃ¡s reciente a mÃ¡s antiguo.
 
 ---
 
+## [2026-03-05] - Bloque SonarQube: suite verde + CI + workflow de escaneo
+
+- Se corrige test de `VistaControlCambios` para el flujo de filtros con `Aceptar`.
+- Se agrega workflow de CI en GitHub Actions con:
+  - `npm ci`
+  - `npm run lint`
+  - `npm run test:coverage`
+  - publicación de `coverage/lcov.info` como artefacto.
+- Se agrega workflow de SonarQube en GitHub Actions (condicionado a `SONAR_TOKEN` y `SONAR_HOST_URL`).
+- Se actualiza `audit_log/PLAN_AUDITORIA_SONARQUBE.md` con métricas vigentes y estado de avance.
+- Se normaliza el encabezado de `audit_log/PROGRESO.md` con registro de avance SonarQube al 2026-03-05.
+
+### Archivos modificados
+- `src/components/__tests__/VistaControlCambios.test.jsx`
+- `.github/workflows/ci.yml` (nuevo)
+- `.github/workflows/sonarqube.yml` (nuevo)
+- `audit_log/PLAN_AUDITORIA_SONARQUBE.md`
+- `audit_log/PROGRESO.md`
+
+---
+
 ## [2026-03-04] - Iconos de header restaurados + expansion de filtros/orden
 
 - `FilterableTh` ahora usa iconos SVG (orden y filtro), evitando dependencias de fuente y simbolos que se veian como `?`.

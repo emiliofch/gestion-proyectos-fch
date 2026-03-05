@@ -74,6 +74,7 @@ describe('VistaControlCambios', () => {
     await user.click(within(thUsuario).getByTitle('Filtrar'))
 
     await user.click(screen.getByRole('checkbox', { name: 'ana@fch.cl' }))
+    await user.click(screen.getByRole('button', { name: 'Aceptar' }))
 
     expect(screen.getByText('Ajuste comercial')).toBeInTheDocument()
     expect(screen.queryByText('Reestimacion')).not.toBeInTheDocument()

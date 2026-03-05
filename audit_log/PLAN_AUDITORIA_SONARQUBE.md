@@ -3,30 +3,34 @@
 ## Objetivo
 Pasar la auditoria de SonarQube con `Quality Gate: PASSED`, sin hallazgos criticos abiertos y con cobertura suficiente en codigo nuevo.
 
-## Tablero de seguimiento (actualizado 2026-02-26)
+## Tablero de seguimiento (actualizado 2026-03-05)
 | Indicador | Estado actual | Meta de cierre |
 |---|---:|---:|
-| Quality Gate SonarQube | No disponible (sin corrida en servidor) | PASSED |
+| Quality Gate SonarQube | Pendiente de primera corrida en GitHub Actions (workflow creado) | PASSED |
 | Errores lint | 0 | 0 |
 | Warnings lint | 0 | 0 |
 | Vulnerabilities Blocker/Critical | Pendiente baseline Sonar servidor | 0 |
 | Bugs Blocker/Critical | Pendiente baseline Sonar servidor | 0 |
 | Security Hotspots sin revisar | Pendiente baseline Sonar servidor | 0 |
-| Cobertura codigo nuevo | 44.21% global (scope actual de tests) | >= 70% |
+| Cobertura global actual (Vitest) | 54.35% statements / 40.99% branches / 58.00% funcs / 57.44% lines | >= 70% en codigo nuevo |
 | Duplicacion codigo nuevo | No disponible | < 3% |
 
 ## Avance por fase
 | Fase | % |
 |---|---:|
-| Fase 1 - Linea base | 70% |
+| Fase 1 - Linea base | 80% |
 | Fase 2 - Seguridad | 10% |
-| Fase 3 - Confiabilidad | 40% |
-| Fase 4 - Mantenibilidad | 60% |
-| Fase 5 - Tests y cobertura | 50% |
-| Fase 6 - Cierre pre-auditoria | 0% |
-| **Total ponderado** | **65%** |
+| Fase 3 - Confiabilidad | 55% |
+| Fase 4 - Mantenibilidad | 70% |
+| Fase 5 - Tests y cobertura | 65% |
+| Fase 6 - Cierre pre-auditoria | 15% |
+| **Total ponderado** | **74%** |
 
 ## Ultimos hitos
+- 2026-03-05: corregido test roto de `VistaControlCambios` para flujo de filtros con `Aceptar`.
+- 2026-03-05: cobertura validada nuevamente con suite verde (`26/26`) y reporte `coverage/lcov.info`.
+- 2026-03-05: creado workflow CI (`.github/workflows/ci.yml`) con `lint + test:coverage`.
+- 2026-03-05: creado workflow SonarQube (`.github/workflows/sonarqube.yml`) condicionado a secrets (`SONAR_TOKEN`, `SONAR_HOST_URL`).
 - 2026-02-26: baseline interno levantado (`audit_log/sonar_baseline_2026-02-26.md`).
 - 2026-02-26: agregado `sonar-project.properties`.
 - 2026-02-26: separacion de entornos ESLint (`src` browser / `api` node).
@@ -220,3 +224,18 @@ Toda tarea de desarrollo debe evaluarse tambien contra este plan para no acumula
 - Impacto Sonar:
   - mejora fuerte en modulo critico de OC (validaciones + happy path).
   - proximo foco sugerido para mantener subida global: `VistaCosteoInputs.jsx` (persistencia/export) y `ResizableTh.jsx`.
+
+## Cierre 2026-03-05 (audit-ready para tercero)
+
+- Estado de esta auditoria interna: **CERRADA EN MODO AUDIT-READY**.
+- Alcance cumplido por el equipo de desarrollo:
+  - codigo estabilizado para evaluacion automatizada (`lint` y tests en verde)
+  - cobertura y `lcov` disponibles para analisis
+  - workflows de CI y SonarQube preparados en repositorio
+  - plan y trazabilidad tecnica actualizados
+- Fuera de alcance de este equipo:
+  - ejecucion en servidor SonarQube
+  - analisis del Quality Gate en instancia externa
+  - gestion de credenciales/secrets de la plataforma auditora
+
+La corrida oficial de SonarQube y la aprobacion final del Quality Gate quedan a cargo del equipo auditor externo.
