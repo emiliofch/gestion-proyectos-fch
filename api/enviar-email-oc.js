@@ -178,8 +178,8 @@ export default async function handler(req, res) {
     return res.status(429).json({ error: 'Too many requests' })
   }
 
-  if (!SUPABASE_ANON_KEY || !GMAIL_USER || !GMAIL_APP_PASSWORD) {
-    console.error('Missing required server environment variables')
+  if (!GMAIL_USER || !GMAIL_APP_PASSWORD) {
+    console.error('Missing required email environment variables')
     return res.status(500).json({ error: 'Server email configuration is incomplete' })
   }
 
@@ -191,19 +191,23 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Invalid request payload', details: errors })
     }
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
-
     let destinatariosConfig = []
-    const { data: configData, error: configError } = await supabase
-      .from('configuracion_emails')
-      .select('correos')
-      .eq('tipo', payload.empresa)
-      .single()
-
-    if (configError || !configData) {
+    if (!SUPABASE_ANON_KEY) {
+      console.warn('SUPABASE_ANON_KEY is not configured. Using fallback recipients.')
       destinatariosConfig = payload.empresa === 'HUB_MET' ? FALLBACK_HUBMET : FALLBACK_CGV
     } else {
-      destinatariosConfig = Array.isArray(configData.correos) ? configData.correos : []
+      const supabase = createClient(SUPABASE_URL, SUPABASE_ANON_KEY)
+      const { data: configData, error: configError } = await supabase
+        .from('configuracion_emails')
+        .select('correos')
+        .eq('tipo', payload.empresa)
+        .single()
+
+      if (configError || !configData) {
+        destinatariosConfig = payload.empresa === 'HUB_MET' ? FALLBACK_HUBMET : FALLBACK_CGV
+      } else {
+        destinatariosConfig = Array.isArray(configData.correos) ? configData.correos : []
+      }
     }
 
     const emailsValidos = destinatariosConfig.filter(isValidEmail)
