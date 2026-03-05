@@ -197,18 +197,47 @@ export default function VistaSolicitudOC({ user, perfil }) {
       empresa: perfil?.empresa || 'CGV'
     }
 
-    const response = await fetch('/api/enviar-email-oc', {
+    const emailApiUrl = import.meta.env.VITE_OC_EMAIL_API_URL || '/api/enviar-email-oc'
+    const response = await fetch(emailApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload)
     })
 
-    if (!response.ok) {
-      const error = await response.json()
-      throw new Error(error.error || 'Error al enviar correos')
+    let raw = ''
+    let parsed = null
+    if (typeof response.text === 'function') {
+      raw = await response.text()
+      if (raw) {
+        try {
+          parsed = JSON.parse(raw)
+        } catch {
+          parsed = null
+        }
+      }
+    } else if (typeof response.json === 'function') {
+      try {
+        parsed = await response.json()
+      } catch {
+        parsed = null
+      }
     }
 
-    return await response.json()
+    if (!response.ok) {
+      if (response.status === 404 && emailApiUrl === '/api/enviar-email-oc') {
+        throw new Error(
+          'Endpoint local /api/enviar-email-oc no disponible. En local usa "vercel dev" o configura VITE_OC_EMAIL_API_URL en .env.local'
+        )
+      }
+      const mensaje =
+        parsed?.error ||
+        parsed?.message ||
+        (raw ? raw.slice(0, 200) : '') ||
+        `Error HTTP ${response.status}`
+      throw new Error(mensaje)
+    }
+
+    return parsed || { success: true }
   }
 
   async function handleSubmit(e) {

@@ -54,3 +54,4 @@ usarÃ¡n sonarqube para auditar el cÃ³digo de este proyecto, debes verificar 
 - Documento de trabajo obligatorio: `audit_log/PLAN_AUDITORIA_SONARQUBE.md` (leer al inicio de cada sesión técnica).
 
 
+puedes agregar algo al agents.md para que a futuro, cada cambio que pida, esté pensado para pasar una auditoria de sonarqube
