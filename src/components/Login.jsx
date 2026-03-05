@@ -13,6 +13,8 @@ export default function Login({ loading }) {
   const [errorLogin, setErrorLogin] = useState('')
   const [modo, setModo] = useState('login') // 'login', 'signup', 'forgot'
   const [authLoading, setAuthLoading] = useState(false)
+  const ssoDomain = import.meta.env.VITE_SSO_DOMAIN
+  const ssoProviderId = import.meta.env.VITE_SSO_PROVIDER_ID
 
   function emailNormalizado() {
     return String(email || '').trim().toLowerCase()
@@ -114,6 +116,35 @@ export default function Login({ loading }) {
     }
   }
 
+  async function loginConMicrosoft() {
+    setErrorLogin('')
+    setAuthLoading(true)
+    try {
+      const redirectTo = window.location.origin
+      const identifier = ssoProviderId
+        ? { providerId: ssoProviderId }
+        : (ssoDomain ? { domain: ssoDomain } : null)
+
+      if (!identifier) {
+        setErrorLogin('Falta configurar SSO. Define VITE_SSO_DOMAIN o VITE_SSO_PROVIDER_ID.')
+        return
+      }
+
+      const { error } = await supabase.auth.signInWithSSO({
+        ...identifier,
+        options: { redirectTo },
+      })
+
+      if (error) {
+        setErrorLogin(mensajeAuth(error))
+      }
+    } catch (error) {
+      setErrorLogin(mensajeAuth(error))
+    } finally {
+      setAuthLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
@@ -129,6 +160,17 @@ export default function Login({ loading }) {
 
         {modo === 'login' && (
           <form onSubmit={login}>
+            <button
+              type="button"
+              onClick={loginConMicrosoft}
+              disabled={loading || authLoading}
+              className="w-full py-3 rounded-lg bg-blue-700 hover:bg-blue-800 text-white font-medium transition-all disabled:opacity-50 mb-4"
+            >
+              Ingresar con Microsoft 365
+            </button>
+
+            <div className="mb-4 text-center text-xs text-gray-500">o ingresa con email y contraseña</div>
+
             <div className="mb-4">
               <label className="block text-gray-700 font-medium mb-2">Email</label>
               <input

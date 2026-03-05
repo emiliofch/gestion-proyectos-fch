@@ -178,14 +178,14 @@ describe('VistaSolicitudOC', () => {
     expect(screen.getByText(/requerido:\s*3/i)).toBeInTheDocument()
   })
 
-  it('rechaza archivos sobre 10MB', async () => {
+  it('rechaza archivos sobre 5MB', async () => {
     const ui = userEvent.setup()
     render(<VistaSolicitudOC user={user} perfil={perfil} />)
 
     const fileInput = document.getElementById('file-input')
     expect(fileInput).not.toBeNull()
 
-    const bigFile = new File([new Uint8Array(10 * 1024 * 1024 + 1)], 'grande.pdf', {
+    const bigFile = new File([new Uint8Array(5 * 1024 * 1024 + 1)], 'grande.pdf', {
       type: 'application/pdf',
     })
 

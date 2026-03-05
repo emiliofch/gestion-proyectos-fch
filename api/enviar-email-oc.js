@@ -8,7 +8,8 @@ const GMAIL_APP_PASSWORD = process.env.GMAIL_APP_PASSWORD
 
 const ALLOWED_EMPRESAS = new Set(['CGV', 'HUB_MET'])
 const MAX_ATTACHMENTS = 5
-const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
+const MAX_ATTACHMENT_BYTES = 5 * 1024 * 1024
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', 'webp'])
 
 const FALLBACK_CGV = ['fabiola.gonzalez@fch.cl', 'emilio.lopez@fch.cl']
 const FALLBACK_HUBMET = ['emilio.lopez@fch.cl', 'milena.quintanilla@fch.cl']
@@ -82,6 +83,12 @@ function isAllowedAttachmentUrl(rawUrl) {
   }
 }
 
+function getFileExtension(filename) {
+  if (typeof filename !== 'string') return ''
+  const parts = filename.trim().toLowerCase().split('.')
+  return parts.length > 1 ? parts.pop() : ''
+}
+
 function validatePayload(rawData) {
   const data = rawData || {}
   const errors = []
@@ -111,7 +118,11 @@ function validatePayload(rawData) {
 
   let archivosAdjuntos = Array.isArray(data.archivosAdjuntos) ? data.archivosAdjuntos.slice(0, MAX_ATTACHMENTS) : []
   archivosAdjuntos = archivosAdjuntos
-    .filter((a) => a && isAllowedAttachmentUrl(a.url))
+    .filter((a) => {
+      if (!a || !isAllowedAttachmentUrl(a.url)) return false
+      const extension = getFileExtension(a.nombre)
+      return ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)
+    })
     .map((a) => ({
       nombre: sanitizeText(a.nombre || 'adjunto', 120),
       url: String(a.url).trim(),

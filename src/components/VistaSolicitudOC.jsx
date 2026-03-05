@@ -2,6 +2,63 @@
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 
+const MAX_ADJUNTO_MB = 5
+const IMAGE_EXTENSIONS_FOR_WEBP = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'webp',
+  'bmp',
+  'gif',
+  'tif',
+  'tiff',
+  'heic',
+  'heif'
+])
+const ALLOWED_ATTACHMENT_EXTENSIONS = new Set(['pdf', ...IMAGE_EXTENSIONS_FOR_WEBP])
+const LOCAL_OC_EMAIL_API_URL = 'http://localhost:3000/api/enviar-email-oc'
+
+function replaceFileExtension(filename, extension) {
+  const lastDot = filename.lastIndexOf('.')
+  const baseName = lastDot > 0 ? filename.slice(0, lastDot) : filename
+  return `${baseName}.${extension}`
+}
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const image = new Image()
+    const imageUrl = URL.createObjectURL(file)
+    image.onload = () => {
+      URL.revokeObjectURL(imageUrl)
+      resolve(image)
+    }
+    image.onerror = () => {
+      URL.revokeObjectURL(imageUrl)
+      reject(new Error('image_load_failed'))
+    }
+    image.src = imageUrl
+  })
+}
+
+async function convertImageFileToWebp(file) {
+  const image = await loadImage(file)
+  const canvas = document.createElement('canvas')
+  canvas.width = image.naturalWidth || image.width
+  canvas.height = image.naturalHeight || image.height
+
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('canvas_context_unavailable')
+
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/webp', 0.82))
+  if (!blob) throw new Error('webp_conversion_failed')
+
+  return new File([blob], replaceFileExtension(file.name, 'webp'), {
+    type: 'image/webp',
+    lastModified: Date.now()
+  })
+}
+
 export default function VistaSolicitudOC({ user, perfil }) {
   // Estados del formulario
   const [tipo, setTipo] = useState('factura')
@@ -70,17 +127,35 @@ export default function VistaSolicitudOC({ user, perfil }) {
     setSolicitudes(data || [])
   }
 
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const files = Array.from(e.target.files)
+    const maxSize = MAX_ADJUNTO_MB * 1024 * 1024
+    const archivosValidos = []
 
-    const maxSize = 10 * 1024 * 1024
-    const archivosValidos = files.filter(file => {
-      if (file.size > maxSize) {
-        toast.error(`${file.name} excede el tamaño máximo de 10MB`)
-        return false
+    for (const file of files) {
+      const extension = (file.name.split('.').pop() || '').toLowerCase()
+      if (!ALLOWED_ATTACHMENT_EXTENSIONS.has(extension)) {
+        toast.error(`${file.name} tiene un formato no permitido.`)
+        continue
       }
-      return true
-    })
+
+      let processedFile = file
+      if (IMAGE_EXTENSIONS_FOR_WEBP.has(extension)) {
+        try {
+          processedFile = await convertImageFileToWebp(file)
+        } catch {
+          toast.error(`${file.name} no pudo convertirse a WEBP. Intenta con JPG, PNG o WEBP.`)
+          continue
+        }
+      }
+
+      if (processedFile.size > maxSize) {
+        toast.error(`${processedFile.name} excede el tamaño máximo de ${MAX_ADJUNTO_MB}MB`)
+        continue
+      }
+
+      archivosValidos.push(processedFile)
+    }
 
     setArchivos(archivosValidos)
   }
@@ -197,7 +272,11 @@ export default function VistaSolicitudOC({ user, perfil }) {
       empresa: perfil?.empresa || 'CGV'
     }
 
-    const emailApiUrl = import.meta.env.VITE_OC_EMAIL_API_URL || '/api/enviar-email-oc'
+    const currentHost = typeof window !== 'undefined' ? window.location.hostname : ''
+    const isLocalHost = currentHost === 'localhost' || currentHost === '127.0.0.1'
+    const emailApiUrl =
+      import.meta.env.VITE_OC_EMAIL_API_URL ||
+      (isLocalHost ? LOCAL_OC_EMAIL_API_URL : '/api/enviar-email-oc')
     const response = await fetch(emailApiUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -224,9 +303,12 @@ export default function VistaSolicitudOC({ user, perfil }) {
     }
 
     if (!response.ok) {
-      if (response.status === 404 && emailApiUrl === '/api/enviar-email-oc') {
+      if (
+        response.status === 404 &&
+        (emailApiUrl === '/api/enviar-email-oc' || emailApiUrl === LOCAL_OC_EMAIL_API_URL)
+      ) {
         throw new Error(
-          'Endpoint local /api/enviar-email-oc no disponible. En local usa "vercel dev" o configura VITE_OC_EMAIL_API_URL en .env.local'
+          'Endpoint de email OC no disponible. En local (5173/5174) ejecuta "vercel dev" en 3000 o configura VITE_OC_EMAIL_API_URL en .env.local'
         )
       }
       const mensaje =
@@ -515,7 +597,7 @@ export default function VistaSolicitudOC({ user, perfil }) {
               multiple
               onChange={handleFileChange}
               className="w-full px-4 py-2 rounded-lg border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
-              accept=".pdf,.jpg,.jpeg,.png,.xlsx,.xls"
+              accept=".pdf,.png,.jpg,.jpeg,.webp,.bmp,.gif,.tif,.tiff,.heic,.heif"
             />
             <div className="mt-2 flex items-center gap-2">
               <span className={`text-sm ${archivos.length >= adjuntosRequeridos ? 'text-green-600' : 'text-red-600'} font-medium`}>
@@ -525,6 +607,10 @@ export default function VistaSolicitudOC({ user, perfil }) {
                 (Mínimo requerido: {adjuntosRequeridos})
               </span>
             </div>
+            <p className="text-xs text-gray-500 mt-1">
+              Formatos permitidos: PDF e imágenes (PNG, JPG, JPEG, WEBP, BMP, GIF, TIFF, HEIC, HEIF).
+              Las imágenes se convierten a WEBP automáticamente. Tamaño máximo por archivo: {MAX_ADJUNTO_MB}MB.
+            </p>
             {valor && parseFloat(valor) >= 1500000 && (
               <p className="text-sm text-orange-600 mt-1">
                 Importante: para valores mayores o iguales a $1,500,000 se requieren 3 archivos adjuntos
