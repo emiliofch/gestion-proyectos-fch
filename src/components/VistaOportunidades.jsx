@@ -23,9 +23,19 @@ function puedeEditarFechaAdjudicacion(estado) {
 }
 
 function obtenerFechaAdjudicacion(oportunidad) {
-  return normalizarMesAdjudicacion(oportunidad?.proyectos?.fecha_adjudicacion)
+  const base =
+    normalizarMesAdjudicacion(oportunidad?.proyectos?.fecha_adjudicacion)
     ?? normalizarMesAdjudicacion(oportunidad?.fecha_adjudicacion)
-    ?? ''
+
+  if (base) return base
+
+  const estado = normalizarEstadoProyecto(oportunidad?.proyectos?.estado)
+  if (estado === 'Adjudicado') {
+    const year = String(new Date().getFullYear()).slice(-2)
+    return `ene-${year}`
+  }
+
+  return ''
 }
 
 function ThSort({ col, label, align = 'left', activo, dir, onClick, style, opciones, filtro, onFiltro, dropdownAbierto, onToggleDropdown }) {

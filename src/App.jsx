@@ -25,6 +25,8 @@ import VistaCentrosCosto from './components/VistaCentrosCosto'
 import VistaLineas from './components/VistaLineas'
 import VistaIngresoHH from './components/VistaIngresoHH'
 import VistaIngresoHHAdmin from './components/VistaIngresoHHAdmin'
+import VistaSeguimientoFinanciero from './components/VistaSeguimientoFinanciero'
+import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -773,6 +775,13 @@ function App() {
                   🧮 Centros de Costo
                 </button>
                 <button
+                  onClick={() => { setVista('presupuesto-2026'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'presupuesto-2026' ? '#FF5100' : '#374151', backgroundColor: vista === 'presupuesto-2026' ? '#FFF5F0' : 'transparent' }}
+                >
+                  💼 Presupuesto 2026
+                </button>
+                <button
                   onClick={() => { setVista('proyectos-base'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
                   style={{ color: vista === 'proyectos-base' ? '#FF5100' : '#374151', backgroundColor: vista === 'proyectos-base' ? '#FFF5F0' : 'transparent' }}
@@ -788,6 +797,17 @@ function App() {
                 </button>
               </div>
             )}
+          </div>
+
+          {/* 2.5 Seguimiento Financiero */}
+          <div>
+            <button
+              onClick={() => { setVista('seguimiento-financiero'); setMenuAbierto(false) }}
+              className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
+              style={{ color: vista === 'seguimiento-financiero' ? '#FF5100' : '#374151', backgroundColor: vista === 'seguimiento-financiero' ? '#FFF5F0' : 'transparent' }}
+            >
+              💹 Seguimiento Financiero
+            </button>
           </div>
 
           {/* 3. OC (con submenú) */}
@@ -948,8 +968,16 @@ function App() {
               <VistaLineas perfil={perfil} />
             )}
 
+            {vista === 'seguimiento-financiero' && (
+              <VistaSeguimientoFinanciero user={user} perfil={perfil} />
+            )}
+
             {vista === 'centros-costo' && (
               <VistaCentrosCosto perfil={perfil} />
+            )}
+
+            {vista === 'presupuesto-2026' && (
+              <VistaPresupuesto2026 />
             )}
 
             {vista === 'proyectos-base' && (

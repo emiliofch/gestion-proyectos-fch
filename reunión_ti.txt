@@ -1,0 +1,7 @@
+evaluar contenedor - (Conjunto) - desarrollar en base a esta metodología
+
+dónde quedan los archivos????
+
+optimiación de archivos.... para alojar en la bdd 
+
+-poner limitación a subida de archivos 5mb y validación de extensiones (jpge, etc.pdf.. png ).....
