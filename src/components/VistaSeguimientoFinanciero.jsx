@@ -6,11 +6,11 @@ import { normalizarEstadoProyecto } from '../constants/estadosProyecto'
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 import FilterableTh from './FilterableTh'
 import ResizableTh from './ResizableTh'
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
 const NOTAS_TIPO_OPERACIONAL = 'operacional'
 const NOTAS_TIPO_SENSIBILIDAD = 'sensibilidad'
-const DEFAULT_EXCEL_PATH = '/real-cierre-feb.xlsx'
+const DEFAULT_EXCEL_PATH = '/seguimiento_operacional.xlsx'
 const PRESUPUESTO_PATH = '/ppto2026.xlsx'
 const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
@@ -100,38 +100,6 @@ function normalizeLinea(value) {
     .replace(/\s+/g, ' ')
 }
 
-function formatFechaPpto(value) {
-  if (value === null || value === undefined || value === '') return ''
-  if (typeof value === 'string') {
-    const normalizada = normalizarMesAdjudicacion(value)
-    return normalizada || String(value).trim()
-  }
-  if (typeof value === 'number' && Number.isFinite(value)) {
-    const parsed = XLSX.SSF.parse_date_code(value)
-    if (parsed && parsed.y && parsed.m) {
-      const mes = MESES_ORDEN[parsed.m - 1]
-      return mes ? `${mes}-${String(parsed.y).slice(-2)}` : ''
-    }
-  }
-  return String(value)
-}
-
-function obtenerAnoFechaPpto(rawValue, formatted) {
-  if (formatted) {
-    const match = formatted.match(/-(\d{2})$/)
-    if (match) return match[1]
-  }
-  if (typeof rawValue === 'number' && Number.isFinite(rawValue)) {
-    const parsed = XLSX.SSF.parse_date_code(rawValue)
-    if (parsed?.y) return String(parsed.y).slice(-2)
-  }
-  if (typeof rawValue === 'string') {
-    const parsed = new Date(rawValue)
-    if (!Number.isNaN(parsed.getTime())) return String(parsed.getFullYear()).slice(-2)
-  }
-  return String(new Date().getFullYear()).slice(-2)
-}
-
 function buildEmptyMetrics() {
   return {
     real: { ingresos: null, hh: null, gasto: null, margen: null },
@@ -153,7 +121,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [oportunidadesRaw, setOportunidadesRaw] = useState([])
   const [loadingPipeline, setLoadingPipeline] = useState(false)
   const [presupuestoLineas, setPresupuestoLineas] = useState({})
-  const [presupuestoIngresosPorFecha, setPresupuestoIngresosPorFecha] = useState({})
   const [heatmapRows, setHeatmapRows] = useState([])
   const [loadingHeatmap, setLoadingHeatmap] = useState(false)
   const [filtrosPipeline, setFiltrosPipeline] = useState({})
@@ -270,7 +237,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     async function cargarExcelLocal() {
       try {
         setDataByLinea({})
-        const response = await fetch(DEFAULT_EXCEL_PATH)
+        const response = await fetch(`${DEFAULT_EXCEL_PATH}?t=${Date.now()}`, { cache: 'no-store' })
         if (!response.ok) return
         const arrayBuffer = await response.arrayBuffer()
         const workbook = XLSX.read(arrayBuffer, { type: 'array' })
@@ -283,7 +250,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           setDataByLinea(parsed)
         }
       } catch (error) {
-        toast.error('Error leyendo real-cierre-feb.xlsx: ' + error.message)
+        toast.error('Error leyendo seguimiento_operacional.xlsx: ' + error.message)
       } finally {
         setAutoLoaded(true)
       }
@@ -337,7 +304,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const data = XLSX.utils.sheet_to_json(worksheet)
 
       const acumulado = {}
-      const ingresosPorFecha = {}
       data.forEach((rawRow) => {
         const normalized = {}
         Object.keys(rawRow || {}).forEach((key) => {
@@ -349,12 +315,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
         const ingreso = parseNumber(getValueFromRow(normalized, ['ingreso', 'ingresos'])) || 0
         const hh = parseNumber(getValueFromRow(normalized, ['hh'])) || 0
         const gasto = parseNumber(getValueFromRow(normalized, ['ggoo', 'gastos', 'gasto'])) || 0
-        const margen = parseNumber(getValueFromRow(normalized, ['margen', 'mg'])) || (ingreso - hh - gasto)
-        const estado = normalizarEstadoProyecto(String(getValueFromRow(normalized, ['estado']) || ''))
-        const rawFecha = getValueFromRow(normalized, ['fecha_de_adjudicacion', 'fecha_adjudicacion', 'fecha de adjudicacion', 'fecha de adjudicación'])
-        let fecha = formatFechaPpto(rawFecha)
-        if (estado === 'Adjudicado') {
-          const ano = obtenerAnoFechaPpto(rawFecha, fecha)
           fecha = `ene-${ano}`
         }
         if (!acumulado[key]) {
@@ -364,14 +324,9 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
         acumulado[key].hh += hh
         acumulado[key].gasto += gasto
         acumulado[key].margen += margen
-
-        if (estado === 'Adjudicado' && fecha) {
-          ingresosPorFecha[fecha] = (ingresosPorFecha[fecha] || 0) + ingreso
-        }
       })
 
       setPresupuestoLineas(acumulado)
-      setPresupuestoIngresosPorFecha(ingresosPorFecha)
     } catch (error) {
       toast.error('Error leyendo ppto2026.xlsx: ' + error.message)
     }
@@ -723,50 +678,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     )
   }, [pipelineOrdenado])
 
-  const ingresosPptoPorFecha = useMemo(() => {
-    const fechas = Object.keys(presupuestoIngresosPorFecha || {}).sort(ordenarMesAdjudicacion)
-    return fechas.map((fecha) => ({
-      fecha,
-      ingresos: (presupuestoIngresosPorFecha[fecha] || 0) / 1_000_000,
-    }))
-  }, [presupuestoIngresosPorFecha])
-
-  const oportunidadesPorFecha = useMemo(() => {
-    const acumulado = {}
-    oportunidadesRaw.forEach((o) => {
-      const estado = normalizarEstadoProyecto(o.proyectos?.estado) || ''
-      if (!estado) return
-      const fecha = obtenerFechaAdjudicacion(o)
-      if (!fecha) return
-      const ingresos = parseFloat(o.ingresos) || 0
-      if (!acumulado[fecha]) {
-        acumulado[fecha] = { adjEfectivo: 0, noEfectivo: 0 }
-      }
-      if (estado === 'No Efectivo') {
-        acumulado[fecha].noEfectivo += ingresos
-      } else if (estado === 'Adjudicado' || estado === 'Efectivo') {
-        acumulado[fecha].adjEfectivo += ingresos
-      }
-    })
-
-    return acumulado
-  }, [oportunidadesRaw])
-
-  const graficoIngresosPorFecha = useMemo(() => {
-    const fechas = new Set([
-      ...Object.keys(presupuestoIngresosPorFecha || {}),
-      ...Object.keys(oportunidadesPorFecha || {}),
-    ])
-    return Array.from(fechas)
-      .sort(ordenarMesAdjudicacion)
-      .map((fecha) => ({
-        fecha,
-        ingresos: (presupuestoIngresosPorFecha?.[fecha] || 0) / 1_000_000,
-        adjEfectivo: (oportunidadesPorFecha?.[fecha]?.adjEfectivo || 0) / 1_000_000,
-        noEfectivo: (oportunidadesPorFecha?.[fecha]?.noEfectivo || 0) / 1_000_000,
-      }))
-  }, [presupuestoIngresosPorFecha, oportunidadesPorFecha])
-
   const sensibilidadPorLinea = useMemo(() => {
     const lineasDisponibles = new Set(lineasUnicas.map((l) => normalizeLinea(l.linea)))
     const acumulado = {}
@@ -862,7 +773,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           <div className="relative group">
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-400 text-gray-600 text-xs font-bold cursor-default">?</span>
             <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-96 rounded-md bg-gray-800 text-white text-xs p-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
-              Se carga desde /public/real-cierre-feb.xlsx. Columnas: linea, ing_real, hh_real, ggoo_real, mg_real, ing_ppto, hh_ppto, ggoo_ppto, mg_ppto. Si falta la linea, se usa el orden de la tabla Lineas.
+              Se carga desde /public/seguimiento_operacional.xlsx. Columnas: linea, ing_real, hh_real, ggoo_real, mg_real, ing_ppto, hh_ppto, ggoo_ppto, mg_ppto. Si falta la linea, se usa el orden de la tabla Lineas.
             </div>
           </div>
         </div>
@@ -1112,28 +1023,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       </section>
 
       <section className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Ingresos por fecha de adjudicacion (ppto 2026)</h3>
-        {graficoIngresosPorFecha.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No hay fechas de adjudicacion para graficar.</div>
-        ) : (
-          <div className="w-full h-[320px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart data={graficoIngresosPorFecha} margin={{ top: 10, right: 24, left: 0, bottom: 10 }}>
-                <CartesianGrid strokeDasharray="3 3" />
-                <XAxis dataKey="fecha" />
-                <YAxis tickFormatter={(v) => `$${v.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`} />
-                <Tooltip formatter={(value) => `$${Number(value).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}`} />
-                <Legend />
-                <Bar dataKey="ingresos" name="Ppto 2026" fill="#00334A" />
-                <Bar dataKey="adjEfectivo" stackId="oportunidades" name="Oportunidades Adjudicado + Efectivo" fill="#10B981" />
-                <Bar dataKey="noEfectivo" stackId="oportunidades" name="Oportunidades No Efectivo" fill="#F97316" />
-              </BarChart>
-            </ResponsiveContainer>
-          </div>
-        )}
-      </section>
-
-      <section className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex items-center gap-2 mb-4">
           <h3 className="text-lg font-bold text-gray-800">Analisis de sensibilidad</h3>
           <div className="relative group">
@@ -1375,6 +1264,8 @@ function ordenarMesAdjudicacion(a, b) {
   if (iA !== iB) return iA - iB
   return String(a).localeCompare(String(b))
 }
+
+
 
 
 
