@@ -315,8 +315,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
         const ingreso = parseNumber(getValueFromRow(normalized, ['ingreso', 'ingresos'])) || 0
         const hh = parseNumber(getValueFromRow(normalized, ['hh'])) || 0
         const gasto = parseNumber(getValueFromRow(normalized, ['ggoo', 'gastos', 'gasto'])) || 0
-          fecha = `ene-${ano}`
-        }
         if (!acumulado[key]) {
           acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
         }
