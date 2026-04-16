@@ -663,7 +663,7 @@ function App() {
 
       {/* Header Fixed */}
       <div className="fixed top-0 left-0 right-0 z-40 w-full" style={{ backgroundColor: '#FF5100' }}>
-        <div className="max-w-7xl mx-auto p-6">
+        <div className="max-w-screen-2xl mx-auto p-6">
           <div className="flex items-center justify-between gap-4">
             <img src={LOGO_URL} alt="Logo FCH" className="h-16 md:h-20 object-contain" />
 
@@ -965,7 +965,7 @@ function App() {
 
       {/* Contenido principal con margen superior para el header fixed */}
       <div className="pt-32">
-        <div className="max-w-7xl mx-auto px-4">
+        <div className="max-w-screen-2xl mx-auto px-4">
           <div className="bg-white rounded-lg shadow-lg p-6 md:p-8">
             
             {vista === 'dashboard' && (

@@ -14,7 +14,7 @@ const DEFAULT_EXCEL_PATH = '/seguimiento_operacional.xlsx'
 const PRESUPUESTO_PATH = '/ppto2026.xlsx'
 const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
-const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado'])
+const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado', 'Meta'])
 const ESTADO_NO_EFECTIVO = 'No Efectivo'
 const MESES_HH_ALL = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -127,12 +127,14 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [dropdownPipeline, setDropdownPipeline] = useState(null)
   const [ordenPipelineCol, setOrdenPipelineCol] = useState(null)
   const [ordenPipelineDir, setOrdenPipelineDir] = useState('asc')
+  const [hhPorLinea, setHhPorLinea] = useState({}) // normalizeLinea(ceco) → costo total HP
 
   useEffect(() => {
     cargarLineas()
     cargarPipeline()
     cargarPresupuestoLineas()
     cargarHeatmapNoEfectivos()
+    cargarHHProyectadas()
   }, [])
 
   useEffect(() => {
@@ -266,6 +268,40 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       return
     }
     setLineas(data || [])
+  }
+
+  async function cargarHHProyectadas() {
+    const [{ data: proyData }, { data: colData }] = await Promise.all([
+      supabase.from('proyectos').select('nombre, ceco'),
+      supabase.from('colaboradores').select('colaborador, costo_empresa'),
+    ])
+    const cecoMap = {}  // normalizeKey(nombre) → ceco
+    for (const p of (proyData || [])) cecoMap[normalizeKey(p.nombre)] = p.ceco || ''
+    const costoMap = {} // normalizeKey(colaborador) → costo_empresa
+    for (const c of (colData || [])) costoMap[normalizeKey(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+
+    const PAGE = 1000
+    let todas = [], from = 0
+    while (true) {
+      const { data } = await supabase
+        .from('horas_proyectadas')
+        .select('proyecto, colaborador, horas')
+        .range(from, from + PAGE - 1)
+      if (!data?.length) break
+      todas = [...todas, ...data]
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+
+    const acum = {}
+    for (const f of todas) {
+      const ceco = cecoMap[normalizeKey(f.proyecto)] || ''
+      if (!ceco) continue
+      const key = normalizeLinea(ceco)
+      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)] || 0)
+      acum[key] = (acum[key] || 0) + costo
+    }
+    setHhPorLinea(acum)
   }
 
   async function cargarPipeline() {
@@ -687,19 +723,24 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const key = normalizeLinea(linea)
       if (!key || !lineasDisponibles.has(key)) return
       const ingresos = parseFloat(o.ingresos) || 0
-      const hh = parseFloat(o.hh) || 0
       const gastos = parseFloat(o.gastos) || 0
-      const margen = ingresos - hh - gastos
       if (!acumulado[key]) {
         acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
       }
-      acumulado[key].ingresos += ingresos
-      acumulado[key].hh += hh
-      acumulado[key].gasto += gastos
-      acumulado[key].margen += margen
+      // Meta y Cancelado: no suman ingresos ni GGOO
+      if (estado !== 'Meta' && estado !== 'Cancelado') {
+        acumulado[key].ingresos += ingresos
+        acumulado[key].gasto += gastos
+      }
     })
+    // HH viene de horas_proyectadas agrupado por línea
+    for (const key of Object.keys(acumulado)) {
+      const hh = hhPorLinea[key] || 0
+      acumulado[key].hh = hh
+      acumulado[key].margen = acumulado[key].ingresos - hh - acumulado[key].gasto
+    }
     return acumulado
-  }, [oportunidadesRaw, lineasUnicas])
+  }, [oportunidadesRaw, lineasUnicas, hhPorLinea])
 
   const sensibilidadRows = useMemo(() => {
     return lineasUnicas.map((linea) => {
@@ -1026,8 +1067,20 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           <h3 className="text-lg font-bold text-gray-800">Analisis de sensibilidad</h3>
           <div className="relative group">
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-400 text-gray-600 text-xs font-bold cursor-default">?</span>
-            <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-96 rounded-md bg-gray-800 text-white text-xs p-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
-              Presupuesto se lee de /public/ppto2026.xlsx (sumado por linea). Sensibilidad suma oportunidades con estado Efectivo, Adjudicado o Cancelado agrupadas por la columna Linea.
+            <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-[420px] rounded-md bg-gray-800 text-white text-xs p-3 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 space-y-2">
+              <p className="font-bold text-sm border-b border-gray-600 pb-1">Reglas — Análisis de Sensibilidad</p>
+              <p><span className="font-semibold text-gray-300">Presupuesto:</span> leído de /public/ppto2026.xlsx, sumado por línea.</p>
+              <p><span className="font-semibold text-gray-300">HH:</span> suma costo de horas proyectadas (horas × costo colaborador) agrupado por línea, para todos los proyectos.</p>
+              <p className="font-semibold text-gray-300 pt-1">Estados y su efecto:</p>
+              <ul className="space-y-1 pl-1">
+                <li><span className="text-green-400 font-semibold">Efectivo</span> → suma Ingresos y GGOO</li>
+                <li><span className="text-blue-400 font-semibold">Adjudicado</span> → suma Ingresos y GGOO</li>
+                <li><span className="text-gray-400 font-semibold">Cancelado</span> → Ingresos y GGOO se omiten</li>
+                <li><span className="text-purple-400 font-semibold">Meta</span> → Ingresos y GGOO se omiten</li>
+                <li><span className="text-red-400 font-semibold">No Efectivo</span> → no aparece en sensibilidad</li>
+              </ul>
+              <p className="text-gray-400 italic">HH suma todos los estados sin excepción.</p>
+              <p className="border-t border-gray-600 pt-1"><span className="font-semibold text-gray-300">Margen:</span> Ingresos − HH − GGOO</p>
             </div>
           </div>
         </div>

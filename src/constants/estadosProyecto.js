@@ -1,10 +1,11 @@
-export const ESTADOS_PROYECTO = ['Efectivo', 'No Efectivo', 'Adjudicado', 'Cancelado']
+export const ESTADOS_PROYECTO = ['Efectivo', 'No Efectivo', 'Adjudicado', 'Cancelado', 'Meta']
 
 const ESTADOS_LEGACY_MAP = {
   activo: 'Efectivo',
   'en pausa': 'No Efectivo',
   terminado: 'Adjudicado',
   cancelado: 'Cancelado',
+  meta: 'Meta',
 }
 
 export function normalizarEstadoProyecto(raw) {
@@ -21,6 +22,7 @@ export function clasesBadgeEstadoProyecto(estado) {
     'No Efectivo': 'bg-red-100 text-red-800',
     'Adjudicado': 'bg-blue-100 text-blue-800',
     'Cancelado': 'bg-gray-200 text-gray-800',
+    'Meta': 'bg-purple-100 text-purple-800',
   }
   return colores[estado] || 'bg-gray-100 text-gray-700'
 }
