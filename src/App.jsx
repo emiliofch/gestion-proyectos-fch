@@ -27,6 +27,7 @@ import VistaIngresoHH from './components/VistaIngresoHH'
 import VistaIngresoHHAdmin from './components/VistaIngresoHHAdmin'
 import VistaSeguimientoFinanciero from './components/VistaSeguimientoFinanciero'
 import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
+import VistaHorasProyectadas from './components/VistaHorasProyectadas'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -750,7 +751,7 @@ function App() {
             <button
               onClick={() => setSubmenuTablas(!submenuTablas)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'horas-proyectadas'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'horas-proyectadas'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>🗂 Tablas</span>
               <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -794,6 +795,13 @@ function App() {
                   style={{ color: vista === 'colaboradores' ? '#FF5100' : '#374151', backgroundColor: vista === 'colaboradores' ? '#FFF5F0' : 'transparent' }}
                 >
                   👥 Colaboradores
+                </button>
+                <button
+                  onClick={() => { setVista('horas-proyectadas'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'horas-proyectadas' ? '#FF5100' : '#374151', backgroundColor: vista === 'horas-proyectadas' ? '#FFF5F0' : 'transparent' }}
+                >
+                  🕐 Horas Proyectadas
                 </button>
               </div>
             )}
@@ -986,6 +994,10 @@ function App() {
 
             {vista === 'colaboradores' && (
               <VistaColaboradores user={user} perfil={perfil} />
+            )}
+
+            {vista === 'horas-proyectadas' && (
+              <VistaHorasProyectadas />
             )}
 
             {vista === 'oportunidades' && (

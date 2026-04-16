@@ -1,0 +1,842 @@
+import { useEffect, useState, useRef } from 'react'
+import * as XLSX from 'xlsx'
+import { supabase } from '../supabaseClient'
+import { toast } from 'react-toastify'
+import ResizableTh from './ResizableTh'
+import FilterableTh from './FilterableTh'
+
+const MESES_NOMBRES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre']
+const MESES_ABREV   = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+const MESES_CORTOS  = ['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
+const AÑOS_2D = [24, 25, 26, 27, 28]
+const MES_OPTIONS = AÑOS_2D.flatMap(y => MESES_ABREV.map(m => `${m}-${y}`))
+
+function mesToNum(mes) {
+  if (!mes) return 0
+  const [abrev, año] = mes.split('-')
+  const añoNum = parseInt(año || 0)
+  const añoFull = añoNum < 100 ? añoNum + 2000 : añoNum
+  return añoFull * 100 + (MESES_ABREV.indexOf((abrev || '').toLowerCase()) + 1)
+}
+
+function normalize(t) {
+  return (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+}
+
+function buildTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
+
+const ABREV_MES = {
+  ene: 'enero', feb: 'febrero', mar: 'marzo', abr: 'abril',
+  may: 'mayo',  jun: 'junio',  jul: 'julio', ago: 'agosto',
+  sep: 'septiembre', oct: 'octubre', nov: 'noviembre', dic: 'diciembre',
+}
+
+// Normaliza "ene-26" → "enero-2026", "enero-2026" → "enero-2026", serial → "enero-2026"
+function normalizarMesImport(raw) {
+  if (raw === null || raw === undefined) return ''
+  const str = raw.toString().trim().toLowerCase()
+  if (!str) return ''
+
+  // Serial numérico de Excel (ej: 46023)
+  const serial = parseFloat(str)
+  if (!isNaN(serial) && serial > 1000) {
+    const fecha = new Date((serial - 25569) * 86400000)
+    return `${MESES_NOMBRES[fecha.getUTCMonth()]}-${fecha.getUTCFullYear()}`
+  }
+
+  // Formato "ene-26" o "ene-2026"
+  const match = str.match(/^([a-záéíóúü]+)-(\d{2,4})$/)
+  if (match) {
+    const [, parte, año] = match
+    const nombreCompleto = ABREV_MES[parte] || MESES_NOMBRES.find(m => m.startsWith(parte)) || parte
+    const añoCompleto = año.length === 2 ? `20${año}` : año
+    return `${nombreCompleto}-${añoCompleto}`
+  }
+
+  return str
+}
+
+function mesActual() {
+  const now = new Date()
+  return `${MESES_ABREV[now.getMonth()]}-${String(now.getFullYear()).slice(-2)}`
+}
+
+export default function VistaHorasProyectadas() {
+  const [filas, setFilas] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [colaboradoresSet, setColaboradoresSet] = useState(new Set())
+  const [proyectosSet, setProyectosSet] = useState(new Set())
+  const [proyectosLinea, setProyectosLinea] = useState({})         // normalize(nombre) → ceco
+  const [colaboradoresCosto, setColaboradoresCosto] = useState({}) // normalize(nombre) → costo_empresa
+  const [oportunidadesSet, setOportunidadesSet] = useState(new Set()) // normalize(nombre) de proyectos con oportunidades
+  const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState(null)
+  const [ordenDir, setOrdenDir] = useState('asc')
+  const [añoValidator, setAñoValidator] = useState(new Date().getFullYear())
+  const [progreso, setProgreso] = useState(null) // null = inactivo, 0-100 = importando, 'ok' = completado
+  const cancelarRef = useRef(false)
+  const [modalAgregar, setModalAgregar] = useState(false)
+  const [formAgregar, setFormAgregar] = useState({ colaborador: '', proyecto: '', mes: '', horas: '' })
+
+  useEffect(() => {
+    cargarDatos()
+    cargarValidaciones()
+  }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
+
+  async function cargarDatos() {
+    setLoading(true)
+    const PAGE = 1000
+    let todas = [], from = 0, error = null
+    while (true) {
+      const { data, error: err } = await supabase
+        .from('horas_proyectadas')
+        .select('*')
+        .order('colaborador', { ascending: true })
+        .range(from, from + PAGE - 1)
+      if (err) { error = err; break }
+      todas = [...todas, ...(data || [])]
+      if (!data || data.length < PAGE) break
+      from += PAGE
+    }
+    if (error) toast.error('Error al cargar: ' + error.message)
+    else setFilas(todas)
+    setLoading(false)
+  }
+
+  async function cargarValidaciones() {
+    const [{ data: cols }, { data: proyectos }, { data: opors }] = await Promise.all([
+      supabase.from('colaboradores').select('colaborador, costo_empresa'),
+      supabase.from('proyectos').select('nombre, ceco'),
+      supabase.from('oportunidades').select('proyectos:proyecto_id(nombre)'),
+    ])
+    setColaboradoresSet(new Set((cols || []).map(c => normalize(c.colaborador))))
+    setProyectosSet(new Set((proyectos || []).map(p => normalize(p.nombre))))
+    const lineasMap = {}
+    for (const p of (proyectos || [])) lineasMap[normalize(p.nombre)] = p.ceco || ''
+    setProyectosLinea(lineasMap)
+    const costoMap = {}
+    for (const c of (cols || [])) costoMap[normalize(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+    setColaboradoresCosto(costoMap)
+    setOportunidadesSet(new Set((opors || []).map(o => normalize(o.proyectos?.nombre)).filter(Boolean)))
+  }
+
+  async function guardarCelda(id, col, valor) {
+    const val = col === 'horas' ? (parseFloat(valor) || 0) : valor.trim()
+    const { error } = await supabase.from('horas_proyectadas').update({ [col]: val }).eq('id', id)
+    if (error) { toast.error('Error al guardar: ' + error.message); return }
+    toast.success('Guardado')
+    setFilas(prev => prev.map(f => f.id === id ? { ...f, [col]: val } : f))
+  }
+
+  async function confirmarAgregar() {
+    const colaborador = formAgregar.colaborador.trim()
+    const proyecto    = formAgregar.proyecto.trim()
+    const mes         = formAgregar.mes
+    const horas       = parseFloat(formAgregar.horas) || 0
+    if (!colaborador) { toast.error('El colaborador es obligatorio'); return }
+    if (!proyecto)    { toast.error('El proyecto es obligatorio'); return }
+    if (!mes)         { toast.error('El mes es obligatorio'); return }
+    const { data, error } = await supabase
+      .from('horas_proyectadas')
+      .insert({ colaborador, proyecto, mes, horas })
+      .select()
+      .single()
+    if (error) { toast.error('Error al agregar: ' + error.message); return }
+    setFilas(prev => [...prev, data])
+    setModalAgregar(false)
+    setFormAgregar({ colaborador: '', proyecto: '', mes: '', horas: '' })
+    toast.success('Registro agregado')
+  }
+
+  async function eliminarFila(id) {
+    if (!confirm('¿Eliminar esta fila?')) return
+    const { error } = await supabase.from('horas_proyectadas').delete().eq('id', id)
+    if (error) { toast.error('Error al eliminar: ' + error.message); return }
+    setFilas(prev => prev.filter(f => f.id !== id))
+    toast.success('Fila eliminada')
+  }
+
+  function toggleOrden(col) {
+    if (ordenCol === col) setOrdenDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setOrdenCol(col); setOrdenDir('asc') }
+  }
+
+  function setFiltro(col, valor) {
+    setFiltros(prev => ({ ...prev, [col]: valor }))
+  }
+
+  function coincideFiltros(f) {
+    const q = busqueda.toLowerCase()
+    const linea = proyectosLinea[normalize(f.proyecto)] || ''
+    const matchBusqueda = !q || [f.colaborador, f.proyecto, f.mes, linea].some(v => (v || '').toLowerCase().includes(q))
+    const matchColaborador = !filtros.colaborador?.length || filtros.colaborador.includes(f.colaborador)
+    const matchProyecto    = !filtros.proyecto?.length    || filtros.proyecto.includes(f.proyecto)
+    const matchMes         = !filtros.mes?.length         || filtros.mes.includes(f.mes)
+    const matchLinea       = !filtros.linea?.length       || filtros.linea.includes(linea)
+    const enCol  = colaboradoresSet.has(normalize(f.colaborador))
+    const enProy = proyectosSet.has(normalize(f.proyecto))
+    const enOpor = oportunidadesSet.has(normalize(f.proyecto))
+    const matchEnCol  = !filtros.enColaboradores?.length  || (filtros.enColaboradores.includes('Sí') && enCol)  || (filtros.enColaboradores.includes('No') && !enCol)
+    const matchEnProy = !filtros.enProyectos?.length      || (filtros.enProyectos.includes('Sí') && enProy) || (filtros.enProyectos.includes('No') && !enProy)
+    const matchEnOpor = !filtros.enOportunidades?.length  || (filtros.enOportunidades.includes('Sí') && enOpor) || (filtros.enOportunidades.includes('No') && !enOpor)
+    return matchBusqueda && matchColaborador && matchProyecto && matchMes && matchLinea && matchEnCol && matchEnProy && matchEnOpor
+  }
+
+  function opcionesPorColumna(obtenerValor, esmes = false) {
+    const base = filas.map(obtenerValor).filter(Boolean)
+    const uniq = [...new Set(base)]
+    return esmes
+      ? uniq.sort((a, b) => mesToNum(a) - mesToNum(b))
+      : uniq.sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesColaborador = opcionesPorColumna(f => f.colaborador)
+  const opcionesProyecto    = opcionesPorColumna(f => f.proyecto)
+  const opcionesMes         = opcionesPorColumna(f => f.mes, true)
+  const opcionesLinea       = [...new Set(filas.map(f => proyectosLinea[normalize(f.proyecto)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+
+  const filasFiltradas = filas
+    .filter(coincideFiltros)
+    .sort((a, b) => {
+      if (!ordenCol) {
+        const colCmp = (a.colaborador || '').localeCompare(b.colaborador || '', 'es')
+        if (colCmp !== 0) return colCmp
+        const mesCmp = mesToNum(a.mes) - mesToNum(b.mes)
+        if (mesCmp !== 0) return mesCmp
+        return (a.proyecto || '').localeCompare(b.proyecto || '', 'es')
+      }
+      let vA, vB
+      switch (ordenCol) {
+        case 'colaborador': vA = a.colaborador || ''; vB = b.colaborador || ''; break
+        case 'proyecto':    vA = a.proyecto    || ''; vB = b.proyecto    || ''; break
+        case 'linea':       vA = proyectosLinea[normalize(a.proyecto)] || ''; vB = proyectosLinea[normalize(b.proyecto)] || ''; break
+        case 'mes':         return ordenDir === 'asc' ? mesToNum(a.mes) - mesToNum(b.mes) : mesToNum(b.mes) - mesToNum(a.mes)
+        case 'horas':       vA = parseFloat(a.horas) || 0; vB = parseFloat(b.horas) || 0; break
+        default: return 0
+      }
+      if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+      return ordenDir === 'asc' ? vA - vB : vB - vA
+    })
+
+  const totalHoras = filasFiltradas.reduce((sum, f) => sum + (parseFloat(f.horas) || 0), 0)
+  const totalCosto = filasFiltradas.reduce((sum, f) => {
+    const h = parseFloat(f.horas) || 0
+    const c = colaboradoresCosto[normalize(f.colaborador)] || 0
+    return sum + h * c
+  }, 0)
+
+  // ── VALIDADOR: pivot colaborador × mes ──
+  const añosDisponibles = [...new Set(
+    filas.map(f => {
+      const a = parseInt((f.mes || '').split('-')[1] || '0')
+      return a < 100 ? a + 2000 : a
+    }).filter(Boolean)
+  )].sort()
+
+  // pivot: { colaborador -> { mesAbrev -> horas } }
+  const validatorPivot = {}
+  for (const f of filas) {
+    const [abrev, añoCorto] = (f.mes || '').split('-')
+    const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+    if (añoFull !== añoValidator) continue
+    const mesKey = (abrev || '').toLowerCase()
+    if (!MESES_ABREV.includes(mesKey)) continue
+    if (!validatorPivot[f.colaborador]) validatorPivot[f.colaborador] = {}
+    validatorPivot[f.colaborador][mesKey] =
+      (validatorPivot[f.colaborador][mesKey] || 0) + (parseFloat(f.horas) || 0)
+  }
+  const validatorColabs = Object.keys(validatorPivot).sort((a, b) => a.localeCompare(b, 'es'))
+
+  // totales por mes
+  const totalPorMes = {}
+  for (const mes of MESES_ABREV) {
+    totalPorMes[mes] = validatorColabs.reduce((sum, c) => sum + (validatorPivot[c]?.[mes] || 0), 0)
+  }
+  const totalValidador = MESES_ABREV.reduce((sum, m) => sum + totalPorMes[m], 0)
+
+  function exportarValidador() {
+    const rows = validatorColabs.map(col => {
+      const row = { COLABORADOR: col }
+      let total = 0
+      MESES_ABREV.forEach((abrev, i) => {
+        const h = validatorPivot[col]?.[abrev] || 0
+        row[MESES_NOMBRES[i].toUpperCase()] = h
+        total += h
+      })
+      row['TOTAL'] = total
+      return row
+    })
+    // fila totales
+    const rowTotal = { COLABORADOR: 'TOTAL' }
+    MESES_ABREV.forEach((abrev, i) => { rowTotal[MESES_NOMBRES[i].toUpperCase()] = totalPorMes[abrev] })
+    rowTotal['TOTAL'] = totalValidador
+    rows.push(rowTotal)
+
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `Resumen_${añoValidator}`)
+    XLSX.writeFile(wb, `resumen_horas_${añoValidator}_${buildTimestamp()}.xlsx`)
+  }
+
+  // ── IMPORTAR EXCEL ──
+  async function importarExcel(e) {
+    const file = e.target.files[0]
+    if (!file) return
+
+    if (filas.length > 0) {
+      const ok = confirm(`La tabla tiene ${filas.length} filas existentes. Al importar se BORRARÁN todas y se reemplazarán por las del Excel.\n\n¿Continuar?`)
+      if (!ok) { e.target.value = ''; return }
+    }
+
+    const reader = new FileReader()
+    reader.onload = async (ev) => {
+      try {
+        const wb = XLSX.read(ev.target.result, { type: 'binary' })
+        const ws = wb.Sheets[wb.SheetNames[0]]
+        const data = XLSX.utils.sheet_to_json(ws)
+
+        // Borrar todo lo existente antes de insertar
+        const { error: errorBorrar } = await supabase
+          .from('horas_proyectadas')
+          .delete()
+          .neq('id', '00000000-0000-0000-0000-000000000000')
+        if (errorBorrar) {
+          toast.error('Error al limpiar tabla: ' + errorBorrar.message)
+          return
+        }
+
+        // Preparar filas válidas
+        const invalidos = []
+        const filasBatch = []
+
+        for (const row of data) {
+          const colaborador = (row.COLABORADOR || row.colaborador || '').toString().trim()
+          const proyecto    = (row.PROYECTO    || row.proyecto    || '').toString().trim()
+          const horas       = parseFloat(row.HORAS || row.horas) || 0
+
+          // Normalizar MES: puede venir como string "enero-2026" o como serial numérico de Excel
+          const mesRaw = row.MES ?? row.mes ?? ''
+          let mes = mesRaw.toString().trim()
+          const serial = parseFloat(mes)
+          if (!isNaN(serial) && serial > 1000) {
+            // Convertir serial de Excel a "mes-año"
+            const fecha = new Date((serial - 25569) * 86400000)
+            mes = `${MESES_NOMBRES[fecha.getUTCMonth()]}-${fecha.getUTCFullYear()}`
+          }
+
+          if (!colaborador || !proyecto || !mes) continue
+          if (!MES_OPTIONS.includes(mes)) { invalidos.push(mes); continue }
+          filasBatch.push({ colaborador, proyecto, mes, horas })
+        }
+
+        if (invalidos.length > 0) {
+          toast.warning(`Meses inválidos (usar formato "ene-26"): ${[...new Set(invalidos)].slice(0, 3).join(', ')}`, { autoClose: 6000 })
+        }
+
+        if (filasBatch.length === 0) {
+          toast.error('No hay filas válidas para importar')
+          setProgreso(null)
+          return
+        }
+
+        // Insertar en chunks de 500 para no superar límites de request
+        cancelarRef.current = false
+        setProgreso(0)
+        const CHUNK = 500
+        let insertados = 0, errores = 0
+
+        for (let i = 0; i < filasBatch.length; i += CHUNK) {
+          if (cancelarRef.current) {
+            toast.warning(`Importación cancelada. Se insertaron ${insertados} filas antes de cancelar.`)
+            setProgreso(null)
+            cargarDatos()
+            return
+          }
+          const chunk = filasBatch.slice(i, i + CHUNK)
+          const { error } = await supabase.from('horas_proyectadas').insert(chunk)
+          if (error) { errores += chunk.length; console.error(error) }
+          else insertados += chunk.length
+          setProgreso(Math.round(Math.min((i + CHUNK) / filasBatch.length, 1) * 100))
+        }
+
+        setProgreso('ok')
+        setTimeout(() => setProgreso(null), 3000)
+        toast.success(`Importación completada: ${insertados} filas creadas${errores > 0 ? `, ${errores} errores` : ''}`)
+        cargarDatos()
+      } catch (err) {
+        toast.error('Error: ' + err.message)
+        setProgreso(null)
+      }
+    }
+    reader.readAsBinaryString(file)
+    e.target.value = ''
+  }
+
+  // ── EXPORTAR EXCEL ──
+  // Columnas calculadas (LINEA, COSTO, EN_COLABORADORES, EN_PROYECTOS) se incluyen como referencia,
+  // pero al importar se IGNORAN — siempre se recalculan desde los datos maestros.
+  function exportarExcel() {
+    const filasOrdenadas = [...filasFiltradas].sort((a, b) => {
+      const colA = (a.colaborador || '').localeCompare(b.colaborador || '', 'es')
+      if (colA !== 0) return colA
+      const mesA = mesToNum(a.mes), mesB = mesToNum(b.mes)
+      if (mesA !== mesB) return mesA - mesB
+      return (a.proyecto || '').localeCompare(b.proyecto || '', 'es')
+    })
+    const rows = filasOrdenadas.map(f => {
+      const enCol  = colaboradoresSet.has(normalize(f.colaborador)) ? 'Sí' : 'No'
+      const enProy = proyectosSet.has(normalize(f.proyecto))        ? 'Sí' : 'No'
+      const enOpor = oportunidadesSet.has(normalize(f.proyecto))    ? 'Sí' : 'No'
+      return {
+        COLABORADOR:      f.colaborador || '',
+        PROYECTO:         f.proyecto    || '',
+        LINEA:            proyectosLinea[normalize(f.proyecto)] || '',
+        MES:              f.mes         || '',
+        HORAS:            parseFloat(f.horas) || 0,
+        COSTO:            Math.round((parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)] || 0)),
+        EN_COLABORADORES: enCol,
+        EN_PROYECTOS:     enProy,
+        EN_OPORTUNIDADES: enOpor,
+      }
+    })
+    const ws = XLSX.utils.json_to_sheet(rows)
+
+    // Forzar columna MES (índice 3: COLABORADOR, PROYECTO, LINEA, MES) como texto
+    const range = XLSX.utils.decode_range(ws['!ref'])
+    for (let R = range.s.r; R <= range.e.r; R++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: 3 })
+      if (ws[addr]) { ws[addr].t = 's'; ws[addr].z = '@' }
+    }
+
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, 'HorasProyectadas')
+    XLSX.writeFile(wb, `horas_proyectadas_${buildTimestamp()}.xlsx`)
+  }
+
+  return (
+    <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
+
+      {/* ── HEADER PÁGINA ── */}
+      <div className="flex-shrink-0 pb-2">
+        <div className="flex justify-between items-center mb-2 flex-wrap gap-4">
+          <h2 className="text-2xl font-bold text-gray-800">Horas Proyectadas</h2>
+          <div className="flex gap-2 flex-wrap items-center">
+            <button
+              onClick={() => { setFormAgregar({ colaborador: '', proyecto: '', mes: mesActual(), horas: '' }); setModalAgregar(true) }}
+              className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
+              style={{ backgroundColor: '#FF5100' }}
+            >
+              + Agregar registro
+            </button>
+            <input
+              type="text"
+              placeholder="Buscar..."
+              value={busqueda}
+              onChange={e => setBusqueda(e.target.value)}
+              className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
+            />
+            <button
+              onClick={exportarExcel}
+              disabled={filasFiltradas.length === 0}
+              className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#6366F1' }}
+            >
+              Exportar Excel
+            </button>
+            <label
+              className="px-4 py-2 rounded-lg text-white font-medium transition-all cursor-pointer hover:opacity-90"
+              style={{ backgroundColor: '#10B981' }}
+            >
+              Importar Excel
+              <input type="file" accept=".xlsx,.xls" onChange={importarExcel} className="hidden" />
+            </label>
+            <button
+              onClick={() => { cargarDatos(); cargarValidaciones() }}
+              className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-700 font-medium transition-all"
+            >
+              Recargar
+            </button>
+          </div>
+        </div>
+        <p className="text-xs text-gray-400">
+          Formato importación: columnas <strong>COLABORADOR</strong>, <strong>PROYECTO</strong>, <strong>MES</strong> (ej: <em>ene-26</em>), <strong>HORAS</strong>
+        </p>
+
+        {/* Barra de progreso importación */}
+        {progreso !== null && (
+          <div className="mt-2">
+            {progreso === 'ok' ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 rounded-full bg-green-200">
+                  <div className="h-2 rounded-full bg-green-500 w-full transition-all" />
+                </div>
+                <span className="text-xs font-semibold text-green-600 whitespace-nowrap">Importación completada ✓</span>
+              </div>
+            ) : (
+              <div className="flex items-center gap-2">
+                <div className="flex-1 h-2 rounded-full bg-gray-200">
+                  <div
+                    className="h-2 rounded-full bg-orange-500 transition-all duration-200"
+                    style={{ width: `${progreso}%` }}
+                  />
+                </div>
+                <span className="text-xs font-semibold text-orange-600 whitespace-nowrap w-10 text-right">{progreso}%</span>
+                <button
+                  onClick={() => { cancelarRef.current = true }}
+                  className="text-xs px-2 py-0.5 rounded border border-red-300 text-red-500 hover:bg-red-50 whitespace-nowrap transition-all"
+                >
+                  Cancelar
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── TABLA PRINCIPAL (panel superior, scroll propio) ── */}
+      <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+        {loading ? (
+          <div className="text-center py-12"><p className="text-gray-500">Cargando...</p></div>
+        ) : (
+          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <thead>
+              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
+                <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-center" style={{ width: '48px' }}>#</ResizableTh>
+                <FilterableTh
+                  col="colaborador" label="Colaborador" align="left" style={{ width: '180px' }}
+                  opciones={opcionesColaborador} filtro={filtros.colaborador || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'colaborador'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'colaborador'} ordenDir={ordenDir} onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="proyecto" label="Proyecto" align="left"
+                  opciones={opcionesProyecto} filtro={filtros.proyecto || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proyecto'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="linea" label="Línea" align="left" style={{ width: '130px' }}
+                  opciones={opcionesLinea} filtro={filtros.linea || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'linea'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'linea'} ordenDir={ordenDir} onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="mes" label="Mes" align="left" style={{ width: '140px' }}
+                  opciones={opcionesMes} filtro={filtros.mes || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'mes'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'mes'} ordenDir={ordenDir} onOrdenar={toggleOrden}
+                />
+                <FilterableTh
+                  col="horas" label="Horas" align="right" style={{ width: '90px' }}
+                  opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}}
+                  sortable ordenActiva={ordenCol === 'horas'} ordenDir={ordenDir} onOrdenar={toggleOrden}
+                />
+                <ResizableTh className="py-3 px-4 text-gray-800 font-semibold bg-[#FFF5F0] text-right" style={{ width: '120px' }}>Costo</ResizableTh>
+                <FilterableTh
+                  col="enColaboradores" label="En Colaboradores" align="center" style={{ width: '140px' }}
+                  opciones={['Sí', 'No']} filtro={filtros.enColaboradores || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enColaboradores'} onToggleDropdown={setDropdownFiltro}
+                />
+                <FilterableTh
+                  col="enProyectos" label="En Proyectos" align="center" style={{ width: '120px' }}
+                  opciones={['Sí', 'No']} filtro={filtros.enProyectos || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enProyectos'} onToggleDropdown={setDropdownFiltro}
+                />
+                <FilterableTh
+                  col="enOportunidades" label="En Oportunidades" align="center" style={{ width: '140px' }}
+                  opciones={['Sí', 'No']} filtro={filtros.enOportunidades || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enOportunidades'} onToggleDropdown={setDropdownFiltro}
+                />
+                <ResizableTh className="bg-[#FFF5F0]" style={{ width: '42px' }} />
+              </tr>
+            </thead>
+            <tbody>
+              {filasFiltradas.length === 0 && (
+                <tr>
+                  <td colSpan={11} className="py-12 text-center text-gray-400">
+                    {filas.length === 0 ? 'No hay registros. Usa "+ Agregar registro" o importa un Excel.' : 'Sin resultados para los filtros aplicados.'}
+                  </td>
+                </tr>
+              )}
+              {filasFiltradas.map((f, idx) => {
+                const enCol  = colaboradoresSet.has(normalize(f.colaborador))
+                const enProy = proyectosSet.has(normalize(f.proyecto))
+                const enOpor = oportunidadesSet.has(normalize(f.proyecto))
+                const mesOpts = MES_OPTIONS.includes(f.mes) ? MES_OPTIONS : [f.mes, ...MES_OPTIONS]
+                const linea = proyectosLinea[normalize(f.proyecto)] || ''
+                const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)] || 0)
+                return (
+                  <tr key={f.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
+                    <td className="py-2 px-2 text-gray-400 text-sm text-center">{idx + 1}</td>
+                    <td className="py-2 px-2">
+                      <input
+                        type="text"
+                        defaultValue={f.colaborador}
+                        key={f.id + '_col'}
+                        onBlur={e => guardarCelda(f.id, 'colaborador', e.target.value)}
+                        className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
+                        placeholder="Nombre colaborador"
+                      />
+                    </td>
+                    <td className="py-2 px-2">
+                      <input
+                        type="text"
+                        defaultValue={f.proyecto}
+                        key={f.id + '_proy'}
+                        onBlur={e => guardarCelda(f.id, 'proyecto', e.target.value)}
+                        className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
+                        placeholder="Nombre proyecto"
+                      />
+                    </td>
+                    <td className="py-2 px-2 text-sm text-gray-600 truncate" title={linea}>{linea || <span className="text-gray-300">—</span>}</td>
+                    <td className="py-2 px-2">
+                      <select
+                        defaultValue={f.mes || ''}
+                        key={f.id + '_mes'}
+                        onChange={e => guardarCelda(f.id, 'mes', e.target.value)}
+                        className="w-full border border-gray-200 bg-transparent focus:bg-white focus:border-blue-300 rounded px-1 py-0.5 text-sm"
+                      >
+                        {mesOpts.map(m => <option key={m} value={m}>{m}</option>)}
+                      </select>
+                    </td>
+                    <td className="py-2 px-2">
+                      <input
+                        type="text"
+                        defaultValue={f.horas}
+                        key={f.id + '_horas'}
+                        onBlur={e => guardarCelda(f.id, 'horas', e.target.value)}
+                        className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm text-right"
+                        placeholder="0"
+                      />
+                    </td>
+                    <td className="py-2 px-4 text-right text-sm tabular-nums text-gray-700">
+                      {costo === 0 ? <span className="text-gray-300">—</span> : Math.round(costo).toLocaleString('es-CL')}
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enCol ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
+                        {enCol ? 'Sí' : 'No'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enProy ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
+                        {enProy ? 'Sí' : 'No'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enOpor ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
+                        {enOpor ? 'Sí' : 'No'}
+                      </span>
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <button
+                        onClick={() => eliminarFila(f.id)}
+                        className="text-gray-300 hover:text-red-500 transition-all"
+                        title="Eliminar fila"
+                      >
+                        <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
+                        </svg>
+                      </button>
+                    </td>
+                  </tr>
+                )
+              })}
+              {filasFiltradas.length > 0 && (
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td colSpan={5} className="py-3 px-4 text-gray-800">TOTAL ({filasFiltradas.length})</td>
+                  <td className="py-3 px-4 text-right text-gray-800">
+                    {totalHoras.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
+                  </td>
+                  <td className="py-3 px-4 text-right text-gray-800">
+                    {Math.round(totalCosto).toLocaleString('es-CL')}
+                  </td>
+                  <td colSpan={4} />
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
+      </div>
+
+      {/* ── HEADER VALIDADOR (fijo, fuera del scroll) ── */}
+      {!loading && (
+        <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-gray-800">Resumen por colaborador</h3>
+          <div className="flex gap-2 items-center">
+            <label className="text-sm text-gray-600 font-medium">Año:</label>
+            <select
+              value={añoValidator}
+              onChange={e => setAñoValidator(parseInt(e.target.value))}
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+            >
+              {añosDisponibles.length > 0
+                ? añosDisponibles.map(a => <option key={a} value={a}>{a}</option>)
+                : <option value={añoValidator}>{añoValidator}</option>
+              }
+            </select>
+            <button
+              onClick={exportarValidador}
+              disabled={validatorColabs.length === 0}
+              className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#6366F1' }}
+            >
+              Exportar Excel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── TABLA VALIDADOR (panel inferior, scroll propio) ── */}
+      {!loading && (
+        <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+          {validatorColabs.length === 0 ? (
+            <p className="text-sm text-gray-400 italic p-4">Sin datos para {añoValidator}.</p>
+          ) : (
+            <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }} className="border-b-2 border-gray-300">
+                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
+                  {MESES_CORTOS.map((mc, i) => (
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>
+                      {mc}
+                    </th>
+                  ))}
+                  <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {validatorColabs.map((col, idx) => {
+                  const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (validatorPivot[col]?.[m] || 0), 0)
+                  return (
+                    <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">
+                        {col || <span className="text-gray-400 italic">(sin nombre)</span>}
+                      </td>
+                      {MESES_ABREV.map(mes => {
+                        const h = validatorPivot[col]?.[mes] || 0
+                        return (
+                          <td key={mes} className={`py-2 px-3 text-right tabular-nums ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {h === 0 ? '0,00' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        )
+                      })}
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">
+                        {rowTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td className="py-2 px-4 text-gray-800">TOTAL</td>
+                  {MESES_ABREV.map(mes => (
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">
+                      {totalPorMes[mes] === 0 ? '0,00' : totalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </td>
+                  ))}
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">
+                    {totalValidador.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── MODAL AGREGAR REGISTRO ── */}
+      {modalAgregar && (
+        <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50" onClick={() => setModalAgregar(false)}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-md p-6" onClick={e => e.stopPropagation()}>
+            <h3 className="text-lg font-bold text-gray-800 mb-5">Agregar registro</h3>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Colaborador <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                list="list-colaboradores"
+                value={formAgregar.colaborador}
+                onChange={e => setFormAgregar(f => ({ ...f, colaborador: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="Nombre del colaborador"
+                autoFocus
+              />
+              <datalist id="list-colaboradores">
+                {[...colaboradoresSet].sort().map(c => <option key={c} value={c} />)}
+              </datalist>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Proyecto <span className="text-red-500">*</span></label>
+              <input
+                type="text"
+                list="list-proyectos"
+                value={formAgregar.proyecto}
+                onChange={e => setFormAgregar(f => ({ ...f, proyecto: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="Nombre del proyecto"
+              />
+              <datalist id="list-proyectos">
+                {[...proyectosSet].sort().map(p => <option key={p} value={p} />)}
+              </datalist>
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Mes <span className="text-red-500">*</span></label>
+              <select
+                value={formAgregar.mes}
+                onChange={e => setFormAgregar(f => ({ ...f, mes: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+              >
+                <option value="">Seleccionar mes...</option>
+                {MES_OPTIONS.map(m => <option key={m} value={m}>{m}</option>)}
+              </select>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Horas</label>
+              <input
+                type="number"
+                min="0"
+                step="0.5"
+                value={formAgregar.horas}
+                onChange={e => setFormAgregar(f => ({ ...f, horas: e.target.value }))}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
+                placeholder="0"
+              />
+            </div>
+
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setModalAgregar(false)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={confirmarAgregar}
+                className="px-4 py-2 rounded-lg text-white text-sm font-medium hover:opacity-90"
+                style={{ backgroundColor: '#FF5100' }}
+              >
+                Agregar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

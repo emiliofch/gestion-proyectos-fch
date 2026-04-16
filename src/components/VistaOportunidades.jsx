@@ -9,6 +9,10 @@ import { ESTADOS_PROYECTO, normalizarEstadoProyecto } from '../constants/estados
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
 
+function normalize(t) {
+  return (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+}
+
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
 }
@@ -145,14 +149,18 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   const [motivoAccion, setMotivoAccion] = useState('')
 
   const [modalAgregar, setModalAgregar] = useState(false)
-  const [formAgregar, setFormAgregar] = useState({ proyecto_id: '', ingresos: '', hh: '', gastos: '' })
+  const [formAgregar, setFormAgregar] = useState({ proyecto_id: '', ingresos: '', gastos: '' })
 
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
 
+  const [horasProyMap, setHorasProyMap] = useState({})   // normalizedProyecto → $ HH calculado
+  const [proyEnHP, setProyEnHP] = useState(new Set())    // set de nombres normalizados en horas_proyectadas
+
   useEffect(() => {
     cargarDatos()
     cargarProyectos()
+    cargarHorasProyectadas()
   }, [])
 
   useEffect(() => {
@@ -161,6 +169,44 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     document.addEventListener('click', cerrar)
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
+
+  async function cargarHorasProyectadas() {
+    const { data: colData } = await supabase.from('colaboradores').select('colaborador, costo_empresa')
+
+    const costoMap = {}
+    for (const c of (colData || [])) {
+      costoMap[normalize(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+    }
+
+    // Paginación para superar el límite de 1000 filas de Supabase
+    const PAGE = 1000
+    let todas = [], from = 0
+    while (true) {
+      const { data } = await supabase
+        .from('horas_proyectadas')
+        .select('proyecto, colaborador, horas')
+        .range(from, from + PAGE - 1)
+      if (!data?.length) break
+      todas = [...todas, ...data]
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+
+    const proyMap = {}
+    const proySet = new Set()
+
+    for (const row of todas) {
+      const proyNorm = normalize(row.proyecto)
+      if (!proyNorm) continue
+      proySet.add(proyNorm)
+      const costo = costoMap[normalize(row.colaborador)] || 0
+      const horas = parseFloat(row.horas) || 0
+      proyMap[proyNorm] = (proyMap[proyNorm] || 0) + horas * costo
+    }
+
+    setHorasProyMap(proyMap)
+    setProyEnHP(proySet)
+  }
 
   async function cargarProyectos() {
     const { data } = await supabase
@@ -284,14 +330,13 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     const { error } = await supabase.from('oportunidades').insert({
       proyecto_id: formAgregar.proyecto_id,
       ingresos:    parseFloat(formAgregar.ingresos) || 0,
-      hh:          parseFloat(formAgregar.hh)       || 0,
       gastos:      parseFloat(formAgregar.gastos)   || 0,
       creador:     user?.email || 'sistema',
     })
     if (error) { toast.error('Error al agregar: ' + error.message); return }
     toast.success('Oportunidad agregada')
     setModalAgregar(false)
-    setFormAgregar({ proyecto_id: '', ingresos: '', hh: '', gastos: '' })
+    setFormAgregar({ proyecto_id: '', ingresos: '', gastos: '' })
     cargarDatos()
   }
 
@@ -535,13 +580,15 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     const matchFEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(estadoNormalizado)
     const fechaAdj = obtenerFechaAdjudicacion(o)
     const matchFFechaAdjudicacion = omitirCol === 'fechaAdjudicacion' || !filtros.fechaAdjudicacion?.length || filtros.fechaAdjudicacion.includes(fechaAdj)
-    return matchBusqueda && matchFLinea && matchFProy && matchFJefe && matchFEstado && matchFFechaAdjudicacion
+    const estaEnHP = proyEnHP.has(normalize(o.proyectos?.nombre))
+    const matchFEnHP = omitirCol === 'enHP' || !filtros.enHP?.length || (filtros.enHP.includes('Sí') && estaEnHP) || (filtros.enHP.includes('No') && !estaEnHP)
+    return matchBusqueda && matchFLinea && matchFProy && matchFJefe && matchFEstado && matchFFechaAdjudicacion && matchFEnHP
   }
 
   function exportarExcel() {
     const filas = oportunidadesFiltradas.map((o) => {
       const ingresos = parseFloat(o.ingresos) || 0
-      const hh = parseFloat(o.hh) || 0
+      const hh = horasProyMap[normalize(o.proyectos?.nombre)] ?? 0
       const gastos = parseFloat(o.gastos) || 0
       const margen = ingresos - hh - gastos
       return {
@@ -554,6 +601,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
         MARGEN: margen,
         ESTADO: normalizarEstadoProyecto(o.proyectos?.estado) || '',
         FECHA_ADJUDICACION: obtenerFechaAdjudicacion(o),
+        EN_HORAS_PROYECTADAS: proyEnHP.has(normalize(o.proyectos?.nombre)) ? 'Sí' : 'No',
       }
     })
     const ws = XLSX.utils.json_to_sheet(filas)
@@ -575,6 +623,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
   const opcionesJefe = opcionesPorColumna('jefe', (o) => o.proyectos?.colaboradores?.colaborador)
   const opcionesEstado = opcionesPorColumna('estado', (o) => normalizarEstadoProyecto(o.proyectos?.estado))
   const opcionesFechaAdjudicacion = opcionesPorColumna('fechaAdjudicacion', (o) => obtenerFechaAdjudicacion(o))
+  const opcionesEnHP = ['Sí', 'No']
 
   // ── FILTRO Y ORDEN ──
   const oportunidadesFiltradas = oportunidades
@@ -582,14 +631,16 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
     .sort((a, b) => {
       if (!ordenCol) return 0
       let vA, vB
-      const margenA = (parseFloat(a.ingresos) || 0) - (parseFloat(a.hh) || 0) - (parseFloat(a.gastos) || 0)
-      const margenB = (parseFloat(b.ingresos) || 0) - (parseFloat(b.hh) || 0) - (parseFloat(b.gastos) || 0)
+      const hhA = horasProyMap[normalize(a.proyectos?.nombre)] ?? 0
+      const hhB = horasProyMap[normalize(b.proyectos?.nombre)] ?? 0
+      const margenA = (parseFloat(a.ingresos) || 0) - hhA - (parseFloat(a.gastos) || 0)
+      const margenB = (parseFloat(b.ingresos) || 0) - hhB - (parseFloat(b.gastos) || 0)
       switch (ordenCol) {
         case 'linea':    vA = a.proyectos?.ceco    || ''; vB = b.proyectos?.ceco    || ''; break
         case 'proyecto': vA = a.proyectos?.nombre  || ''; vB = b.proyectos?.nombre  || ''; break
         case 'jefe':     vA = a.proyectos?.colaboradores?.colaborador || ''; vB = b.proyectos?.colaboradores?.colaborador || ''; break
         case 'ingresos': vA = parseFloat(a.ingresos) || 0; vB = parseFloat(b.ingresos) || 0; break
-        case 'hh':       vA = parseFloat(a.hh)       || 0; vB = parseFloat(b.hh)       || 0; break
+        case 'hh':       vA = hhA; vB = hhB; break
         case 'gastos':   vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0; break
         case 'margen':   vA = margenA; vB = margenB; break
         case 'estado':   vA = normalizarEstadoProyecto(a.proyectos?.estado) || ''; vB = normalizarEstadoProyecto(b.proyectos?.estado) || ''; break
@@ -600,11 +651,14 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
       return ordenDir === 'asc' ? vA - vB : vB - vA
     })
 
-  const totales = oportunidadesFiltradas.reduce((acc, o) => ({
-    ingresos: acc.ingresos + (parseFloat(o.ingresos) || 0),
-    hh:       acc.hh       + (parseFloat(o.hh)       || 0),
-    gastos:   acc.gastos   + (parseFloat(o.gastos)   || 0),
-  }), { ingresos: 0, hh: 0, gastos: 0 })
+  const totales = oportunidadesFiltradas.reduce((acc, o) => {
+    const hh = horasProyMap[normalize(o.proyectos?.nombre)] ?? 0
+    return {
+      ingresos: acc.ingresos + (parseFloat(o.ingresos) || 0),
+      hh:       acc.hh       + hh,
+      gastos:   acc.gastos   + (parseFloat(o.gastos)   || 0),
+    }
+  }, { ingresos: 0, hh: 0, gastos: 0 })
   totales.margen = totales.ingresos - totales.hh - totales.gastos
 
   const campoLabels = { ingresos: 'Ingresos', hh: 'HH', gastos: 'GGOO' }
@@ -714,6 +768,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                 <FilterableTh col="gastos" label="GGOO" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='gastos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }} opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol==='margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="estado" label="Estado" align="center" style={{ width: '130px' }} opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="enHP" label="En HP" align="center" style={{ width: '80px' }} opciones={opcionesEnHP} filtro={filtros.enHP || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='enHP'} onToggleDropdown={setDropdownFiltro} />
                 <ResizableTh style={{ width: '42px', backgroundColor: '#FFF5F0' }}></ResizableTh>
                 <FilterableTh
                   col="fechaAdjudicacion"
@@ -734,10 +789,11 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
             </thead>
             <tbody>
               {oportunidadesFiltradas.map(o => {
-                const ingresos = parseFloat(o.ingresos) || 0
-                const hh       = parseFloat(o.hh)       || 0
-                const gastos   = parseFloat(o.gastos)   || 0
-                const margen   = ingresos - hh - gastos
+                const ingresos  = parseFloat(o.ingresos) || 0
+                const hh        = horasProyMap[normalize(o.proyectos?.nombre)] ?? 0
+                const gastos    = parseFloat(o.gastos)   || 0
+                const margen    = ingresos - hh - gastos
+                const estaEnHP  = proyEnHP.has(normalize(o.proyectos?.nombre))
                 const fechaAdjudicacionEditable = puedeEditarFechaAdjudicacion(o.proyectos?.estado)
                 return (
                   <tr key={o.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
@@ -759,14 +815,8 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                         {fmt(o.ingresos)}
                       </button>
                     </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        onClick={() => abrirModalEdicion(o, 'hh', o.hh)}
-                        className="px-2 py-1 rounded bg-gray-100 hover:bg-orange-50 hover:border-orange-300 text-gray-800 border border-gray-300 min-w-[80px] transition-all"
-                        title="Click para editar"
-                      >
-                        {fmt(o.hh)}
-                      </button>
+                    <td className="py-3 px-4 text-right text-gray-800 text-sm font-medium" title="Calculado: Σ(horas × costo empresa) desde Horas Proyectadas">
+                      {fmt(hh)}
                     </td>
                     <td className="py-3 px-4 text-right">
                       <button
@@ -782,6 +832,11 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                     </td>
                     <td className="py-3 px-4 text-center">
                       {badgeEstado(o.proyectos?.estado, o, solicitarCambioEstado)}
+                    </td>
+                    <td className="py-3 px-2 text-center">
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${estaEnHP ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
+                        {estaEnHP ? 'Sí' : 'No'}
+                      </span>
                     </td>
                     <td className="py-3 px-2 text-center">
                       <button
@@ -839,7 +894,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
                 <td className={`py-3 px-4 text-right ${totales.margen >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                   {fmt(totales.margen)}
                 </td>
-                <td colSpan={3}></td>
+                <td colSpan={4}></td>
               </tr>
             </tbody>
           </table>
@@ -879,18 +934,6 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
               />
             </div>
 
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">HH</label>
-              <input
-                type="number"
-                step="1"
-                value={formAgregar.hh}
-                onChange={e => setFormAgregar({ ...formAgregar, hh: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="0"
-              />
-            </div>
-
             <div className="mb-6">
               <label className="block text-sm font-medium text-gray-700 mb-1">GGOO</label>
               <input
@@ -905,7 +948,7 @@ export default function VistaOportunidades({ user, onCambioRegistrado }) {
 
             <div className="flex gap-3 justify-end">
               <button
-                onClick={() => { setModalAgregar(false); setFormAgregar({ proyecto_id: '', ingresos: '', hh: '', gastos: '' }) }}
+                onClick={() => { setModalAgregar(false); setFormAgregar({ proyecto_id: '', ingresos: '', gastos: '' }) }}
                 className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all"
               >
                 Cancelar

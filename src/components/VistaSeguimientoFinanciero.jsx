@@ -14,7 +14,7 @@ const DEFAULT_EXCEL_PATH = '/seguimiento_operacional.xlsx'
 const PRESUPUESTO_PATH = '/ppto2026.xlsx'
 const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
-const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado'])
+const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado'])
 const ESTADO_NO_EFECTIVO = 'No Efectivo'
 const MESES_HH_ALL = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -1027,7 +1027,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           <div className="relative group">
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-400 text-gray-600 text-xs font-bold cursor-default">?</span>
             <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-96 rounded-md bg-gray-800 text-white text-xs p-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
-              Presupuesto se lee de /public/ppto2026.xlsx (sumado por linea). Sensibilidad suma oportunidades con estado Efectivo o Adjudicado agrupadas por la columna Linea.
+              Presupuesto se lee de /public/ppto2026.xlsx (sumado por linea). Sensibilidad suma oportunidades con estado Efectivo, Adjudicado o Cancelado agrupadas por la columna Linea.
             </div>
           </div>
         </div>

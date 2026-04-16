@@ -47,12 +47,14 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [modalEditar, setModalEditar] = useState(null)
   const [formData, setFormData] = useState({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '' })
   const [motivoCambio, setMotivoCambio] = useState('')
+  const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizado(nombre) → costo total
 
   useEffect(() => {
     cargarLineas()
     cargarColaboradores()
     cargarCentrosCosto()
     cargarProyectos()
+    cargarCostosHorasProyectadas()
   }, [])
 
   useEffect(() => {
@@ -98,6 +100,42 @@ export default function VistaProyectosBase({ user, perfil }) {
     }
 
     setCentrosCosto((data || []).map((c) => c.ceco).filter(Boolean))
+  }
+
+  function normalizar(t) {
+    return (t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim()
+  }
+
+  async function cargarCostosHorasProyectadas() {
+    // Carga horas_proyectadas + colaboradores y computa el costo total por proyecto
+    const [colsRes] = await Promise.all([
+      supabase.from('colaboradores').select('colaborador, costo_empresa'),
+    ])
+    const costoColMap = {}
+    for (const c of (colsRes.data || [])) {
+      costoColMap[normalizar(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+    }
+
+    const PAGE = 1000
+    let todas = [], from = 0
+    while (true) {
+      const { data } = await supabase
+        .from('horas_proyectadas')
+        .select('proyecto, horas, colaborador')
+        .range(from, from + PAGE - 1)
+      if (!data?.length) break
+      todas = [...todas, ...data]
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+
+    const costos = {}
+    for (const f of todas) {
+      const pKey = normalizar(f.proyecto)
+      const costo = (parseFloat(f.horas) || 0) * (costoColMap[normalizar(f.colaborador)] || 0)
+      costos[pKey] = (costos[pKey] || 0) + costo
+    }
+    setCostoPorProyecto(costos)
   }
 
   async function cargarProyectos() {
@@ -287,8 +325,10 @@ export default function VistaProyectosBase({ user, perfil }) {
 
     const fechaAdjudicacion = normalizarMesAdjudicacion(formData.fecha_adjudicacion)
     if (fechaAdjudicacion === undefined) return 'Fecha de adjudicación inválida. Usa formato "ene-26"'
-    if (normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' && !fechaAdjudicacion) {
-      return 'Debes seleccionar fecha de adjudicación cuando el estado no es "Adjudicado"'
+    const estadoActual = normalizarEstadoProyecto(formData.estado)
+    const fechaOpcional = estadoActual === 'Adjudicado' || estadoActual === 'Cancelado'
+    if (!fechaOpcional && !fechaAdjudicacion) {
+      return 'Debes seleccionar fecha de adjudicación cuando el estado no es "Adjudicado" ni "Cancelado"'
     }
     return null
   }
@@ -418,6 +458,11 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function eliminarProyecto(proyecto) {
+    const costoTotal = costoPorProyecto[normalizar(proyecto.nombre)] || 0
+    if (costoTotal > 0) {
+      toast.error(`No se puede eliminar "${proyecto.nombre}" porque tiene HH cargadas en horas proyectadas.`)
+      return
+    }
     if (!confirm(`¿Eliminar el proyecto "${proyecto.nombre}"?\n\nEsto también eliminará todas las oportunidades asociadas.`)) return
 
     await supabase.from('cambios').insert({
@@ -775,11 +820,15 @@ export default function VistaProyectosBase({ user, perfil }) {
                   ordenDir={ordenDir}
                   onOrdenar={toggleOrden}
                 />
+                <ResizableTh className="py-3 px-4 text-gray-800 font-semibold text-right" style={{ width: '120px' }}>HH cargadas</ResizableTh>
                 <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '130px' }}>Acciones</ResizableTh>
               </tr>
             </thead>
             <tbody>
-              {proyectosFiltrados.map((p, index) => (
+              {proyectosFiltrados.map((p, index) => {
+                const costoTotal = costoPorProyecto[normalizar(p.nombre)] || 0
+                const tieneHH = costoTotal > 0
+                return (
                 <tr key={p.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                   <td className="py-3 px-4 text-gray-500 text-sm">{index + 1}</td>
                   <td className="py-3 px-4 text-gray-600 text-sm max-w-xs truncate" title={p.ceco}>{p.ceco}</td>
@@ -791,6 +840,12 @@ export default function VistaProyectosBase({ user, perfil }) {
                   <td className="py-3 px-4 text-gray-600 text-sm">{p.tipo || <span className="text-gray-400 italic">-</span>}</td>
                   <td className="py-3 px-4 text-center">{badgeRendible(p.rendible)}</td>
                   <td className="py-3 px-4 text-gray-600 text-sm">{p.ceco_codigo || <span className="text-gray-400 italic">-</span>}</td>
+                  <td className="py-3 px-4 text-right tabular-nums text-sm">
+                    {tieneHH
+                      ? <span className="font-medium text-gray-800">{Math.round(costoTotal).toLocaleString('es-CL')}</span>
+                      : <span className="text-gray-300">—</span>
+                    }
+                  </td>
                   <td className="py-3 px-4 text-center">
                     <div className="flex gap-2 justify-center">
                       <button
@@ -801,17 +856,20 @@ export default function VistaProyectosBase({ user, perfil }) {
                       </button>
                       <button
                         onClick={() => eliminarProyecto(p)}
-                        className="px-3 py-1 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium transition-all text-sm"
+                        disabled={tieneHH}
+                        className={`px-3 py-1 rounded-lg text-white font-medium transition-all text-sm ${tieneHH ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
+                        title={tieneHH ? 'No se puede eliminar: tiene HH cargadas' : 'Eliminar proyecto'}
                       >
                         Eliminar
                       </button>
                     </div>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
               {proyectosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={9} className="py-12 text-center text-gray-400">
+                  <td colSpan={10} className="py-12 text-center text-gray-400">
                     {busqueda ? 'No hay proyectos que coincidan con la búsqueda' : 'No hay proyectos cargados'}
                   </td>
                 </tr>
@@ -876,7 +934,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fecha de adjudicación {normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' ? '*' : '(opcional)'}
+                Fecha de adjudicación {['Adjudicado', 'Cancelado'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
               </label>
               <input
                 type="text"
@@ -961,7 +1019,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fecha de adjudicación {normalizarEstadoProyecto(formData.estado) !== 'Adjudicado' ? '*' : '(opcional)'}
+                Fecha de adjudicación {['Adjudicado', 'Cancelado'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
               </label>
               <input
                 type="text"
