@@ -271,21 +271,32 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   }
 
   async function cargarHHProyectadas() {
-    const [{ data: proyData }, { data: colData }] = await Promise.all([
-      supabase.from('proyectos').select('nombre, ceco'),
-      supabase.from('colaboradores').select('colaborador, costo_empresa'),
-    ])
-    const cecoMap = {}  // normalizeKey(nombre) → ceco
+    const { data: proyData } = await supabase.from('proyectos').select('nombre, ceco')
+    const cecoMap = {}
     for (const p of (proyData || [])) cecoMap[normalizeKey(p.nombre)] = p.ceco || ''
-    const costoMap = {} // normalizeKey(colaborador) → costo_empresa
-    for (const c of (colData || [])) costoMap[normalizeKey(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+
+    // Costos mensuales: { normalizeKey(colaborador) → { mes → costo_mes } }
+    const costoMap = {}
+    let costos = [], cfrom = 0
+    while (true) {
+      const { data } = await supabase.from('colaboradores_costos').select('colaborador, mes, costo_mes').range(cfrom, cfrom + 999)
+      if (!data?.length) break
+      costos = [...costos, ...data]
+      if (data.length < 1000) break
+      cfrom += 1000
+    }
+    for (const c of costos) {
+      const key = normalizeKey(c.colaborador)
+      if (!costoMap[key]) costoMap[key] = {}
+      costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
+    }
 
     const PAGE = 1000
     let todas = [], from = 0
     while (true) {
       const { data } = await supabase
         .from('horas_proyectadas')
-        .select('proyecto, colaborador, horas')
+        .select('proyecto, colaborador, horas, mes')
         .range(from, from + PAGE - 1)
       if (!data?.length) break
       todas = [...todas, ...data]
@@ -298,7 +309,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const ceco = cecoMap[normalizeKey(f.proyecto)] || ''
       if (!ceco) continue
       const key = normalizeLinea(ceco)
-      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)] || 0)
+      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)]?.[f.mes] || 0)
       acum[key] = (acum[key] || 0) + costo
     }
     setHhPorLinea(acum)

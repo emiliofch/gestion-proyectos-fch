@@ -69,7 +69,8 @@ export default function VistaHorasProyectadas() {
   const [colaboradoresSet, setColaboradoresSet] = useState(new Set())
   const [proyectosSet, setProyectosSet] = useState(new Set())
   const [proyectosLinea, setProyectosLinea] = useState({})         // normalize(nombre) → ceco
-  const [colaboradoresCosto, setColaboradoresCosto] = useState({}) // normalize(nombre) → costo_empresa
+  const [colaboradoresCosto, setColaboradoresCosto] = useState({}) // normalize(nombre) → { mes → costo }
+  const [colaboradoresRut, setColaboradoresRut] = useState({})     // normalize(nombre) → rut
   const [oportunidadesSet, setOportunidadesSet] = useState(new Set()) // normalize(nombre) de proyectos con oportunidades
   const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
@@ -116,17 +117,35 @@ export default function VistaHorasProyectadas() {
 
   async function cargarValidaciones() {
     const [{ data: cols }, { data: proyectos }, { data: opors }] = await Promise.all([
-      supabase.from('colaboradores').select('colaborador, costo_empresa'),
+      supabase.from('colaboradores').select('colaborador, rut'),
       supabase.from('proyectos').select('nombre, ceco'),
       supabase.from('oportunidades').select('proyectos:proyecto_id(nombre)'),
     ])
     setColaboradoresSet(new Set((cols || []).map(c => normalize(c.colaborador))))
+    const rutMap = {}
+    for (const c of (cols || [])) rutMap[normalize(c.colaborador)] = c.rut || ''
+    setColaboradoresRut(rutMap)
     setProyectosSet(new Set((proyectos || []).map(p => normalize(p.nombre))))
     const lineasMap = {}
     for (const p of (proyectos || [])) lineasMap[normalize(p.nombre)] = p.ceco || ''
     setProyectosLinea(lineasMap)
+
+    // Cargar costos mensuales: { normalize(colaborador) → { mes → costo_mes } }
+    const PAGE = 1000
+    let costos = [], from = 0
+    while (true) {
+      const { data } = await supabase.from('colaboradores_costos').select('colaborador, mes, costo_mes').range(from, from + PAGE - 1)
+      if (!data?.length) break
+      costos = [...costos, ...data]
+      if (data.length < PAGE) break
+      from += PAGE
+    }
     const costoMap = {}
-    for (const c of (cols || [])) costoMap[normalize(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+    for (const c of costos) {
+      const key = normalize(c.colaborador)
+      if (!costoMap[key]) costoMap[key] = {}
+      costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
+    }
     setColaboradoresCosto(costoMap)
     setOportunidadesSet(new Set((opors || []).map(o => normalize(o.proyectos?.nombre)).filter(Boolean)))
   }
@@ -232,7 +251,7 @@ export default function VistaHorasProyectadas() {
   const totalHoras = filasFiltradas.reduce((sum, f) => sum + (parseFloat(f.horas) || 0), 0)
   const totalCosto = filasFiltradas.reduce((sum, f) => {
     const h = parseFloat(f.horas) || 0
-    const c = colaboradoresCosto[normalize(f.colaborador)] || 0
+    const c = colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0
     return sum + h * c
   }, 0)
 
@@ -258,16 +277,57 @@ export default function VistaHorasProyectadas() {
   }
   const validatorColabs = Object.keys(validatorPivot).sort((a, b) => a.localeCompare(b, 'es'))
 
-  // totales por mes
+  // totales por mes (horas)
   const totalPorMes = {}
   for (const mes of MESES_ABREV) {
     totalPorMes[mes] = validatorColabs.reduce((sum, c) => sum + (validatorPivot[c]?.[mes] || 0), 0)
   }
   const totalValidador = MESES_ABREV.reduce((sum, m) => sum + totalPorMes[m], 0)
 
+  // pivot costo: { colaborador -> { mesAbrev -> costo } }
+  const costoPivot = {}
+  for (const f of filas) {
+    const [abrev, añoCorto] = (f.mes || '').split('-')
+    const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+    if (añoFull !== añoValidator) continue
+    const mesKey = (abrev || '').toLowerCase()
+    if (!MESES_ABREV.includes(mesKey)) continue
+    const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
+    if (!costoPivot[f.colaborador]) costoPivot[f.colaborador] = {}
+    costoPivot[f.colaborador][mesKey] = (costoPivot[f.colaborador][mesKey] || 0) + costo
+  }
+  const costoColabs = Object.keys(costoPivot).sort((a, b) => a.localeCompare(b, 'es'))
+  const costoPorMes = {}
+  for (const mes of MESES_ABREV) {
+    costoPorMes[mes] = costoColabs.reduce((sum, c) => sum + (costoPivot[c]?.[mes] || 0), 0)
+  }
+  const totalCostoPivot = MESES_ABREV.reduce((sum, m) => sum + costoPorMes[m], 0)
+
+  function exportarCostoPivot() {
+    const rows = costoColabs.map(col => {
+      const row = { COLABORADOR: col, RUT: colaboradoresRut[normalize(col)] || '' }
+      let total = 0
+      MESES_ABREV.forEach((abrev, i) => {
+        const c = costoPivot[col]?.[abrev] || 0
+        row[MESES_NOMBRES[i].toUpperCase()] = Math.round(c)
+        total += c
+      })
+      row['TOTAL'] = Math.round(total)
+      return row
+    })
+    const rowTotal = { COLABORADOR: 'TOTAL', RUT: '' }
+    MESES_ABREV.forEach((abrev, i) => { rowTotal[MESES_NOMBRES[i].toUpperCase()] = Math.round(costoPorMes[abrev]) })
+    rowTotal['TOTAL'] = Math.round(totalCostoPivot)
+    rows.push(rowTotal)
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `CostoPorColaborador_${añoValidator}`)
+    XLSX.writeFile(wb, `costo_colaborador_${añoValidator}_${buildTimestamp()}.xlsx`)
+  }
+
   function exportarValidador() {
     const rows = validatorColabs.map(col => {
-      const row = { COLABORADOR: col }
+      const row = { COLABORADOR: col, RUT: colaboradoresRut[normalize(col)] || '' }
       let total = 0
       MESES_ABREV.forEach((abrev, i) => {
         const h = validatorPivot[col]?.[abrev] || 0
@@ -277,8 +337,7 @@ export default function VistaHorasProyectadas() {
       row['TOTAL'] = total
       return row
     })
-    // fila totales
-    const rowTotal = { COLABORADOR: 'TOTAL' }
+    const rowTotal = { COLABORADOR: 'TOTAL', RUT: '' }
     MESES_ABREV.forEach((abrev, i) => { rowTotal[MESES_NOMBRES[i].toUpperCase()] = totalPorMes[abrev] })
     rowTotal['TOTAL'] = totalValidador
     rows.push(rowTotal)
@@ -400,11 +459,12 @@ export default function VistaHorasProyectadas() {
       const enOpor = oportunidadesSet.has(normalize(f.proyecto))    ? 'Sí' : 'No'
       return {
         COLABORADOR:      f.colaborador || '',
+        RUT:              colaboradoresRut[normalize(f.colaborador)] || '',
         PROYECTO:         f.proyecto    || '',
         LINEA:            proyectosLinea[normalize(f.proyecto)] || '',
         MES:              f.mes         || '',
         HORAS:            parseFloat(f.horas) || 0,
-        COSTO:            Math.round((parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)] || 0)),
+        COSTO:            Math.round((parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)),
         EN_COLABORADORES: enCol,
         EN_PROYECTOS:     enProy,
         EN_OPORTUNIDADES: enOpor,
@@ -412,10 +472,10 @@ export default function VistaHorasProyectadas() {
     })
     const ws = XLSX.utils.json_to_sheet(rows)
 
-    // Forzar columna MES (índice 3: COLABORADOR, PROYECTO, LINEA, MES) como texto
+    // Forzar columna MES (índice 4: COLABORADOR, RUT, PROYECTO, LINEA, MES) como texto
     const range = XLSX.utils.decode_range(ws['!ref'])
     for (let R = range.s.r; R <= range.e.r; R++) {
-      const addr = XLSX.utils.encode_cell({ r: R, c: 3 })
+      const addr = XLSX.utils.encode_cell({ r: R, c: 4 })
       if (ws[addr]) { ws[addr].t = 's'; ws[addr].z = '@' }
     }
 
@@ -519,6 +579,7 @@ export default function VistaHorasProyectadas() {
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'colaborador'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'colaborador'} ordenDir={ordenDir} onOrdenar={toggleOrden}
                 />
+                <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-left" style={{ width: '110px' }}>RUT</ResizableTh>
                 <FilterableTh
                   col="proyecto" label="Proyecto" align="left"
                   opciones={opcionesProyecto} filtro={filtros.proyecto || []}
@@ -564,7 +625,7 @@ export default function VistaHorasProyectadas() {
             <tbody>
               {filasFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={11} className="py-12 text-center text-gray-400">
+                  <td colSpan={12} className="py-12 text-center text-gray-400">
                     {filas.length === 0 ? 'No hay registros. Usa "+ Agregar registro" o importa un Excel.' : 'Sin resultados para los filtros aplicados.'}
                   </td>
                 </tr>
@@ -575,7 +636,7 @@ export default function VistaHorasProyectadas() {
                 const enOpor = oportunidadesSet.has(normalize(f.proyecto))
                 const mesOpts = MES_OPTIONS.includes(f.mes) ? MES_OPTIONS : [f.mes, ...MES_OPTIONS]
                 const linea = proyectosLinea[normalize(f.proyecto)] || ''
-                const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)] || 0)
+                const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
                 return (
                   <tr key={f.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                     <td className="py-2 px-2 text-gray-400 text-sm text-center">{idx + 1}</td>
@@ -588,6 +649,9 @@ export default function VistaHorasProyectadas() {
                         className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
                         placeholder="Nombre colaborador"
                       />
+                    </td>
+                    <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
+                      {colaboradoresRut[normalize(f.colaborador)] || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-2 px-2">
                       <input
@@ -657,7 +721,7 @@ export default function VistaHorasProyectadas() {
               })}
               {filasFiltradas.length > 0 && (
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td colSpan={5} className="py-3 px-4 text-gray-800">TOTAL ({filasFiltradas.length})</td>
+                  <td colSpan={6} className="py-3 px-4 text-gray-800">TOTAL ({filasFiltradas.length})</td>
                   <td className="py-3 px-4 text-right text-gray-800">
                     {totalHoras.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
                   </td>
@@ -710,6 +774,7 @@ export default function VistaHorasProyectadas() {
               <thead>
                 <tr style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }} className="border-b-2 border-gray-300">
                   <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
+                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
                   {MESES_CORTOS.map((mc, i) => (
                     <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>
                       {mc}
@@ -726,6 +791,9 @@ export default function VistaHorasProyectadas() {
                       <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">
                         {col || <span className="text-gray-400 italic">(sin nombre)</span>}
                       </td>
+                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
+                        {colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}
+                      </td>
                       {MESES_ABREV.map(mes => {
                         const h = validatorPivot[col]?.[mes] || 0
                         return (
@@ -741,7 +809,7 @@ export default function VistaHorasProyectadas() {
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td className="py-2 px-4 text-gray-800">TOTAL</td>
+                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
                   {MESES_ABREV.map(mes => (
                     <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">
                       {totalPorMes[mes] === 0 ? '0,00' : totalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
@@ -749,6 +817,82 @@ export default function VistaHorasProyectadas() {
                   ))}
                   <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">
                     {totalValidador.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── HEADER COSTO PIVOT ── */}
+      {!loading && (
+        <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-gray-800">Resumen de costo por colaborador</h3>
+          <button
+            onClick={exportarCostoPivot}
+            disabled={costoColabs.length === 0}
+            className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: '#6366F1' }}
+          >
+            Exportar Excel
+          </button>
+        </div>
+      )}
+
+      {/* ── TABLA COSTO PIVOT ── */}
+      {!loading && (
+        <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+          {costoColabs.length === 0 ? (
+            <p className="text-sm text-gray-400 italic p-4">Sin datos de costo para {añoValidator}.</p>
+          ) : (
+            <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }} className="border-b-2 border-gray-300">
+                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
+                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
+                  {MESES_CORTOS.map((mc, i) => (
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>
+                      {mc}
+                    </th>
+                  ))}
+                  <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costoColabs.map((col, idx) => {
+                  const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (costoPivot[col]?.[m] || 0), 0)
+                  return (
+                    <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">
+                        {col || <span className="text-gray-400 italic">(sin nombre)</span>}
+                      </td>
+                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
+                        {colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}
+                      </td>
+                      {MESES_ABREV.map(mes => {
+                        const c = costoPivot[col]?.[mes] || 0
+                        return (
+                          <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>
+                            {c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}
+                          </td>
+                        )
+                      })}
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">
+                        {Math.round(rowTotal).toLocaleString('es-CL')}
+                      </td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
+                  {MESES_ABREV.map(mes => (
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">
+                      {costoPorMes[mes] === 0 ? '—' : Math.round(costoPorMes[mes]).toLocaleString('es-CL')}
+                    </td>
+                  ))}
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">
+                    {Math.round(totalCostoPivot).toLocaleString('es-CL')}
                   </td>
                 </tr>
               </tbody>
