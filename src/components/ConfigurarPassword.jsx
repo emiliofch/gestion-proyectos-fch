@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
 
-export default function ConfigurarPassword({ user, perfil, setPerfil }) {
+export default function ConfigurarPassword({ user, perfil, setPerfil, onDone }) {
   const [password, setPassword] = useState('')
   const [confirmarPassword, setConfirmarPassword] = useState('')
   const [mostrarPassword, setMostrarPassword] = useState(false)
@@ -38,11 +38,17 @@ export default function ConfigurarPassword({ user, perfil, setPerfil }) {
       return
     }
 
-    await supabase.from('perfiles').update({ primera_vez: false }).eq('id', user.id)
-    
-    setPerfil({ ...perfil, primera_vez: false })
     setLoading(false)
-    toast.success('¡Contraseña configurada exitosamente!')
+    toast.success('¡Contraseña actualizada exitosamente!')
+
+    if (onDone) {
+      onDone()
+      return
+    }
+
+    // Flujo primera vez: marcar perfil y recargar
+    await supabase.from('perfiles').update({ primera_vez: false }).eq('id', user.id)
+    setPerfil({ ...perfil, primera_vez: false })
     window.location.reload()
   }
 
@@ -51,9 +57,9 @@ export default function ConfigurarPassword({ user, perfil, setPerfil }) {
       <div className="bg-white rounded-lg shadow-lg p-8 max-w-md w-full">
         <div className="text-center mb-6">
           <img src={LOGO_URL} alt="Logo FCH" className="h-20 mx-auto mb-4" />
-          <h1 className="text-2xl font-bold mb-2" style={{ color: '#FF5100' }}>Configura tu Contraseña</h1>
-          <p className="text-gray-600">Bienvenido {user.email}</p>
-          <p className="text-gray-500 text-sm mt-2">Por favor, crea una contraseña segura para tu cuenta</p>
+          <h1 className="text-2xl font-bold mb-2" style={{ color: '#FF5100' }}>{onDone ? 'Restablecer Contraseña' : 'Configura tu Contraseña'}</h1>
+          <p className="text-gray-600">{user.email}</p>
+          <p className="text-gray-500 text-sm mt-2">{onDone ? 'Ingresa tu nueva contraseña.' : 'Por favor, crea una contraseña segura para tu cuenta.'}</p>
         </div>
         
         <form onSubmit={configurar}>

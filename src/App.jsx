@@ -58,6 +58,7 @@ function App() {
   const [modalAbierto, setModalAbierto] = useState(false)
   const [edicionActual, setEdicionActual] = useState(null)
   const [tipoControlCambios, setTipoControlCambios] = useState('valor')
+  const [modoRecuperacion, setModoRecuperacion] = useState(false)
   const [favoritos, setFavoritos] = useState([])
   const [sugerencias, setSugerencias] = useState([])
   const [votos, setVotos] = useState([])
@@ -70,11 +71,19 @@ function App() {
       if (event === 'SIGNED_OUT') {
         setUser(null)
         setPerfil(null)
+        setModoRecuperacion(false)
+        return
+      }
+
+      if (event === 'PASSWORD_RECOVERY') {
+        setUser(session.user)
+        setModoRecuperacion(true)
         return
       }
 
       if (session?.user) {
         setUser(session.user)
+        setModoRecuperacion(false)
         cargarPerfil(session.user.id)
       }
     })
@@ -632,6 +641,11 @@ function App() {
     return <div className="min-h-screen bg-gray-50 flex items-center justify-center">
       <div className="text-gray-800">Cargando...</div>
     </div>
+  }
+
+  // Reset password desde link de email
+  if (modoRecuperacion && user) {
+    return <ConfigurarPassword user={user} perfil={perfil} setPerfil={setPerfil} onDone={() => setModoRecuperacion(false)} />
   }
 
   // Primera vez - configurar contraseña
