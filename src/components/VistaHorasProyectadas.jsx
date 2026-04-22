@@ -82,6 +82,11 @@ export default function VistaHorasProyectadas() {
   const cancelarRef = useRef(false)
   const [modalAgregar, setModalAgregar] = useState(false)
   const [formAgregar, setFormAgregar] = useState({ colaborador: '', proyecto: '', mes: '', horas: '' })
+  const [paginaMain, setPaginaMain] = useState(0)
+  const [paginaValidator, setPaginaValidator] = useState(0)
+  const [paginaCosto, setPaginaCosto] = useState(0)
+  const [paginaLinea, setPaginaLinea] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarDatos()
@@ -193,6 +198,7 @@ export default function VistaHorasProyectadas() {
 
   function setFiltro(col, valor) {
     setFiltros(prev => ({ ...prev, [col]: valor }))
+    setPaginaMain(0)
   }
 
   function coincideFiltros(f) {
@@ -303,6 +309,27 @@ export default function VistaHorasProyectadas() {
   }
   const totalCostoPivot = MESES_ABREV.reduce((sum, m) => sum + costoPorMes[m], 0)
 
+  // pivot costo por línea: { linea -> { mesAbrev -> costo } }
+  const costoLineaPivot = {}
+  for (const f of filas) {
+    const [abrev, añoCorto] = (f.mes || '').split('-')
+    const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+    if (añoFull !== añoValidator) continue
+    const mesKey = (abrev || '').toLowerCase()
+    if (!MESES_ABREV.includes(mesKey)) continue
+    const linea = proyectosLinea[normalize(f.proyecto)] || ''
+    if (!linea) continue
+    const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
+    if (!costoLineaPivot[linea]) costoLineaPivot[linea] = {}
+    costoLineaPivot[linea][mesKey] = (costoLineaPivot[linea][mesKey] || 0) + costo
+  }
+  const costoLineas = Object.keys(costoLineaPivot).sort((a, b) => a.localeCompare(b, 'es'))
+  const costoPorMesLinea = {}
+  for (const mes of MESES_ABREV) {
+    costoPorMesLinea[mes] = costoLineas.reduce((sum, l) => sum + (costoLineaPivot[l]?.[mes] || 0), 0)
+  }
+  const totalCostoLinea = MESES_ABREV.reduce((sum, m) => sum + costoPorMesLinea[m], 0)
+
   function exportarCostoPivot() {
     const rows = costoColabs.map(col => {
       const row = { COLABORADOR: col, RUT: colaboradoresRut[normalize(col)] || '' }
@@ -323,6 +350,28 @@ export default function VistaHorasProyectadas() {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, `CostoPorColaborador_${añoValidator}`)
     XLSX.writeFile(wb, `costo_colaborador_${añoValidator}_${buildTimestamp()}.xlsx`)
+  }
+
+  function exportarCostoLinea() {
+    const rows = costoLineas.map(linea => {
+      const row = { LINEA: linea }
+      let total = 0
+      MESES_ABREV.forEach((abrev, i) => {
+        const c = costoLineaPivot[linea]?.[abrev] || 0
+        row[MESES_NOMBRES[i].toUpperCase()] = Math.round(c)
+        total += c
+      })
+      row['TOTAL'] = Math.round(total)
+      return row
+    })
+    const rowTotal = { LINEA: 'TOTAL' }
+    MESES_ABREV.forEach((abrev, i) => { rowTotal[MESES_NOMBRES[i].toUpperCase()] = Math.round(costoPorMesLinea[abrev]) })
+    rowTotal['TOTAL'] = Math.round(totalCostoLinea)
+    rows.push(rowTotal)
+    const ws = XLSX.utils.json_to_sheet(rows)
+    const wb = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(wb, ws, `CostoPorLinea_${añoValidator}`)
+    XLSX.writeFile(wb, `costo_linea_${añoValidator}_${buildTimestamp()}.xlsx`)
   }
 
   function exportarValidador() {
@@ -485,7 +534,7 @@ export default function VistaHorasProyectadas() {
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
+    <div className="flex flex-col gap-0">
 
       {/* ── HEADER PÁGINA ── */}
       <div className="flex-shrink-0 pb-2">
@@ -503,7 +552,7 @@ export default function VistaHorasProyectadas() {
               type="text"
               placeholder="Buscar..."
               value={busqueda}
-              onChange={e => setBusqueda(e.target.value)}
+              onChange={e => { setBusqueda(e.target.value); setPaginaMain(0) }}
               className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 focus:outline-none focus:ring-2 focus:ring-orange-500"
             />
             <button
@@ -564,14 +613,14 @@ export default function VistaHorasProyectadas() {
         )}
       </div>
 
-      {/* ── TABLA PRINCIPAL (panel superior, scroll propio) ── */}
-      <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+      {/* ── TABLA PRINCIPAL ── */}
+      <div className="overflow-x-auto border border-gray-200 rounded-lg">
         {loading ? (
           <div className="text-center py-12"><p className="text-gray-500">Cargando...</p></div>
         ) : (
           <table className="w-full" style={{ tableLayout: 'fixed' }}>
             <thead>
-              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
+              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
                 <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-center" style={{ width: '48px' }}>#</ResizableTh>
                 <FilterableTh
                   col="colaborador" label="Colaborador" align="left" style={{ width: '180px' }}
@@ -630,89 +679,63 @@ export default function VistaHorasProyectadas() {
                   </td>
                 </tr>
               )}
-              {filasFiltradas.map((f, idx) => {
+              {filasFiltradas.slice(paginaMain * FILAS_POR_PAGINA, (paginaMain + 1) * FILAS_POR_PAGINA).map((f, idx) => {
                 const enCol  = colaboradoresSet.has(normalize(f.colaborador))
                 const enProy = proyectosSet.has(normalize(f.proyecto))
                 const enOpor = oportunidadesSet.has(normalize(f.proyecto))
                 const mesOpts = MES_OPTIONS.includes(f.mes) ? MES_OPTIONS : [f.mes, ...MES_OPTIONS]
                 const linea = proyectosLinea[normalize(f.proyecto)] || ''
                 const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
+                const numFila = paginaMain * FILAS_POR_PAGINA + idx + 1
                 return (
                   <tr key={f.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                    <td className="py-2 px-2 text-gray-400 text-sm text-center">{idx + 1}</td>
+                    <td className="py-2 px-2 text-gray-400 text-sm text-center">{numFila}</td>
                     <td className="py-2 px-2">
-                      <input
-                        type="text"
-                        defaultValue={f.colaborador}
-                        key={f.id + '_col'}
+                      <input type="text" defaultValue={f.colaborador} key={f.id + '_col'}
                         onBlur={e => guardarCelda(f.id, 'colaborador', e.target.value)}
                         className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
-                        placeholder="Nombre colaborador"
-                      />
+                        placeholder="Nombre colaborador" />
                     </td>
                     <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
                       {colaboradoresRut[normalize(f.colaborador)] || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-2 px-2">
-                      <input
-                        type="text"
-                        defaultValue={f.proyecto}
-                        key={f.id + '_proy'}
+                      <input type="text" defaultValue={f.proyecto} key={f.id + '_proy'}
                         onBlur={e => guardarCelda(f.id, 'proyecto', e.target.value)}
                         className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
-                        placeholder="Nombre proyecto"
-                      />
+                        placeholder="Nombre proyecto" />
                     </td>
                     <td className="py-2 px-2 text-sm text-gray-600 truncate" title={linea}>{linea || <span className="text-gray-300">—</span>}</td>
                     <td className="py-2 px-2">
-                      <select
-                        defaultValue={f.mes || ''}
-                        key={f.id + '_mes'}
+                      <select defaultValue={f.mes || ''} key={f.id + '_mes'}
                         onChange={e => guardarCelda(f.id, 'mes', e.target.value)}
-                        className="w-full border border-gray-200 bg-transparent focus:bg-white focus:border-blue-300 rounded px-1 py-0.5 text-sm"
-                      >
+                        className="w-full border border-gray-200 bg-transparent focus:bg-white focus:border-blue-300 rounded px-1 py-0.5 text-sm">
                         {mesOpts.map(m => <option key={m} value={m}>{m}</option>)}
                       </select>
                     </td>
                     <td className="py-2 px-2">
-                      <input
-                        type="text"
-                        defaultValue={f.horas}
-                        key={f.id + '_horas'}
+                      <input type="text" defaultValue={f.horas} key={f.id + '_horas'}
                         onBlur={e => guardarCelda(f.id, 'horas', e.target.value)}
                         className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm text-right"
-                        placeholder="0"
-                      />
+                        placeholder="0" />
                     </td>
                     <td className="py-2 px-4 text-right text-sm tabular-nums text-gray-700">
                       {costo === 0 ? <span className="text-gray-300">—</span> : Math.round(costo).toLocaleString('es-CL')}
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enCol ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
-                        {enCol ? 'Sí' : 'No'}
-                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enCol ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enCol ? 'Sí' : 'No'}</span>
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enProy ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
-                        {enProy ? 'Sí' : 'No'}
-                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enProy ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enProy ? 'Sí' : 'No'}</span>
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enOpor ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>
-                        {enOpor ? 'Sí' : 'No'}
-                      </span>
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enOpor ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enOpor ? 'Sí' : 'No'}</span>
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <button
-                        onClick={() => eliminarFila(f.id)}
-                        className="text-gray-300 hover:text-red-500 transition-all"
-                        title="Eliminar fila"
-                      >
+                      <button onClick={() => eliminarFila(f.id)} className="text-gray-300 hover:text-red-500 transition-all" title="Eliminar fila">
                         <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" /><path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
                         </svg>
                       </button>
                     </td>
@@ -722,12 +745,8 @@ export default function VistaHorasProyectadas() {
               {filasFiltradas.length > 0 && (
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={6} className="py-3 px-4 text-gray-800">TOTAL ({filasFiltradas.length})</td>
-                  <td className="py-3 px-4 text-right text-gray-800">
-                    {totalHoras.toLocaleString('es-CL', { maximumFractionDigits: 1 })}
-                  </td>
-                  <td className="py-3 px-4 text-right text-gray-800">
-                    {Math.round(totalCosto).toLocaleString('es-CL')}
-                  </td>
+                  <td className="py-3 px-4 text-right text-gray-800">{totalHoras.toLocaleString('es-CL', { maximumFractionDigits: 1 })}</td>
+                  <td className="py-3 px-4 text-right text-gray-800">{Math.round(totalCosto).toLocaleString('es-CL')}</td>
                   <td colSpan={4} />
                 </tr>
               )}
@@ -735,6 +754,17 @@ export default function VistaHorasProyectadas() {
           </table>
         )}
       </div>
+      {!loading && filasFiltradas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{paginaMain * FILAS_POR_PAGINA + 1}–{Math.min((paginaMain + 1) * FILAS_POR_PAGINA, filasFiltradas.length)} de {filasFiltradas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPaginaMain(p => Math.max(0, p - 1))} disabled={paginaMain === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPaginaMain(p => p + 1)} disabled={(paginaMain + 1) * FILAS_POR_PAGINA >= filasFiltradas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
 
       {/* ── HEADER VALIDADOR (fijo, fuera del scroll) ── */}
       {!loading && (
@@ -764,64 +794,59 @@ export default function VistaHorasProyectadas() {
         </div>
       )}
 
-      {/* ── TABLA VALIDADOR (panel inferior, scroll propio) ── */}
+      {/* ── TABLA VALIDADOR ── */}
       {!loading && (
-        <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
           {validatorColabs.length === 0 ? (
             <p className="text-sm text-gray-400 italic p-4">Sin datos para {añoValidator}.</p>
           ) : (
             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
               <thead>
-                <tr style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }} className="border-b-2 border-gray-300">
+                <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
                   <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
                   <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>
-                      {mc}
-                    </th>
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {validatorColabs.map((col, idx) => {
+                {validatorColabs.slice(paginaValidator * FILAS_POR_PAGINA, (paginaValidator + 1) * FILAS_POR_PAGINA).map((col, idx) => {
                   const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (validatorPivot[col]?.[m] || 0), 0)
                   return (
                     <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
-                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">
-                        {col || <span className="text-gray-400 italic">(sin nombre)</span>}
-                      </td>
-                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
-                        {colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}
-                      </td>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">{col || <span className="text-gray-400 italic">(sin nombre)</span>}</td>
+                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">{colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}</td>
                       {MESES_ABREV.map(mes => {
                         const h = validatorPivot[col]?.[mes] || 0
-                        return (
-                          <td key={mes} className={`py-2 px-3 text-right tabular-nums ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>
-                            {h === 0 ? '0,00' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                          </td>
-                        )
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{h === 0 ? '0,00' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       })}
-                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">
-                        {rowTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                      </td>
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{rowTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">
-                      {totalPorMes[mes] === 0 ? '0,00' : totalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </td>
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{totalPorMes[mes] === 0 ? '0,00' : totalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   ))}
-                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">
-                    {totalValidador.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                  </td>
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{totalValidador.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
           )}
+        </div>
+      )}
+      {!loading && validatorColabs.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{paginaValidator * FILAS_POR_PAGINA + 1}–{Math.min((paginaValidator + 1) * FILAS_POR_PAGINA, validatorColabs.length)} de {validatorColabs.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPaginaValidator(p => Math.max(0, p - 1))} disabled={paginaValidator === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPaginaValidator(p => p + 1)} disabled={(paginaValidator + 1) * FILAS_POR_PAGINA >= validatorColabs.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
         </div>
       )}
 
@@ -842,62 +867,126 @@ export default function VistaHorasProyectadas() {
 
       {/* ── TABLA COSTO PIVOT ── */}
       {!loading && (
-        <div className="flex-1 min-h-0 overflow-auto border border-gray-200 rounded-lg">
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
           {costoColabs.length === 0 ? (
             <p className="text-sm text-gray-400 italic p-4">Sin datos de costo para {añoValidator}.</p>
           ) : (
             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
               <thead>
-                <tr style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }} className="border-b-2 border-gray-300">
+                <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
                   <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
                   <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>
-                      {mc}
-                    </th>
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
               </thead>
               <tbody>
-                {costoColabs.map((col, idx) => {
+                {costoColabs.slice(paginaCosto * FILAS_POR_PAGINA, (paginaCosto + 1) * FILAS_POR_PAGINA).map((col, idx) => {
                   const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (costoPivot[col]?.[m] || 0), 0)
                   return (
                     <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
-                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">
-                        {col || <span className="text-gray-400 italic">(sin nombre)</span>}
-                      </td>
-                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">
-                        {colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}
-                      </td>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">{col || <span className="text-gray-400 italic">(sin nombre)</span>}</td>
+                      <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">{colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}</td>
                       {MESES_ABREV.map(mes => {
                         const c = costoPivot[col]?.[mes] || 0
-                        return (
-                          <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>
-                            {c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}
-                          </td>
-                        )
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
                       })}
-                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">
-                        {Math.round(rowTotal).toLocaleString('es-CL')}
-                      </td>
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{Math.round(rowTotal).toLocaleString('es-CL')}</td>
                     </tr>
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">
-                      {costoPorMes[mes] === 0 ? '—' : Math.round(costoPorMes[mes]).toLocaleString('es-CL')}
-                    </td>
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMes[mes] === 0 ? '—' : Math.round(costoPorMes[mes]).toLocaleString('es-CL')}</td>
                   ))}
-                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">
-                    {Math.round(totalCostoPivot).toLocaleString('es-CL')}
-                  </td>
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoPivot).toLocaleString('es-CL')}</td>
                 </tr>
               </tbody>
             </table>
           )}
+        </div>
+      )}
+      {!loading && costoColabs.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{paginaCosto * FILAS_POR_PAGINA + 1}–{Math.min((paginaCosto + 1) * FILAS_POR_PAGINA, costoColabs.length)} de {costoColabs.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPaginaCosto(p => Math.max(0, p - 1))} disabled={paginaCosto === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPaginaCosto(p => p + 1)} disabled={(paginaCosto + 1) * FILAS_POR_PAGINA >= costoColabs.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── HEADER COSTO LÍNEA ── */}
+      {!loading && (
+        <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-gray-800">Resumen de costo por línea</h3>
+          <button
+            onClick={exportarCostoLinea}
+            disabled={costoLineas.length === 0}
+            className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: '#6366F1' }}
+          >
+            Exportar Excel
+          </button>
+        </div>
+      )}
+
+      {/* ── TABLA COSTO LÍNEA ── */}
+      {!loading && (
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+          {costoLineas.length === 0 ? (
+            <p className="text-sm text-gray-400 italic p-4">Sin datos de costo por línea para {añoValidator}.</p>
+          ) : (
+            <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
+                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Línea</th>
+                  {MESES_CORTOS.map((mc, i) => (
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                  ))}
+                  <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {costoLineas.slice(paginaLinea * FILAS_POR_PAGINA, (paginaLinea + 1) * FILAS_POR_PAGINA).map((linea, idx) => {
+                  const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (costoLineaPivot[linea]?.[m] || 0), 0)
+                  return (
+                    <tr key={linea} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">{linea}</td>
+                      {MESES_ABREV.map(mes => {
+                        const c = costoLineaPivot[linea]?.[mes] || 0
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
+                      })}
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{Math.round(rowTotal).toLocaleString('es-CL')}</td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td className="py-2 px-4 text-gray-800">TOTAL</td>
+                  {MESES_ABREV.map(mes => (
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesLinea[mes] === 0 ? '—' : Math.round(costoPorMesLinea[mes]).toLocaleString('es-CL')}</td>
+                  ))}
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoLinea).toLocaleString('es-CL')}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      {!loading && costoLineas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{paginaLinea * FILAS_POR_PAGINA + 1}–{Math.min((paginaLinea + 1) * FILAS_POR_PAGINA, costoLineas.length)} de {costoLineas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPaginaLinea(p => Math.max(0, p - 1))} disabled={paginaLinea === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPaginaLinea(p => p + 1)} disabled={(paginaLinea + 1) * FILAS_POR_PAGINA >= costoLineas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
         </div>
       )}
 
