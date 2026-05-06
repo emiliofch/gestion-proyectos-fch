@@ -67,11 +67,10 @@ export default function VistaHorasProyectadas() {
   const [filas, setFilas] = useState([])
   const [loading, setLoading] = useState(true)
   const [colaboradoresSet, setColaboradoresSet] = useState(new Set())
-  const [proyectosSet, setProyectosSet] = useState(new Set())
+  const [proyectosLista, setProyectosLista] = useState([])
   const [proyectosLinea, setProyectosLinea] = useState({})         // normalize(nombre) → ceco
   const [colaboradoresCosto, setColaboradoresCosto] = useState({}) // normalize(nombre) → { mes → costo }
   const [colaboradoresRut, setColaboradoresRut] = useState({})     // normalize(nombre) → rut
-  const [oportunidadesSet, setOportunidadesSet] = useState(new Set()) // normalize(nombre) de proyectos con oportunidades
   const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
@@ -81,7 +80,7 @@ export default function VistaHorasProyectadas() {
   const [progreso, setProgreso] = useState(null) // null = inactivo, 0-100 = importando, 'ok' = completado
   const cancelarRef = useRef(false)
   const [modalAgregar, setModalAgregar] = useState(false)
-  const [formAgregar, setFormAgregar] = useState({ colaborador: '', proyecto: '', mes: '', horas: '' })
+  const [formAgregar, setFormAgregar] = useState({ colaborador: '', proyecto_id: '', mes: '', horas: '' })
   const [paginaMain, setPaginaMain] = useState(0)
   const [paginaValidator, setPaginaValidator] = useState(0)
   const [paginaCosto, setPaginaCosto] = useState(0)
@@ -121,16 +120,15 @@ export default function VistaHorasProyectadas() {
   }
 
   async function cargarValidaciones() {
-    const [{ data: cols }, { data: proyectos }, { data: opors }] = await Promise.all([
+    const [{ data: cols }, { data: proyectos }] = await Promise.all([
       supabase.from('colaboradores').select('colaborador, rut'),
-      supabase.from('proyectos').select('nombre, ceco'),
-      supabase.from('oportunidades').select('proyectos:proyecto_id(nombre)'),
+      supabase.from('proyectos').select('id, nombre, ceco').order('nombre'),
     ])
     setColaboradoresSet(new Set((cols || []).map(c => normalize(c.colaborador))))
     const rutMap = {}
     for (const c of (cols || [])) rutMap[normalize(c.colaborador)] = c.rut || ''
     setColaboradoresRut(rutMap)
-    setProyectosSet(new Set((proyectos || []).map(p => normalize(p.nombre))))
+    setProyectosLista(proyectos || [])
     const lineasMap = {}
     for (const p of (proyectos || [])) lineasMap[normalize(p.nombre)] = p.ceco || ''
     setProyectosLinea(lineasMap)
@@ -152,34 +150,38 @@ export default function VistaHorasProyectadas() {
       costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
     }
     setColaboradoresCosto(costoMap)
-    setOportunidadesSet(new Set((opors || []).map(o => normalize(o.proyectos?.nombre)).filter(Boolean)))
   }
 
   async function guardarCelda(id, col, valor) {
-    const val = col === 'horas' ? (parseFloat(valor) || 0) : valor.trim()
-    const { error } = await supabase.from('horas_proyectadas').update({ [col]: val }).eq('id', id)
+    const val = col === 'horas' ? (parseFloat(valor) || 0) : valor
+    const updateObj = { [col]: val }
+    if (col === 'proyecto_id') {
+      updateObj.proyecto = proyectosLista.find(p => p.id === val)?.nombre || ''
+    }
+    const { error } = await supabase.from('horas_proyectadas').update(updateObj).eq('id', id)
     if (error) { toast.error('Error al guardar: ' + error.message); return }
     toast.success('Guardado')
-    setFilas(prev => prev.map(f => f.id === id ? { ...f, [col]: val } : f))
+    setFilas(prev => prev.map(f => f.id === id ? { ...f, ...updateObj } : f))
   }
 
   async function confirmarAgregar() {
     const colaborador = formAgregar.colaborador.trim()
-    const proyecto    = formAgregar.proyecto.trim()
+    const proyecto_id = formAgregar.proyecto_id
     const mes         = formAgregar.mes
     const horas       = parseFloat(formAgregar.horas) || 0
     if (!colaborador) { toast.error('El colaborador es obligatorio'); return }
-    if (!proyecto)    { toast.error('El proyecto es obligatorio'); return }
+    if (!proyecto_id) { toast.error('El proyecto es obligatorio'); return }
     if (!mes)         { toast.error('El mes es obligatorio'); return }
+    const proyecto = proyectosLista.find(p => p.id === proyecto_id)?.nombre || ''
     const { data, error } = await supabase
       .from('horas_proyectadas')
-      .insert({ colaborador, proyecto, mes, horas })
+      .insert({ colaborador, proyecto_id, proyecto, mes, horas })
       .select()
       .single()
     if (error) { toast.error('Error al agregar: ' + error.message); return }
     setFilas(prev => [...prev, data])
     setModalAgregar(false)
-    setFormAgregar({ colaborador: '', proyecto: '', mes: '', horas: '' })
+    setFormAgregar({ colaborador: '', proyecto_id: '', mes: '', horas: '' })
     toast.success('Registro agregado')
   }
 
@@ -211,11 +213,9 @@ export default function VistaHorasProyectadas() {
     const matchLinea       = !filtros.linea?.length       || filtros.linea.includes(linea)
     const enCol  = colaboradoresSet.has(normalize(f.colaborador))
     const enProy = proyectosSet.has(normalize(f.proyecto))
-    const enOpor = oportunidadesSet.has(normalize(f.proyecto))
     const matchEnCol  = !filtros.enColaboradores?.length  || (filtros.enColaboradores.includes('Sí') && enCol)  || (filtros.enColaboradores.includes('No') && !enCol)
     const matchEnProy = !filtros.enProyectos?.length      || (filtros.enProyectos.includes('Sí') && enProy) || (filtros.enProyectos.includes('No') && !enProy)
-    const matchEnOpor = !filtros.enOportunidades?.length  || (filtros.enOportunidades.includes('Sí') && enOpor) || (filtros.enOportunidades.includes('No') && !enOpor)
-    return matchBusqueda && matchColaborador && matchProyecto && matchMes && matchLinea && matchEnCol && matchEnProy && matchEnOpor
+    return matchBusqueda && matchColaborador && matchProyecto && matchMes && matchLinea && matchEnCol && matchEnProy
   }
 
   function opcionesPorColumna(obtenerValor, esmes = false) {
@@ -225,6 +225,8 @@ export default function VistaHorasProyectadas() {
       ? uniq.sort((a, b) => mesToNum(a) - mesToNum(b))
       : uniq.sort((a, b) => String(a).localeCompare(String(b), 'es'))
   }
+
+  const proyectosSet = new Set(proyectosLista.map(p => normalize(p.nombre)))
 
   const opcionesColaborador = opcionesPorColumna(f => f.colaborador)
   const opcionesProyecto    = opcionesPorColumna(f => f.proyecto)
@@ -426,7 +428,10 @@ export default function VistaHorasProyectadas() {
 
         // Preparar filas válidas
         const invalidos = []
+        const sinProyecto = []
         const filasBatch = []
+        const nombreToId = {}
+        for (const p of proyectosLista) nombreToId[normalize(p.nombre)] = p.id
 
         for (const row of data) {
           const colaborador = (row.COLABORADOR || row.colaborador || '').toString().trim()
@@ -445,11 +450,16 @@ export default function VistaHorasProyectadas() {
 
           if (!colaborador || !proyecto || !mes) continue
           if (!MES_OPTIONS.includes(mes)) { invalidos.push(mes); continue }
-          filasBatch.push({ colaborador, proyecto, mes, horas })
+          const proyecto_id = nombreToId[normalize(proyecto)]
+          if (!proyecto_id) { sinProyecto.push(proyecto); continue }
+          filasBatch.push({ colaborador, proyecto_id, proyecto, mes, horas })
         }
 
         if (invalidos.length > 0) {
           toast.warning(`Meses inválidos (usar formato "ene-26"): ${[...new Set(invalidos)].slice(0, 3).join(', ')}`, { autoClose: 6000 })
+        }
+        if (sinProyecto.length > 0) {
+          toast.warning(`Proyectos no encontrados en la tabla: ${[...new Set(sinProyecto)].slice(0, 3).join(', ')}`, { autoClose: 8000 })
         }
 
         if (filasBatch.length === 0) {
@@ -505,7 +515,6 @@ export default function VistaHorasProyectadas() {
     const rows = filasOrdenadas.map(f => {
       const enCol  = colaboradoresSet.has(normalize(f.colaborador)) ? 'Sí' : 'No'
       const enProy = proyectosSet.has(normalize(f.proyecto))        ? 'Sí' : 'No'
-      const enOpor = oportunidadesSet.has(normalize(f.proyecto))    ? 'Sí' : 'No'
       return {
         COLABORADOR:      f.colaborador || '',
         RUT:              colaboradoresRut[normalize(f.colaborador)] || '',
@@ -516,7 +525,6 @@ export default function VistaHorasProyectadas() {
         COSTO:            Math.round((parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)),
         EN_COLABORADORES: enCol,
         EN_PROYECTOS:     enProy,
-        EN_OPORTUNIDADES: enOpor,
       }
     })
     const ws = XLSX.utils.json_to_sheet(rows)
@@ -542,7 +550,7 @@ export default function VistaHorasProyectadas() {
           <h2 className="text-2xl font-bold text-gray-800">Horas Proyectadas</h2>
           <div className="flex gap-2 flex-wrap items-center">
             <button
-              onClick={() => { setFormAgregar({ colaborador: '', proyecto: '', mes: mesActual(), horas: '' }); setModalAgregar(true) }}
+              onClick={() => { setFormAgregar({ colaborador: '', proyecto_id: '', mes: mesActual(), horas: '' }); setModalAgregar(true) }}
               className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
               style={{ backgroundColor: '#FF5100' }}
             >
@@ -618,7 +626,7 @@ export default function VistaHorasProyectadas() {
         {loading ? (
           <div className="text-center py-12"><p className="text-gray-500">Cargando...</p></div>
         ) : (
-          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
                 <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-center" style={{ width: '48px' }}>#</ResizableTh>
@@ -663,18 +671,13 @@ export default function VistaHorasProyectadas() {
                   opciones={['Sí', 'No']} filtro={filtros.enProyectos || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enProyectos'} onToggleDropdown={setDropdownFiltro}
                 />
-                <FilterableTh
-                  col="enOportunidades" label="En Oportunidades" align="center" style={{ width: '140px' }}
-                  opciones={['Sí', 'No']} filtro={filtros.enOportunidades || []}
-                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enOportunidades'} onToggleDropdown={setDropdownFiltro}
-                />
                 <ResizableTh className="bg-[#FFF5F0]" style={{ width: '42px' }} />
               </tr>
             </thead>
             <tbody>
               {filasFiltradas.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="py-12 text-center text-gray-400">
+                  <td colSpan={11} className="py-12 text-center text-gray-400">
                     {filas.length === 0 ? 'No hay registros. Usa "+ Agregar registro" o importa un Excel.' : 'Sin resultados para los filtros aplicados.'}
                   </td>
                 </tr>
@@ -682,7 +685,6 @@ export default function VistaHorasProyectadas() {
               {filasFiltradas.slice(paginaMain * FILAS_POR_PAGINA, (paginaMain + 1) * FILAS_POR_PAGINA).map((f, idx) => {
                 const enCol  = colaboradoresSet.has(normalize(f.colaborador))
                 const enProy = proyectosSet.has(normalize(f.proyecto))
-                const enOpor = oportunidadesSet.has(normalize(f.proyecto))
                 const mesOpts = MES_OPTIONS.includes(f.mes) ? MES_OPTIONS : [f.mes, ...MES_OPTIONS]
                 const linea = proyectosLinea[normalize(f.proyecto)] || ''
                 const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
@@ -700,10 +702,11 @@ export default function VistaHorasProyectadas() {
                       {colaboradoresRut[normalize(f.colaborador)] || <span className="text-gray-300">—</span>}
                     </td>
                     <td className="py-2 px-2">
-                      <input type="text" defaultValue={f.proyecto} key={f.id + '_proy'}
-                        onBlur={e => guardarCelda(f.id, 'proyecto', e.target.value)}
-                        className="w-full border-0 bg-transparent focus:bg-white focus:border focus:border-blue-300 rounded px-1 py-0.5 text-sm"
-                        placeholder="Nombre proyecto" />
+                      <select value={f.proyecto_id || ''} key={f.id + '_proy'}
+                        onChange={e => guardarCelda(f.id, 'proyecto_id', e.target.value)}
+                        className="w-full border border-gray-200 bg-transparent focus:bg-white focus:border-blue-300 rounded px-1 py-0.5 text-sm">
+                        {proyectosLista.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                      </select>
                     </td>
                     <td className="py-2 px-2 text-sm text-gray-600 truncate" title={linea}>{linea || <span className="text-gray-300">—</span>}</td>
                     <td className="py-2 px-2">
@@ -729,9 +732,6 @@ export default function VistaHorasProyectadas() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enProy ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enProy ? 'Sí' : 'No'}</span>
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enOpor ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enOpor ? 'Sí' : 'No'}</span>
-                    </td>
-                    <td className="py-2 px-2 text-center">
                       <button onClick={() => eliminarFila(f.id)} className="text-gray-300 hover:text-red-500 transition-all" title="Eliminar fila">
                         <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" /><path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
@@ -747,7 +747,7 @@ export default function VistaHorasProyectadas() {
                   <td colSpan={6} className="py-3 px-4 text-gray-800">TOTAL ({filasFiltradas.length})</td>
                   <td className="py-3 px-4 text-right text-gray-800">{totalHoras.toLocaleString('es-CL', { maximumFractionDigits: 1 })}</td>
                   <td className="py-3 px-4 text-right text-gray-800">{Math.round(totalCosto).toLocaleString('es-CL')}</td>
-                  <td colSpan={4} />
+                  <td colSpan={3} />
                 </tr>
               )}
             </tbody>
@@ -1014,17 +1014,14 @@ export default function VistaHorasProyectadas() {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">Proyecto <span className="text-red-500">*</span></label>
-              <input
-                type="text"
-                list="list-proyectos"
-                value={formAgregar.proyecto}
-                onChange={e => setFormAgregar(f => ({ ...f, proyecto: e.target.value }))}
+              <select
+                value={formAgregar.proyecto_id}
+                onChange={e => setFormAgregar(f => ({ ...f, proyecto_id: e.target.value }))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-400"
-                placeholder="Nombre del proyecto"
-              />
-              <datalist id="list-proyectos">
-                {[...proyectosSet].sort().map(p => <option key={p} value={p} />)}
-              </datalist>
+              >
+                <option value="">Seleccionar proyecto...</option>
+                {proyectosLista.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+              </select>
             </div>
 
             <div className="mb-4">

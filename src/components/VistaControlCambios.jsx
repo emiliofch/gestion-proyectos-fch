@@ -115,7 +115,7 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
       </div>
 
       <div className="flex-1 overflow-auto min-h-0">
-        <table className="w-full" style={{ tableLayout: 'fixed' }}>
+        <table className="w-full">
           <thead>
             <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
               {muestraProyecto && (

@@ -127,7 +127,8 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [dropdownPipeline, setDropdownPipeline] = useState(null)
   const [ordenPipelineCol, setOrdenPipelineCol] = useState(null)
   const [ordenPipelineDir, setOrdenPipelineDir] = useState('asc')
-  const [hhPorLinea, setHhPorLinea] = useState({}) // normalizeLinea(ceco) → costo total HP
+  const [hhPorLinea, setHhPorLinea] = useState({})         // normalizeLinea(ceco) → costo total HP
+  const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizeKey(nombre) → costo total HP
 
   useEffect(() => {
     cargarLineas()
@@ -304,32 +305,52 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       from += PAGE
     }
 
-    const acum = {}
+    const acumLinea = {}
+    const acumProyecto = {}
     for (const f of todas) {
       const ceco = cecoMap[normalizeKey(f.proyecto)] || ''
-      if (!ceco) continue
-      const key = normalizeLinea(ceco)
       const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)]?.[f.mes] || 0)
-      acum[key] = (acum[key] || 0) + costo
+      if (ceco) {
+        const key = normalizeLinea(ceco)
+        acumLinea[key] = (acumLinea[key] || 0) + costo
+      }
+      const pKey = normalizeKey(f.proyecto)
+      if (pKey) acumProyecto[pKey] = (acumProyecto[pKey] || 0) + costo
     }
-    setHhPorLinea(acum)
+    setHhPorLinea(acumLinea)
+    setCostoPorProyecto(acumProyecto)
   }
 
   async function cargarPipeline() {
     setLoadingPipeline(true)
     const { data, error } = await supabase
-      .from('oportunidades')
-      .select('id, ingresos, hh, gastos, proyecto_id, fecha_adjudicacion, proyectos:proyecto_id (nombre, ceco, estado, fecha_adjudicacion, colaboradores!jefe_id(colaborador))')
-      .order('created_at', { ascending: false })
+      .from('proyectos')
+      .select('id, ingresos, gastos, fecha_adjudicacion, nombre, ceco, estado, colaboradores:jefe_id(colaborador)')
+      .order('nombre', { ascending: true })
 
     if (error) {
-      toast.error('Error cargando oportunidades: ' + error.message)
+      toast.error('Error cargando proyectos: ' + error.message)
       setPipeline([])
       setLoadingPipeline(false)
       return
     }
 
-    const base = data || []
+    const base = (data || [])
+      .filter(p => p.ingresos !== null || p.gastos !== null)
+      .map(p => ({
+        id: p.id,
+        ingresos: p.ingresos,
+        gastos: p.gastos,
+        fecha_adjudicacion: p.fecha_adjudicacion,
+        proyectos: {
+          nombre: p.nombre,
+          ceco: p.ceco,
+          estado: p.estado,
+          fecha_adjudicacion: p.fecha_adjudicacion,
+          colaboradores: p.colaboradores
+        }
+      }))
+
     const filtradas = base.filter((o) => {
       const estado = normalizarEstadoProyecto(o.proyectos?.estado) || ''
       return ESTADOS_PIPELINE.has(estado)
@@ -669,8 +690,8 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           vB = parseFloat(b.ingresos) || 0
           break
         case 'hh':
-          vA = parseFloat(a.hh) || 0
-          vB = parseFloat(b.hh) || 0
+          vA = costoPorProyecto[normalizeKey(a.proyectos?.nombre || '')] || 0
+          vB = costoPorProyecto[normalizeKey(b.proyectos?.nombre || '')] || 0
           break
         case 'gastos':
           vA = parseFloat(a.gastos) || 0
@@ -678,10 +699,10 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           break
         case 'margen': {
           const aIng = parseFloat(a.ingresos) || 0
-          const aHh = parseFloat(a.hh) || 0
+          const aHh = costoPorProyecto[normalizeKey(a.proyectos?.nombre || '')] || 0
           const aGasto = parseFloat(a.gastos) || 0
           const bIng = parseFloat(b.ingresos) || 0
-          const bHh = parseFloat(b.hh) || 0
+          const bHh = costoPorProyecto[normalizeKey(b.proyectos?.nombre || '')] || 0
           const bGasto = parseFloat(b.gastos) || 0
           vA = aIng - aHh - aGasto
           vB = bIng - bHh - bGasto
@@ -712,7 +733,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     return pipelineOrdenado.reduce(
       (acc, o) => {
         const ingresos = parseFloat(o.ingresos) || 0
-        const hh = parseFloat(o.hh) || 0
+        const hh = costoPorProyecto[normalizeKey(o.proyectos?.nombre || '')] || 0
         const gastos = parseFloat(o.gastos) || 0
         acc.ingresos += ingresos
         acc.hh += hh
@@ -722,7 +743,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       },
       { ingresos: 0, hh: 0, gastos: 0, margen: 0 }
     )
-  }, [pipelineOrdenado])
+  }, [pipelineOrdenado, costoPorProyecto])
 
   const sensibilidadPorLinea = useMemo(() => {
     const lineasDisponibles = new Set(lineasUnicas.map((l) => normalizeLinea(l.linea)))
@@ -988,7 +1009,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           <div className="text-center py-8 text-gray-500">No hay oportunidades en estado Efectivo o No Efectivo.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full" style={{ tableLayout: 'fixed' }}>
+            <table className="w-full">
               <thead>
                 <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
                   <FilterableTh col="linea" label="Línea" align="left" style={{ width: '130px' }} opciones={opcionesPipeline.linea} filtro={filtrosPipeline.linea || ''} onFiltro={setFiltroPipeline} dropdownAbierto={dropdownPipeline==='linea'} onToggleDropdown={setDropdownPipeline} sortable ordenActiva={ordenPipelineCol==='linea'} ordenDir={ordenPipelineDir} onOrdenar={toggleOrdenPipeline} />
@@ -1019,7 +1040,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
               <tbody>
                 {pipelineOrdenado.map((o) => {
                   const ingresos = parseFloat(o.ingresos) || 0
-                  const hh = parseFloat(o.hh) || 0
+                  const hh = costoPorProyecto[normalizeKey(o.proyectos?.nombre || '')] || 0
                   const gastos = parseFloat(o.gastos) || 0
                   const margen = ingresos - hh - gastos
                   const estado = normalizarEstadoProyecto(o.proyectos?.estado) || ''

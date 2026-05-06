@@ -375,7 +375,7 @@ export default function VistaColaboradores({ perfil }) {
         </div>
       ) : (
         <div>
-          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
                 <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '50px' }}>#</ResizableTh>

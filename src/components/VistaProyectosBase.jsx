@@ -8,9 +8,24 @@ import { ESTADOS_PROYECTO, clasesBadgeEstadoProyecto, normalizarEstadoProyecto }
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 
 const TIPOS_PROYECTO = ['Público', 'Privado']
+const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
+const REGIONES_CHILE = [
+  'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
+  'Valparaíso', 'Metropolitana', "O'Higgins", 'Maule', 'Ñuble',
+  'Biobío', 'La Araucanía', 'Los Ríos', 'Los Lagos', 'Aysén', 'Magallanes',
+]
 
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
+
+function fmt(val) {
+  const millones = (parseFloat(val) || 0) / 1_000_000
+  return '$' + millones.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 })
+}
+
+function puedeEditarFechaAdjudicacion(estado) {
+  return ESTADOS_ADJUDICACION_EDITABLE.includes(normalizarEstadoProyecto(estado) || '')
 }
 
 function badgeRendible(rendible) {
@@ -19,11 +34,26 @@ function badgeRendible(rendible) {
   return <span className="text-gray-400 text-xs italic">-</span>
 }
 
-function badgeEstado(estado) {
+function badgeEstadoSelect(estado, proyecto, onSolicitar) {
   const estadoNormalizado = normalizarEstadoProyecto(estado)
-  if (!estadoNormalizado) return <span className="text-gray-400 text-xs italic">-</span>
-  const cls = clasesBadgeEstadoProyecto(estadoNormalizado)
-  return <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>{estadoNormalizado}</span>
+  const colores = {
+    'Efectivo':    'bg-green-100 text-green-800 border-green-300',
+    'No Efectivo': 'bg-red-100 text-red-800 border-red-300',
+    'Adjudicado':  'bg-blue-100 text-blue-800 border-blue-300',
+    'Cancelado':   'bg-gray-200 text-gray-800 border-gray-400',
+    'Meta':        'bg-purple-100 text-purple-800 border-purple-300',
+  }
+  const cls = colores[estadoNormalizado] || 'bg-gray-100 text-gray-600 border-gray-300'
+  return (
+    <select
+      value={estadoNormalizado || ''}
+      onChange={e => onSolicitar(proyecto, e.target.value)}
+      className={`px-2 py-1 rounded-full text-xs font-medium border cursor-pointer focus:outline-none ${cls}`}
+    >
+      <option value="">Sin estado</option>
+      {ESTADOS_PROYECTO.map(e => <option key={e} value={e}>{e}</option>)}
+    </select>
+  )
 }
 
 export default function VistaProyectosBase({ user, perfil }) {
@@ -33,6 +63,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [lineas, setLineas] = useState([])
   const [colaboradores, setColaboradores] = useState([])
   const [centrosCosto, setCentrosCosto] = useState([])
+  const [financistas, setFinancistas] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
   const [procesando, setProcesando] = useState(false)
@@ -43,16 +74,32 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [ordenCol, setOrdenCol] = useState('proyecto')
   const [ordenDir, setOrdenDir] = useState('asc')
 
+  const [paginaActual, setPaginaActual] = useState(1)
+  const PAGE_SIZE = 20
+
   const [modalCrear, setModalCrear] = useState(false)
   const [modalEditar, setModalEditar] = useState(null)
-  const [formData, setFormData] = useState({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '' })
+  const [formData, setFormData] = useState({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '', industria: '', region: '', financista_id: '' })
   const [motivoCambio, setMotivoCambio] = useState('')
-  const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizado(nombre) → costo total
+  const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizado(nombre) → costo total HH
+  const [proyEnHP, setProyEnHP] = useState(new Set())         // normalizado(nombre) en horas_proyectadas
+
+  // Edición financiera (Ingresos / GGOO)
+  const [modalEdicionFin, setModalEdicionFin] = useState(null) // { proyecto, campo }
+  const [valorEditandoFin, setValorEditandoFin] = useState('')
+  const [motivoCambioFin, setMotivoCambioFin] = useState('')
+
+  // Cambio de estado con motivo
+  const [modalMotivoEstado, setModalMotivoEstado] = useState(null) // { proyecto, nuevoEstado }
+  const [motivoAccionEstado, setMotivoAccionEstado] = useState('')
+
+  const [procesandoFin, setProcesandoFin] = useState(false)
 
   useEffect(() => {
     cargarLineas()
     cargarColaboradores()
     cargarCentrosCosto()
+    cargarFinancistas()
     cargarProyectos()
     cargarCostosHorasProyectadas()
   }, [])
@@ -63,6 +110,8 @@ export default function VistaProyectosBase({ user, perfil }) {
     document.addEventListener('click', cerrar)
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
+
+  useEffect(() => { setPaginaActual(1) }, [busqueda, filtros, ordenCol, ordenDir])
 
   async function cargarLineas() {
     const { data, error } = await supabase
@@ -87,6 +136,11 @@ export default function VistaProyectosBase({ user, perfil }) {
     setColaboradores(data || [])
   }
 
+  async function cargarFinancistas() {
+    const { data } = await supabase.from('financistas').select('id, nombre').order('nombre')
+    setFinancistas(data || [])
+  }
+
   async function cargarCentrosCosto() {
     const { data, error } = await supabase
       .from('centros_costo')
@@ -107,21 +161,28 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function cargarCostosHorasProyectadas() {
-    // Carga horas_proyectadas + colaboradores y computa el costo total por proyecto
-    const [colsRes] = await Promise.all([
-      supabase.from('colaboradores').select('colaborador, costo_empresa'),
-    ])
-    const costoColMap = {}
-    for (const c of (colsRes.data || [])) {
-      costoColMap[normalizar(c.colaborador)] = parseFloat(c.costo_empresa) || 0
+    const PAGE = 1000
+
+    // Costos mensuales: { normalizar(colaborador) → { mes → costo_mes } }
+    const costoMap = {}
+    let cfrom = 0
+    while (true) {
+      const { data } = await supabase.from('colaboradores_costos').select('colaborador, mes, costo_mes').range(cfrom, cfrom + PAGE - 1)
+      if (!data?.length) break
+      for (const c of data) {
+        const key = normalizar(c.colaborador)
+        if (!costoMap[key]) costoMap[key] = {}
+        costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
+      }
+      if (data.length < PAGE) break
+      cfrom += PAGE
     }
 
-    const PAGE = 1000
     let todas = [], from = 0
     while (true) {
       const { data } = await supabase
         .from('horas_proyectadas')
-        .select('proyecto, horas, colaborador')
+        .select('proyecto, horas, colaborador, mes')
         .range(from, from + PAGE - 1)
       if (!data?.length) break
       todas = [...todas, ...data]
@@ -130,19 +191,22 @@ export default function VistaProyectosBase({ user, perfil }) {
     }
 
     const costos = {}
+    const enHP = new Set()
     for (const f of todas) {
       const pKey = normalizar(f.proyecto)
-      const costo = (parseFloat(f.horas) || 0) * (costoColMap[normalizar(f.colaborador)] || 0)
+      if (pKey) enHP.add(pKey)
+      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizar(f.colaborador)]?.[f.mes] || 0)
       costos[pKey] = (costos[pKey] || 0) + costo
     }
     setCostoPorProyecto(costos)
+    setProyEnHP(enHP)
   }
 
   async function cargarProyectos() {
     setLoading(true)
     const { data, error } = await supabase
       .from('proyectos')
-      .select('*, colaboradores:jefe_id(id, colaborador)')
+      .select('*, colaboradores:jefe_id(id, colaborador), financistas:financista_id(id, nombre)')
       .order('nombre', { ascending: true })
 
     if (error) {
@@ -274,16 +338,31 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   function exportarExcel() {
-    const filas = proyectosFiltrados.map((p, i) => ({
-      '#':        i + 1,
-      PROYECTO:   p.nombre,
-      LINEA:      p.ceco || '',
-      JEFE:       p.colaboradores?.colaborador || '',
-      ESTADO:     normalizarEstadoProyecto(p.estado) || '',
-      TIPO:       p.tipo || '',
-      RENDIBLE:   p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : '',
-      CECO:       p.ceco_codigo || '',
-    }))
+    const filas = proyectosFiltrados.map((p, i) => {
+      const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
+      const ing    = parseFloat(p.ingresos) || 0
+      const gastos = parseFloat(p.gastos)   || 0
+      const margen = ing - hh - gastos
+      return {
+        '#':        i + 1,
+        LINEA:      p.ceco || '',
+        PROYECTO:   p.nombre,
+        JEFE:       p.colaboradores?.colaborador || '',
+        INGRESOS:   ing,
+        HH:         Math.round(hh),
+        GGOO:       gastos,
+        MARGEN:     Math.round(margen),
+        ESTADO:      normalizarEstadoProyecto(p.estado) || '',
+        TIPO:        p.tipo || '',
+        FINANCISTA:  p.financistas?.nombre || '',
+        REGION:      p.region || '',
+        INDUSTRIA:   p.industria || '',
+        RENDIBLE:    p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : '',
+        CECO:        p.ceco_codigo || '',
+        FECHA_ADJ:   p.fecha_adjudicacion || '',
+        EN_HP:       proyEnHP.has(normalizar(p.nombre)) ? 'Sí' : 'No',
+      }
+    })
     const ws = XLSX.utils.json_to_sheet(filas)
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Proyectos')
@@ -292,7 +371,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   async function eliminarTodos() {
     const confirm1 = window.confirm(
-      `¿Eliminar TODOS los ${proyectos.length} proyectos?\n\nEsta acción también eliminará todas las oportunidades asociadas y no se puede deshacer.`
+      `¿Eliminar TODOS los ${proyectos.length} proyectos?\n\nEsta acción no se puede deshacer.`
     )
     if (!confirm1) return
     const confirm2 = window.confirm('Confirmación final: ¿Estás seguro? Se eliminarán TODOS los proyectos.')
@@ -310,7 +389,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   function abrirModalCrear() {
-    setFormData({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '' })
+    setFormData({ nombre: '', ceco: '', estado: '', tipo: '', rendible: '', ceco_codigo: '', jefe_id: '', fecha_adjudicacion: '', industria: '', region: '', financista_id: '' })
     setModalCrear(true)
   }
 
@@ -346,14 +425,16 @@ export default function VistaProyectosBase({ user, perfil }) {
         tipo:        formData.tipo.trim(),
         rendible:    parseRendible(formData.rendible),
         ceco_codigo: formData.ceco_codigo.trim(),
-        jefe_id:     formData.jefe_id,
-        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion)
+        jefe_id:       formData.jefe_id,
+        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion),
+        industria:     formData.industria.trim()   || null,
+        region:        formData.region             || null,
+        financista_id: formData.financista_id      || null,
       })
       .select()
       .single()
 
     if (error) { toast.error('Error al crear proyecto: ' + error.message); return }
-    await sincronizarFechaAdjudicacionOportunidades(nuevoProyecto.id, normalizarMesAdjudicacion(formData.fecha_adjudicacion))
 
     await supabase.from('cambios').insert({
       proyecto_id:     nuevoProyecto.id,
@@ -378,9 +459,12 @@ export default function VistaProyectosBase({ user, perfil }) {
       estado:      normalizarEstadoProyecto(proyecto.estado) || '',
       tipo:        proyecto.tipo         || '',
       rendible:    rendibleToString(proyecto.rendible),
-      ceco_codigo: proyecto.ceco_codigo  || '',
-      jefe_id:     proyecto.jefe_id      || '',
-      fecha_adjudicacion: proyecto.fecha_adjudicacion || ''
+      ceco_codigo:   proyecto.ceco_codigo   || '',
+      jefe_id:       proyecto.jefe_id       || '',
+      fecha_adjudicacion: proyecto.fecha_adjudicacion || '',
+      industria:     proyecto.industria     || '',
+      region:        proyecto.region        || '',
+      financista_id: proyecto.financista_id || '',
     })
     setMotivoCambio('')
     setModalEditar(proyecto)
@@ -415,6 +499,15 @@ export default function VistaProyectosBase({ user, perfil }) {
       const nuevo    = colaboradores.find(c => c.id === formData.jefe_id)?.colaborador    || '-'
       cambiosList.push({ campo: 'JEFE', anterior, nuevo })
     }
+    if ((modalEditar.industria || '') !== formData.industria.trim())
+      cambiosList.push({ campo: 'INDUSTRIA', anterior: modalEditar.industria || '', nuevo: formData.industria.trim() })
+    if ((modalEditar.region || '') !== formData.region)
+      cambiosList.push({ campo: 'REGION', anterior: modalEditar.region || '', nuevo: formData.region })
+    if ((modalEditar.financista_id || '') !== (formData.financista_id || '')) {
+      const anterior = financistas.find(f => f.id === modalEditar.financista_id)?.nombre || '-'
+      const nuevo    = financistas.find(f => f.id === formData.financista_id)?.nombre    || '-'
+      cambiosList.push({ campo: 'FINANCISTA', anterior, nuevo })
+    }
 
     if (cambiosList.length === 0) {
       toast.info('No hay cambios para guardar')
@@ -431,13 +524,15 @@ export default function VistaProyectosBase({ user, perfil }) {
         tipo:        formData.tipo,
         rendible:    parseRendible(formData.rendible),
         ceco_codigo: formData.ceco_codigo.trim(),
-        jefe_id:     formData.jefe_id,
-        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion)
+        jefe_id:       formData.jefe_id,
+        fecha_adjudicacion: normalizarMesAdjudicacion(formData.fecha_adjudicacion),
+        industria:     formData.industria.trim()   || null,
+        region:        formData.region             || null,
+        financista_id: formData.financista_id      || null,
       })
       .eq('id', modalEditar.id)
 
     if (error) { toast.error('Error al actualizar: ' + error.message); return }
-    await sincronizarFechaAdjudicacionOportunidades(modalEditar.id, normalizarMesAdjudicacion(formData.fecha_adjudicacion))
 
     for (const c of cambiosList) {
       await supabase.from('cambios').insert({
@@ -458,12 +553,11 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function eliminarProyecto(proyecto) {
-    const costoTotal = costoPorProyecto[normalizar(proyecto.nombre)] || 0
-    if (costoTotal > 0) {
-      toast.error(`No se puede eliminar "${proyecto.nombre}" porque tiene HH cargadas en horas proyectadas.`)
+    if (proyEnHP.has(normalizar(proyecto.nombre))) {
+      toast.error(`No se puede eliminar "${proyecto.nombre}" porque tiene horas proyectadas cargadas.`)
       return
     }
-    if (!confirm(`¿Eliminar el proyecto "${proyecto.nombre}"?\n\nEsto también eliminará todas las oportunidades asociadas.`)) return
+    if (!confirm(`¿Eliminar el proyecto "${proyecto.nombre}"?`)) return
 
     await supabase.from('cambios').insert({
       proyecto_id:     proyecto.id,
@@ -485,20 +579,97 @@ export default function VistaProyectosBase({ user, perfil }) {
     }
   }
 
+  // ── EDICIÓN FINANCIERA (Ingresos / GGOO) ──
+  function abrirModalEdicionFin(proyecto, campo) {
+    setModalEdicionFin({ proyecto, campo })
+    setValorEditandoFin((proyecto[campo] ?? 0).toString())
+    setMotivoCambioFin('')
+  }
+
+  async function guardarEdicionFin() {
+    if (!modalEdicionFin) return
+    const { proyecto, campo } = modalEdicionFin
+    const valorAnterior = parseFloat(proyecto[campo]) || 0
+    const valorNuevo = parseFloat(valorEditandoFin) || 0
+    if (valorAnterior === valorNuevo) { setModalEdicionFin(null); return }
+    if (!motivoCambioFin.trim()) { toast.error('Debes ingresar un motivo'); return }
+
+    setProcesandoFin(true)
+    const { error } = await supabase.from('proyectos').update({ [campo]: valorNuevo }).eq('id', proyecto.id)
+    if (error) { toast.error('Error: ' + error.message); setProcesandoFin(false); return }
+
+    await supabase.from('cambios').insert({
+      proyecto_id:     proyecto.id,
+      campo:           campo === 'gastos' ? 'GGOO' : campo.toUpperCase(),
+      valor_anterior:  valorAnterior.toString(),
+      valor_nuevo:     valorNuevo.toString(),
+      usuario:         user?.email || 'sistema',
+      motivo:          motivoCambioFin,
+      tipo_cambio:     'valor',
+      proyecto_nombre: proyecto.nombre
+    })
+
+    toast.success('Valor actualizado')
+    setModalEdicionFin(null)
+    setProcesandoFin(false)
+    cargarProyectos()
+  }
+
+  // ── CAMBIO DE ESTADO CON MOTIVO ──
+  function solicitarCambioEstado(proyecto, nuevoEstado) {
+    setModalMotivoEstado({ proyecto, nuevoEstado })
+    setMotivoAccionEstado('')
+  }
+
+  async function confirmarCambioEstado() {
+    if (!modalMotivoEstado) return
+    if (!motivoAccionEstado.trim()) { toast.error('Debes ingresar un motivo'); return }
+    const { proyecto, nuevoEstado } = modalMotivoEstado
+    const estadoAnterior = normalizarEstadoProyecto(proyecto.estado) || ''
+
+    const { error } = await supabase.from('proyectos').update({ estado: nuevoEstado || null }).eq('id', proyecto.id)
+    if (error) { toast.error('Error: ' + error.message); return }
+
+    await supabase.from('cambios').insert({
+      proyecto_id:     proyecto.id,
+      campo:           'ESTADO',
+      valor_anterior:  estadoAnterior,
+      valor_nuevo:     nuevoEstado || '',
+      usuario:         user?.email || 'sistema',
+      motivo:          motivoAccionEstado,
+      tipo_cambio:     'proyecto',
+      proyecto_nombre: proyecto.nombre
+    })
+
+    toast.success('Estado actualizado')
+    setModalMotivoEstado(null)
+    setMotivoAccionEstado('')
+    cargarProyectos()
+  }
+
+  // ── FECHA ADJUDICACIÓN INLINE ──
+  async function actualizarFechaAdjudicacion(proyecto, valor, onInvalid) {
+    if (!puedeEditarFechaAdjudicacion(proyecto.estado)) {
+      toast.error('Fecha de adjudicación solo editable para estado Efectivo o No Efectivo')
+      onInvalid?.(proyecto.fecha_adjudicacion || '')
+      return
+    }
+    const normalizado = normalizarMesAdjudicacion(valor)
+    if (normalizado === undefined) {
+      toast.error('Formato inválido. Usa "ene-26"')
+      onInvalid?.(proyecto.fecha_adjudicacion || '')
+      return
+    }
+    if (normalizado === (proyecto.fecha_adjudicacion || null)) return
+    const { error } = await supabase.from('proyectos').update({ fecha_adjudicacion: normalizado }).eq('id', proyecto.id)
+    if (error) { toast.error('Error: ' + error.message); onInvalid?.(proyecto.fecha_adjudicacion || ''); return }
+    setProyectos(prev => prev.map(p => p.id === proyecto.id ? { ...p, fecha_adjudicacion: normalizado } : p))
+  }
+
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
 
-  async function sincronizarFechaAdjudicacionOportunidades(proyectoId, fechaAdjudicacion) {
-    const { error } = await supabase
-      .from('oportunidades')
-      .update({ fecha_adjudicacion: fechaAdjudicacion })
-      .eq('proyecto_id', proyectoId)
-
-    if (error) {
-      console.error('Error sincronizando fecha de adjudicación en oportunidades:', error)
-    }
-  }
   function toggleOrden(col) {
     if (ordenCol === col) {
       setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -527,8 +698,11 @@ export default function VistaProyectosBase({ user, perfil }) {
     const estadoNormalizado = normalizarEstadoProyecto(p.estado)
     const matchEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(estadoNormalizado)
     const matchTipo = omitirCol === 'tipo' || !filtros.tipo?.length || filtros.tipo.includes(p.tipo)
+    const matchFinancista = omitirCol === 'financista' || !filtros.financista?.length || filtros.financista.includes(p.financistas?.nombre)
+    const matchRegion = omitirCol === 'region' || !filtros.region?.length || filtros.region.includes(p.region)
+    const matchIndustria = omitirCol === 'industria' || !filtros.industria?.length || filtros.industria.includes(p.industria)
     const matchRendible = omitirCol === 'rendible' || !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
-    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchRendible
+    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchFinancista && matchRegion && matchIndustria && matchRendible
   }
 
   function opcionesPorColumna(col, obtenerValor) {
@@ -556,11 +730,27 @@ export default function VistaProyectosBase({ user, perfil }) {
     if (ordenCol === 'jefe') { vA = a.colaboradores?.colaborador || ''; vB = b.colaboradores?.colaborador || '' }
     if (ordenCol === 'estado') { vA = normalizarEstadoProyecto(a.estado) || ''; vB = normalizarEstadoProyecto(b.estado) || '' }
     if (ordenCol === 'tipo') { vA = a.tipo || ''; vB = b.tipo || '' }
+    if (ordenCol === 'financista') { vA = a.financistas?.nombre || ''; vB = b.financistas?.nombre || '' }
+    if (ordenCol === 'region') { vA = a.region || ''; vB = b.region || '' }
+    if (ordenCol === 'industria') { vA = a.industria || ''; vB = b.industria || '' }
     if (ordenCol === 'rendible') { vA = a.rendible === true ? 1 : a.rendible === false ? 0 : -1; vB = b.rendible === true ? 1 : b.rendible === false ? 0 : -1 }
     if (ordenCol === 'ceco') { vA = a.ceco_codigo || ''; vB = b.ceco_codigo || '' }
+    if (ordenCol === 'ingresos') { vA = parseFloat(a.ingresos) || 0; vB = parseFloat(b.ingresos) || 0 }
+    if (ordenCol === 'gastos')   { vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0 }
+    if (ordenCol === 'hh') { vA = costoPorProyecto[normalizar(a.nombre)] || 0; vB = costoPorProyecto[normalizar(b.nombre)] || 0 }
+    if (ordenCol === 'margen') {
+      const hhA = costoPorProyecto[normalizar(a.nombre)] || 0
+      const hhB = costoPorProyecto[normalizar(b.nombre)] || 0
+      vA = (parseFloat(a.ingresos) || 0) - hhA - (parseFloat(a.gastos) || 0)
+      vB = (parseFloat(b.ingresos) || 0) - hhB - (parseFloat(b.gastos) || 0)
+    }
     if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
     return ordenDir === 'asc' ? vA - vB : vB - vA
   })
+
+  const totalPaginas = Math.max(1, Math.ceil(proyectosFiltrados.length / PAGE_SIZE))
+  const paginaSegura = Math.min(paginaActual, totalPaginas)
+  const proyectosPagina = proyectosFiltrados.slice((paginaSegura - 1) * PAGE_SIZE, paginaSegura * PAGE_SIZE)
 
   // Campo select reutilizable para jefe
   function SelectJefe({ value, onChange }) {
@@ -592,6 +782,26 @@ export default function VistaProyectosBase({ user, perfil }) {
         {opciones.map((ceco) => (
           <option key={ceco} value={ceco}>{ceco}</option>
         ))}
+      </select>
+    )
+  }
+
+  function SelectFinancista({ value, onChange }) {
+    return (
+      <select value={value} onChange={onChange}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
+        <option value="">Sin financista</option>
+        {financistas.map(f => <option key={f.id} value={f.id}>{f.nombre}</option>)}
+      </select>
+    )
+  }
+
+  function SelectRegion({ value, onChange }) {
+    return (
+      <select value={value} onChange={onChange}
+        className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500">
+        <option value="">Sin región</option>
+        {REGIONES_CHILE.map(r => <option key={r} value={r}>{r}</option>)}
       </select>
     )
   }
@@ -646,8 +856,9 @@ export default function VistaProyectosBase({ user, perfil }) {
           <label
             className={`px-4 py-2 rounded-lg text-white font-medium transition-all cursor-pointer hover:opacity-90 ${procesando ? 'opacity-50 cursor-not-allowed' : ''}`}
             style={{ backgroundColor: '#10B981' }}
+            title="Importar proyectos (PROYECTO, LINEA, ESTADO, TIPO, RENDIBLE, CECO, JEFE)"
           >
-            {procesando ? 'Procesando...' : 'Importar Excel'}
+            {procesando ? 'Procesando...' : 'Importar proyectos'}
             <input type="file" accept=".xlsx,.xls" onChange={importarExcel} className="hidden" disabled={procesando} />
           </label>
           <button
@@ -706,7 +917,7 @@ export default function VistaProyectosBase({ user, perfil }) {
       {/* Info */}
       <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
         <p className="text-sm text-gray-600">
-          Aquí puedes gestionar los proyectos base. Las oportunidades se crean en la sección <strong>Oportunidades</strong>.
+          Aquí puedes gestionar los proyectos base.
         </p>
       </div>
 
@@ -718,167 +929,206 @@ export default function VistaProyectosBase({ user, perfil }) {
         </div>
       ) : (
         <div>
-          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
-                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '48px' }}>#</ResizableTh>
-                <FilterableTh
-                  col="linea"
-                  label="Línea"
-                  style={{ width: '140px' }}
-                  opciones={opcionesLinea}
-                  filtro={filtros.linea || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'linea'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'linea'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="proyecto"
-                  label="Proyecto"
-                  opciones={opcionesProyecto}
-                  filtro={filtros.proyecto || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'proyecto'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'proyecto'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="jefe"
-                  label="Jefe"
-                  style={{ width: '150px' }}
-                  opciones={opcionesJefe}
-                  filtro={filtros.jefe || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'jefe'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'jefe'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="estado"
-                  label="Estado"
-                  style={{ width: '110px' }}
-                  opciones={opcionesEstado}
-                  filtro={filtros.estado || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'estado'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'estado'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="tipo"
-                  label="Tipo"
-                  style={{ width: '110px' }}
-                  opciones={opcionesTipo}
-                  filtro={filtros.tipo || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'tipo'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'tipo'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="rendible"
-                  label="Rendible"
-                  align="center"
-                  style={{ width: '95px' }}
-                  opciones={opcionesRendible}
-                  filtro={filtros.rendible || ''}
-                  onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'rendible'}
-                  onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'rendible'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <FilterableTh
-                  col="ceco"
-                  label="CECO"
-                  style={{ width: '95px' }}
-                  opciones={[]}
-                  filtro={[]}
-                  onFiltro={() => {}}
-                  dropdownAbierto={false}
-                  onToggleDropdown={() => {}}
-                  sortable
-                  ordenActiva={ordenCol === 'ceco'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
-                />
-                <ResizableTh className="py-3 px-4 text-gray-800 font-semibold text-right" style={{ width: '120px' }}>HH cargadas</ResizableTh>
-                <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold" style={{ width: '130px' }}>Acciones</ResizableTh>
+                <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold">#</ResizableTh>
+                <FilterableTh col="linea" label="Línea" opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="proyecto" label="Proyecto" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="jefe" label="Jefe" opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('ingresos')}>
+                  Ingresos {ordenCol === 'ingresos' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
+                </ResizableTh>
+                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('hh')}>
+                  HH {ordenCol === 'hh' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
+                </ResizableTh>
+                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('gastos')}>
+                  GGOO {ordenCol === 'gastos' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
+                </ResizableTh>
+                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('margen')}>
+                  Margen {ordenCol === 'margen' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
+                </ResizableTh>
+                <FilterableTh col="estado" label="Estado" opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="tipo" label="Tipo" opciones={opcionesTipo} filtro={filtros.tipo || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'tipo'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'tipo'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="financista" label="Financista" opciones={opcionesPorColumna('financista', p => p.financistas?.nombre)} filtro={filtros.financista || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'financista'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'financista'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="region" label="Región" opciones={opcionesPorColumna('region', p => p.region)} filtro={filtros.region || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'region'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'region'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="industria" label="Industria" opciones={opcionesPorColumna('industria', p => p.industria)} filtro={filtros.industria || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'industria'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'industria'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="rendible" label="Rendible" align="center" opciones={opcionesRendible} filtro={filtros.rendible || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'rendible'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'rendible'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="ceco" label="CECO" opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol === 'ceco'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <ResizableTh className="text-center py-3 px-2 text-gray-800 font-semibold">HP</ResizableTh>
+                <ResizableTh className="text-center py-3 px-2 text-gray-800 font-semibold">Fecha Adj</ResizableTh>
+                <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold">Acciones</ResizableTh>
               </tr>
             </thead>
             <tbody>
-              {proyectosFiltrados.map((p, index) => {
-                const costoTotal = costoPorProyecto[normalizar(p.nombre)] || 0
-                const tieneHH = costoTotal > 0
+              {proyectosPagina.map((p, index) => {
+                const globalIndex = (paginaSegura - 1) * PAGE_SIZE + index + 1
+                const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
+                const ing    = parseFloat(p.ingresos) || 0
+                const gastos = parseFloat(p.gastos)   || 0
+                const margen = ing - hh - gastos
+                const enHP   = proyEnHP.has(normalizar(p.nombre))
                 return (
-                <tr key={p.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                  <td className="py-3 px-4 text-gray-500 text-sm">{index + 1}</td>
-                  <td className="py-3 px-4 text-gray-600 text-sm max-w-xs truncate" title={p.ceco}>{p.ceco}</td>
-                  <td className="py-3 px-4 text-gray-800 font-medium">{p.nombre}</td>
-                  <td className="py-3 px-4 text-gray-700 text-sm">
-                    {p.colaboradores?.colaborador || <span className="text-gray-400 italic">-</span>}
-                  </td>
-                  <td className="py-3 px-4">{badgeEstado(p.estado)}</td>
-                  <td className="py-3 px-4 text-gray-600 text-sm">{p.tipo || <span className="text-gray-400 italic">-</span>}</td>
-                  <td className="py-3 px-4 text-center">{badgeRendible(p.rendible)}</td>
-                  <td className="py-3 px-4 text-gray-600 text-sm">{p.ceco_codigo || <span className="text-gray-400 italic">-</span>}</td>
-                  <td className="py-3 px-4 text-right tabular-nums text-sm">
-                    {tieneHH
-                      ? <span className="font-medium text-gray-800">{Math.round(costoTotal).toLocaleString('es-CL')}</span>
-                      : <span className="text-gray-300">—</span>
-                    }
-                  </td>
-                  <td className="py-3 px-4 text-center">
-                    <div className="flex gap-2 justify-center">
-                      <button
-                        onClick={() => abrirModalEditar(p)}
-                        className="px-3 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-all text-sm"
-                      >
-                        Editar
-                      </button>
-                      <button
-                        onClick={() => eliminarProyecto(p)}
-                        disabled={tieneHH}
-                        className={`px-3 py-1 rounded-lg text-white font-medium transition-all text-sm ${tieneHH ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
-                        title={tieneHH ? 'No se puede eliminar: tiene HH cargadas' : 'Eliminar proyecto'}
-                      >
-                        Eliminar
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                  <tr key={p.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
+                    <td className="py-2 px-4 text-gray-500 text-sm">{globalIndex}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm truncate" title={p.ceco}>{p.ceco}</td>
+                    <td className="py-2 px-4 text-gray-800 font-medium text-sm">{p.nombre}</td>
+                    <td className="py-2 px-4 text-gray-700 text-sm truncate">{p.colaboradores?.colaborador || <span className="text-gray-400 italic">-</span>}</td>
+                    <td
+                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer hover:bg-orange-50 group"
+                      onClick={() => abrirModalEdicionFin(p, 'ingresos')}
+                      title="Click para editar Ingresos"
+                    >
+                      {ing > 0
+                        ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(ing)}</span>
+                        : <span className="text-gray-300 group-hover:text-orange-400">—</span>
+                      }
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm">
+                      {hh > 0 ? <span className="font-medium text-gray-800">{fmt(hh)}</span> : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td
+                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer hover:bg-orange-50 group"
+                      onClick={() => abrirModalEdicionFin(p, 'gastos')}
+                      title="Click para editar GGOO"
+                    >
+                      {gastos > 0
+                        ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(gastos)}</span>
+                        : <span className="text-gray-300 group-hover:text-orange-400">—</span>
+                      }
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold">
+                      {(ing > 0 || hh > 0 || gastos > 0)
+                        ? <span className={margen >= 0 ? 'text-green-700' : 'text-red-600'}>{fmt(margen)}</span>
+                        : <span className="text-gray-300">—</span>
+                      }
+                    </td>
+                    <td className="py-2 px-2">{badgeEstadoSelect(p.estado, p, solicitarCambioEstado)}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm">{p.tipo || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm truncate">{p.financistas?.nombre || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm">{p.region || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm">{p.industria || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-4 text-center">{badgeRendible(p.rendible)}</td>
+                    <td className="py-2 px-4 text-gray-600 text-sm">{p.ceco_codigo || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-2 text-center">
+                      {enHP
+                        ? <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-700">Sí</span>
+                        : <span className="text-gray-300 text-xs">No</span>
+                      }
+                    </td>
+                    <td className="py-2 px-1 text-center">
+                      {puedeEditarFechaAdjudicacion(p.estado) ? (
+                        <input
+                          type="text"
+                          defaultValue={p.fecha_adjudicacion || ''}
+                          onBlur={e => actualizarFechaAdjudicacion(p, e.target.value, v => { e.target.value = v })}
+                          className="w-full text-xs px-1 py-0.5 border border-gray-200 rounded text-center"
+                          placeholder="ene-26"
+                          maxLength={6}
+                        />
+                      ) : (
+                        <span className="text-xs text-gray-500">{p.fecha_adjudicacion || <span className="text-gray-300">—</span>}</span>
+                      )}
+                    </td>
+                    <td className="py-2 px-2 text-center">
+                      <div className="flex gap-1 justify-center">
+                        <button
+                          onClick={() => abrirModalEditar(p)}
+                          className="px-2 py-1 rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-all text-xs"
+                        >
+                          Editar
+                        </button>
+                        <button
+                          onClick={() => eliminarProyecto(p)}
+                          disabled={enHP}
+                          className={`px-2 py-1 rounded-lg text-white font-medium transition-all text-xs ${enHP ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
+                          title={enHP ? 'No se puede eliminar: tiene HH cargadas' : 'Eliminar proyecto'}
+                        >
+                          Eliminar
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
                 )
               })}
               {proyectosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="py-12 text-center text-gray-400">
+                  <td colSpan={18} className="py-12 text-center text-gray-400">
                     {busqueda ? 'No hay proyectos que coincidan con la búsqueda' : 'No hay proyectos cargados'}
                   </td>
                 </tr>
               )}
             </tbody>
+            {proyectosFiltrados.length > 0 && (() => {
+              const totIng    = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
+              const totHH     = proyectosFiltrados.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
+              const totGastos = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
+              const totMargen = totIng - totHH - totGastos
+              return (
+                <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 5 }}>
+                  <tr className="border-t-2 border-gray-400 bg-gray-100 font-semibold">
+                    <td className="py-2 px-4 text-gray-600 text-sm" colSpan={4}>Total ({proyectosFiltrados.length})</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totIng)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totHH)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totGastos)}</td>
+                    <td className={`py-2 px-3 text-right tabular-nums text-sm ${totMargen >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(totMargen)}</td>
+                    <td colSpan={10} />
+                  </tr>
+                </tfoot>
+              )
+            })()}
           </table>
         </div>
       )}
       </div>
+
+      {/* Paginación */}
+      {!loading && proyectosFiltrados.length > 0 && (
+        <div className="flex items-center justify-between px-2 py-2 border-t border-gray-200 bg-white flex-shrink-0">
+          <span className="text-sm text-gray-500">
+            Página {paginaSegura} de {totalPaginas} · {proyectosFiltrados.length} proyectos
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setPaginaActual(1)}
+              disabled={paginaSegura === 1}
+              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+            >«</button>
+            <button
+              onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
+              disabled={paginaSegura === 1}
+              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+            >‹</button>
+            {Array.from({ length: totalPaginas }, (_, i) => i + 1)
+              .filter(n => n === 1 || n === totalPaginas || Math.abs(n - paginaSegura) <= 2)
+              .reduce((acc, n, idx, arr) => {
+                if (idx > 0 && n - arr[idx - 1] > 1) acc.push('…')
+                acc.push(n)
+                return acc
+              }, [])
+              .map((n, i) => n === '…'
+                ? <span key={`ellipsis-${i}`} className="px-1 text-gray-400 text-sm">…</span>
+                : <button
+                    key={n}
+                    onClick={() => setPaginaActual(n)}
+                    className={`px-2 py-1 rounded text-sm border ${n === paginaSegura ? 'text-white border-orange-500' : 'border-gray-300 hover:bg-gray-50'}`}
+                    style={n === paginaSegura ? { backgroundColor: '#FF5100' } : {}}
+                  >{n}</button>
+              )
+            }
+            <button
+              onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}
+              disabled={paginaSegura === totalPaginas}
+              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+            >›</button>
+            <button
+              onClick={() => setPaginaActual(totalPaginas)}
+              disabled={paginaSegura === totalPaginas}
+              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
+            >»</button>
+          </div>
+        </div>
+      )}
 
       {/* Modal Crear Proyecto */}
       {modalCrear && (
@@ -946,9 +1196,27 @@ export default function VistaProyectosBase({ user, perfil }) {
               />
             </div>
 
-            <div className="mb-6">
+            <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">CECO</label>
               <SelectCeco value={formData.ceco_codigo} onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Financista</label>
+              <SelectFinancista value={formData.financista_id} onChange={(e) => setFormData({ ...formData, financista_id: e.target.value })} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Región</label>
+              <SelectRegion value={formData.region} onChange={(e) => setFormData({ ...formData, region: e.target.value })} />
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Industria</label>
+              <input type="text" value={formData.industria}
+                onChange={(e) => setFormData({ ...formData, industria: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="Ej: Minería, Energía, Salud..." />
             </div>
 
             <div className="flex gap-3 justify-end">
@@ -960,6 +1228,84 @@ export default function VistaProyectosBase({ user, perfil }) {
                 className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
                 style={{ backgroundColor: '#FF5100' }}>
                 Crear Proyecto
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Edición Financiera (Ingresos / GGOO) */}
+      {modalEdicionFin && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <h3 className="text-xl font-bold text-gray-800 mb-1">
+              Editar {modalEdicionFin.campo === 'gastos' ? 'GGOO' : 'Ingresos'}
+            </h3>
+            <p className="text-sm text-gray-500 mb-4 truncate">{modalEdicionFin.proyecto.nombre}</p>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Valor ($)</label>
+              <input
+                type="number"
+                value={valorEditandoFin}
+                onChange={e => setValorEditandoFin(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                autoFocus
+              />
+            </div>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Motivo *</label>
+              <textarea
+                value={motivoCambioFin}
+                onChange={e => setMotivoCambioFin(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                rows={2}
+                placeholder="Motivo del cambio..."
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setModalEdicionFin(null)}
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all">
+                Cancelar
+              </button>
+              <button onClick={guardarEdicionFin} disabled={procesandoFin}
+                className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 disabled:opacity-50"
+                style={{ backgroundColor: '#FF5100' }}>
+                {procesandoFin ? 'Guardando...' : 'Guardar'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Cambio de Estado con Motivo */}
+      {modalMotivoEstado && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 w-full max-w-sm mx-4">
+            <h3 className="text-xl font-bold text-gray-800 mb-1">Cambiar Estado</h3>
+            <p className="text-sm text-gray-600 mb-1 truncate">{modalMotivoEstado.proyecto.nombre}</p>
+            <p className="text-sm text-gray-500 mb-4">
+              {normalizarEstadoProyecto(modalMotivoEstado.proyecto.estado) || 'Sin estado'} → <strong>{modalMotivoEstado.nuevoEstado || 'Sin estado'}</strong>
+            </p>
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Motivo *</label>
+              <textarea
+                value={motivoAccionEstado}
+                onChange={e => setMotivoAccionEstado(e.target.value)}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                rows={2}
+                placeholder="Motivo del cambio de estado..."
+                autoFocus
+              />
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button onClick={() => setModalMotivoEstado(null)}
+                className="px-4 py-2 rounded-lg bg-gray-200 hover:bg-gray-300 text-gray-800 font-medium transition-all">
+                Cancelar
+              </button>
+              <button onClick={confirmarCambioEstado}
+                className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
+                style={{ backgroundColor: '#FF5100' }}>
+                Confirmar
               </button>
             </div>
           </div>
@@ -1034,6 +1380,24 @@ export default function VistaProyectosBase({ user, perfil }) {
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">CECO</label>
               <SelectCeco value={formData.ceco_codigo} onChange={(e) => setFormData({ ...formData, ceco_codigo: e.target.value })} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Financista</label>
+              <SelectFinancista value={formData.financista_id} onChange={(e) => setFormData({ ...formData, financista_id: e.target.value })} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Región</label>
+              <SelectRegion value={formData.region} onChange={(e) => setFormData({ ...formData, region: e.target.value })} />
+            </div>
+
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Industria</label>
+              <input type="text" value={formData.industria}
+                onChange={(e) => setFormData({ ...formData, industria: e.target.value })}
+                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
+                placeholder="Ej: Minería, Energía, Salud..." />
             </div>
 
             <div className="mb-6">

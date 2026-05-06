@@ -390,7 +390,7 @@ export default function VistaColaboradoresCostos() {
         {loading ? (
           <div className="text-center py-12"><p className="text-gray-500">Cargando...</p></div>
         ) : (
-          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full">
             <thead>
               <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
                 <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-center" style={{ width: '48px' }}>#</ResizableTh>

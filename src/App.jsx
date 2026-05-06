@@ -17,7 +17,7 @@ import ConfirmModal from './components/ConfirmModal'
 import VistaSolicitudOC from './components/VistaSolicitudOC'
 import AdministracionOC from './components/AdministracionOC'
 import VistaProyectosBase from './components/VistaProyectosBase'
-import VistaOportunidades from './components/VistaOportunidades'
+
 import VistaColaboradores from './components/VistaColaboradores'
 import VistaCosteo from './components/VistaCosteo'
 import VistaCosteoInputs from './components/VistaCosteoInputs'
@@ -29,6 +29,7 @@ import VistaSeguimientoFinanciero from './components/VistaSeguimientoFinanciero'
 import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
 import VistaHorasProyectadas from './components/VistaHorasProyectadas'
 import VistaColaboradoresCostos from './components/VistaColaboradoresCostos'
+import VistaFinancistas from './components/VistaFinancistas'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -45,7 +46,7 @@ function App() {
   const [proyectos, setProyectos] = useState([])
   const [confirmacion, setConfirmacion] = useState(null)
   const [cambios, setCambios] = useState([])
-  const [vista, setVista] = useState('oportunidades')
+  const [vista, setVista] = useState('proyectos-base')
   const [menuAbierto, setMenuAbierto] = useState(false)
   const [submenuEstimacion, setSubmenuEstimacion] = useState(false)
   const [submenuOC, setSubmenuOC] = useState(false)
@@ -266,107 +267,6 @@ function App() {
     })
   }
 
-  async function _importarExcel(e) {
-    const file = e.target.files[0]
-    if (!file) return
-
-    setProcesando(true)
-    const reader = new FileReader()
-
-    reader.onload = async (event) => {
-      try {
-        const workbook = XLSX.read(event.target.result, { type: 'binary' })
-        const sheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[sheetName]
-        const data = XLSX.utils.sheet_to_json(worksheet)
-
-        let insertados = 0
-        let errores = 0
-        let noEncontrados = []
-
-        // Función para parsear números con coma decimal
-        const parseNumero = (val) => {
-          if (val === null || val === undefined || val === '') return 0
-          if (typeof val === 'number') return val
-          return parseFloat(String(val).replace(',', '.')) || 0
-        }
-
-        for (let i = 0; i < data.length; i++) {
-          const row = data[i]
-
-          const proyectoNombre = row.PROYECTO || row.proyecto || row['PROYECTO '] || ''
-          const ingresos = parseNumero(row.INGRESOS || row.ingresos)
-          const hh = parseNumero(row.HH || row.hh)
-          const gastos = parseNumero(row.GGOO || row.ggoo || row.GASTOS || row.gastos)
-
-          if (!proyectoNombre || proyectoNombre.trim() === '') {
-            errores++
-            continue
-          }
-
-          // Extraer código del proyecto para búsqueda más flexible
-          const codigoMatch = proyectoNombre.match(/^[\d]+\.[\w]+\.[\w]+/)
-          const codigoBusqueda = codigoMatch ? codigoMatch[0] : proyectoNombre.trim()
-
-          // Buscar el proyecto por código
-          const { data: proyectosEncontrados, error: errorBusqueda } = await supabase
-            .from('proyectos')
-            .select('id, nombre')
-            .ilike('nombre', `${codigoBusqueda}%`)
-
-          if (errorBusqueda || !proyectosEncontrados || proyectosEncontrados.length === 0) {
-            errores++
-            noEncontrados.push(proyectoNombre)
-            continue
-          }
-
-          const proyectoExistente = proyectosEncontrados[0]
-
-          // Insertar oportunidad vinculada al proyecto (NO modificamos tabla proyectos)
-          const { error: errorInsert } = await supabase.from('oportunidades').insert({
-            proyecto_id: proyectoExistente.id,
-            ingresos,
-            hh,
-            gastos,
-            creador: user.email,
-            estado: 'abierta'
-          })
-
-          if (errorInsert) {
-            console.error('❌ Error insert:', errorInsert)
-            errores++
-          } else {
-            insertados++
-            await supabase.from('cambios').insert({
-              proyecto_id: proyectoExistente.id,
-              campo: 'OPORTUNIDAD CREADA',
-              valor_anterior: '0',
-              valor_nuevo: ingresos.toString(),
-              usuario: user.email,
-              motivo: 'Oportunidad importada desde Excel',
-              tipo_cambio: 'oportunidad',
-              proyecto_nombre: proyectoExistente.nombre
-            })
-          }
-        }
-
-        if (noEncontrados.length > 0) {
-          toast.warning(`${noEncontrados.length} proyectos no encontrados. Ver consola F12.`)
-        }
-
-        toast.success(`Importación: ✓ ${insertados} oportunidades ✗ ${errores} errores`)
-        cargarProyectos()
-        cargarCambios()
-      } catch (error) {
-        toast.error('Error: ' + error.message)
-        console.error('❌ Error importación:', error)
-      }
-      setProcesando(false)
-    }
-
-    reader.readAsBinaryString(file)
-    e.target.value = ''
-  }
 
   async function _crearProyecto() {
     const nombre = prompt('Nombre del proyecto:')
@@ -725,7 +625,7 @@ function App() {
             <button
               onClick={() => setSubmenuEstimacion(!submenuEstimacion)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['oportunidades', 'cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['cambios', 'dashboard'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['cambios', 'dashboard'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>📊 Estimación de cierre</span>
               <svg className={`w-5 h-5 transition-transform ${submenuEstimacion ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -736,14 +636,7 @@ function App() {
             {/* Submenú */}
             {submenuEstimacion && (
               <div className="ml-4 mt-1 space-y-1 border-l-2 border-gray-200 pl-2">
-                <button
-                  onClick={() => { setVista('oportunidades'); setMenuAbierto(false) }}
-                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
-                  style={{ color: vista === 'oportunidades' ? '#FF5100' : '#374151', backgroundColor: vista === 'oportunidades' ? '#FFF5F0' : 'transparent' }}
-                >
-                  📁 Oportunidades
-                </button>
-                <button
+<button
                   onClick={() => { setVista('cambios'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
                   style={{ color: vista === 'cambios' ? '#FF5100' : '#374151', backgroundColor: vista === 'cambios' ? '#FFF5F0' : 'transparent' }}
@@ -766,7 +659,7 @@ function App() {
             <button
               onClick={() => setSubmenuTablas(!submenuTablas)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>🗂 Tablas</span>
               <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -824,6 +717,13 @@ function App() {
                   style={{ color: vista === 'colaboradores-costos' ? '#FF5100' : '#374151', backgroundColor: vista === 'colaboradores-costos' ? '#FFF5F0' : 'transparent' }}
                 >
                   💰 Costos Colaboradores
+                </button>
+                <button
+                  onClick={() => { setVista('financistas'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'financistas' ? '#FF5100' : '#374151', backgroundColor: vista === 'financistas' ? '#FFF5F0' : 'transparent' }}
+                >
+                  🏦 Financistas
                 </button>
               </div>
             )}
@@ -1026,11 +926,12 @@ function App() {
               <VistaColaboradoresCostos perfil={perfil} />
             )}
 
-            {vista === 'oportunidades' && (
-              <VistaOportunidades user={user} onCambioRegistrado={cargarCambios} />
+            {vista === 'financistas' && (
+              <VistaFinancistas perfil={perfil} />
             )}
 
-            {vista === 'cambios' && (
+
+{vista === 'cambios' && (
               <VistaControlCambios
                 cambiosFiltrados={cambiosFiltrados}
                 tipoControlCambios={tipoControlCambios}

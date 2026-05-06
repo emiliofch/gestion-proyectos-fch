@@ -245,7 +245,7 @@ export default function VistaPresupuesto2026() {
             <p className="text-gray-500">Cargando presupuesto...</p>
           </div>
         ) : (
-          <table className="w-full" style={{ tableLayout: 'fixed' }}>
+          <table className="w-full">
   <thead>
     <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
       <FilterableTh col="linea" label="Línea" align="left" style={{ width: '160px' }} opciones={opciones.linea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro==='linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol==='linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />

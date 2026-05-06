@@ -6,30 +6,76 @@ function fmt(val) {
   return '$ ' + Math.round(parseFloat(val) || 0).toLocaleString('es-CL')
 }
 
+function normalizar(t) {
+  return (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+}
+
 export default function Dashboard() {
   const [oportunidades, setOportunidades] = useState([])
+  const [costoPorProyecto, setCostoPorProyecto] = useState({})
   const [loading, setLoading] = useState(true)
   const [filtroLinea, setFiltroLinea] = useState('')
 
   useEffect(() => {
     cargarOportunidades()
+    cargarCostosHorasProyectadas()
   }, [])
 
   async function cargarOportunidades() {
     setLoading(true)
     const { data, error } = await supabase
-      .from('oportunidades')
-      .select(`
-        *,
-        proyectos:proyecto_id (nombre, ceco, colaboradores:jefe_id(colaborador))
-      `)
+      .from('proyectos')
+      .select('id, nombre, ceco, ingresos, gastos, colaboradores:jefe_id(colaborador)')
+      .not('ingresos', 'is', null)
 
     if (error) {
-      console.error('Error cargando oportunidades:', error)
+      console.error('Error cargando proyectos:', error)
     } else {
-      setOportunidades(data || [])
+      setOportunidades((data || []).map(p => ({
+        id: p.id,
+        ingresos: p.ingresos,
+        gastos: p.gastos,
+        proyectos: {
+          nombre: p.nombre,
+          ceco: p.ceco,
+          colaboradores: p.colaboradores
+        }
+      })))
     }
     setLoading(false)
+  }
+
+  async function cargarCostosHorasProyectadas() {
+    const PAGE = 1000
+    const costoMap = {}
+    let cfrom = 0
+    while (true) {
+      const { data } = await supabase.from('colaboradores_costos').select('colaborador, mes, costo_mes').range(cfrom, cfrom + PAGE - 1)
+      if (!data?.length) break
+      for (const c of data) {
+        const key = normalizar(c.colaborador)
+        if (!costoMap[key]) costoMap[key] = {}
+        costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
+      }
+      if (data.length < PAGE) break
+      cfrom += PAGE
+    }
+    let todas = [], from = 0
+    while (true) {
+      const { data } = await supabase.from('horas_proyectadas').select('proyecto, horas, colaborador, mes').range(from, from + PAGE - 1)
+      if (!data?.length) break
+      todas = [...todas, ...data]
+      if (data.length < PAGE) break
+      from += PAGE
+    }
+    const costos = {}
+    for (const f of todas) {
+      const pKey = normalizar(f.proyecto)
+      if (!pKey) continue
+      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizar(f.colaborador)]?.[f.mes] || 0)
+      costos[pKey] = (costos[pKey] || 0) + costo
+    }
+    setCostoPorProyecto(costos)
   }
 
   const lineas = [...new Set(oportunidades.map(o => o.proyectos?.ceco).filter(Boolean))].sort()
@@ -40,14 +86,15 @@ export default function Dashboard() {
 
   const totalOportunidades = filtradas.length
   const totalIngresos = filtradas.reduce((sum, o) => sum + (parseFloat(o.ingresos) || 0), 0)
-  const totalHH = filtradas.reduce((sum, o) => sum + (parseFloat(o.hh) || 0), 0)
+  const totalHH = filtradas.reduce((sum, o) => sum + (costoPorProyecto[normalizar(o.proyectos?.nombre)] || 0), 0)
   const totalGastos = filtradas.reduce((sum, o) => sum + (parseFloat(o.gastos) || 0), 0)
   const margenTotal = totalIngresos - totalHH - totalGastos
   const margenPromedio = totalOportunidades > 0 ? margenTotal / totalOportunidades : 0
   const roi = totalIngresos > 0 ? ((margenTotal / totalIngresos) * 100) : 0
 
   const oportunidadesPositivas = filtradas.filter(o => {
-    const margen = (parseFloat(o.ingresos) || 0) - (parseFloat(o.hh) || 0) - (parseFloat(o.gastos) || 0)
+    const hh = costoPorProyecto[normalizar(o.proyectos?.nombre)] || 0
+    const margen = (parseFloat(o.ingresos) || 0) - hh - (parseFloat(o.gastos) || 0)
     return margen >= 0
   }).length
 
@@ -59,13 +106,16 @@ export default function Dashboard() {
   ]
 
   const topOportunidades = [...filtradas]
-    .map(o => ({
-      nombre: o.proyectos?.nombre || 'Sin proyecto',
-      nombreCorto: (o.proyectos?.nombre || 'Sin proyecto').length > 15
-        ? (o.proyectos?.nombre || 'Sin proyecto').substring(0, 15) + '...'
-        : (o.proyectos?.nombre || 'Sin proyecto'),
-      margen: (parseFloat(o.ingresos) || 0) - (parseFloat(o.hh) || 0) - (parseFloat(o.gastos) || 0)
-    }))
+    .map(o => {
+      const hh = costoPorProyecto[normalizar(o.proyectos?.nombre)] || 0
+      return {
+        nombre: o.proyectos?.nombre || 'Sin proyecto',
+        nombreCorto: (o.proyectos?.nombre || 'Sin proyecto').length > 15
+          ? (o.proyectos?.nombre || 'Sin proyecto').substring(0, 15) + '...'
+          : (o.proyectos?.nombre || 'Sin proyecto'),
+        margen: (parseFloat(o.ingresos) || 0) - hh - (parseFloat(o.gastos) || 0)
+      }
+    })
     .sort((a, b) => b.margen - a.margen)
     .slice(0, 5)
 
@@ -75,7 +125,7 @@ export default function Dashboard() {
       nombreCorto: (o.proyectos?.nombre || 'Sin proyecto').length > 15
         ? (o.proyectos?.nombre || 'Sin proyecto').substring(0, 15) + '...'
         : (o.proyectos?.nombre || 'Sin proyecto'),
-      hh: parseFloat(o.hh) || 0
+      hh: costoPorProyecto[normalizar(o.proyectos?.nombre)] || 0
     }))
     .sort((a, b) => b.hh - a.hh)
     .slice(0, 5)
@@ -86,7 +136,8 @@ export default function Dashboard() {
     if (!jefeStats[jefe]) {
       jefeStats[jefe] = { suma_margen: 0, cantidad: 0 }
     }
-    const margen = (parseFloat(o.ingresos) || 0) - (parseFloat(o.hh) || 0) - (parseFloat(o.gastos) || 0)
+    const hh = costoPorProyecto[normalizar(o.proyectos?.nombre)] || 0
+    const margen = (parseFloat(o.ingresos) || 0) - hh - (parseFloat(o.gastos) || 0)
     jefeStats[jefe].suma_margen += margen
     jefeStats[jefe].cantidad += 1
   })
