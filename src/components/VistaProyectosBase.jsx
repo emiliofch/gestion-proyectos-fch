@@ -74,8 +74,8 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [ordenCol, setOrdenCol] = useState('proyecto')
   const [ordenDir, setOrdenDir] = useState('asc')
 
-  const [paginaActual, setPaginaActual] = useState(1)
-  const PAGE_SIZE = 20
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   const [modalCrear, setModalCrear] = useState(false)
   const [modalEditar, setModalEditar] = useState(null)
@@ -111,7 +111,7 @@ export default function VistaProyectosBase({ user, perfil }) {
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
 
-  useEffect(() => { setPaginaActual(1) }, [busqueda, filtros, ordenCol, ordenDir])
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
 
   async function cargarLineas() {
     const { data, error } = await supabase
@@ -367,6 +367,85 @@ export default function VistaProyectosBase({ user, perfil }) {
     const wb = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(wb, ws, 'Proyectos')
     XLSX.writeFile(wb, `proyectos_${buildTimestamp()}.xlsx`)
+  }
+
+  function generarReporte() {
+    const COL_WIDTHS = [
+      { wch: 4 }, { wch: 22 }, { wch: 32 }, { wch: 22 },
+      { wch: 13 }, { wch: 13 }, { wch: 13 }, { wch: 13 },
+      { wch: 14 }, { wch: 10 }, { wch: 22 }, { wch: 20 },
+      { wch: 20 }, { wch: 10 }, { wch: 10 }, { wch: 12 }, { wch: 8 },
+    ]
+
+    function toFila(p, i) {
+      const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
+      const ing    = parseFloat(p.ingresos) || 0
+      const gastos = parseFloat(p.gastos)   || 0
+      return {
+        '#':        i + 1,
+        LINEA:      p.ceco || '',
+        PROYECTO:   p.nombre,
+        JEFE:       p.colaboradores?.colaborador || '',
+        INGRESOS:   ing,
+        HH:         Math.round(hh),
+        GGOO:       gastos,
+        MARGEN:     Math.round(ing - hh - gastos),
+        ESTADO:     normalizarEstadoProyecto(p.estado) || '',
+        TIPO:       p.tipo || '',
+        FINANCISTA: p.financistas?.nombre || '',
+        REGION:     p.region || '',
+        INDUSTRIA:  p.industria || '',
+        RENDIBLE:   p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : '',
+        CECO:       p.ceco_codigo || '',
+        FECHA_ADJ:  p.fecha_adjudicacion || '',
+        EN_HP:      proyEnHP.has(normalizar(p.nombre)) ? 'Sí' : 'No',
+      }
+    }
+
+    function toTotal(lista) {
+      const totIng    = lista.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
+      const totHH     = lista.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
+      const totGastos = lista.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
+      return {
+        '#': '', LINEA: '', PROYECTO: `TOTAL (${lista.length})`, JEFE: '',
+        INGRESOS: totIng, HH: Math.round(totHH), GGOO: totGastos,
+        MARGEN: Math.round(totIng - totHH - totGastos),
+        ESTADO: '', TIPO: '', FINANCISTA: '', REGION: '', INDUSTRIA: '',
+        RENDIBLE: '', CECO: '', FECHA_ADJ: '', EN_HP: '',
+      }
+    }
+
+    function construirHoja(lista) {
+      const filas = lista.map((p, i) => toFila(p, i))
+      filas.push(toTotal(lista))
+      const ws = XLSX.utils.json_to_sheet(filas)
+      ws['!cols'] = COL_WIDTHS
+      return ws
+    }
+
+    const wb = XLSX.utils.book_new()
+
+    // Hoja 1: todos los proyectos filtrados
+    XLSX.utils.book_append_sheet(wb, construirHoja(proyectosFiltrados), 'Todos')
+
+    // Una hoja por jefe, ordenadas alfabéticamente
+    const porJefe = {}
+    for (const p of proyectosFiltrados) {
+      const jefe = p.colaboradores?.colaborador || 'Sin Jefe'
+      if (!porJefe[jefe]) porJefe[jefe] = []
+      porJefe[jefe].push(p)
+    }
+
+    const nombresHojas = new Set(['Todos'])
+    for (const jefe of Object.keys(porJefe).sort((a, b) => a.localeCompare(b, 'es'))) {
+      let nombre = jefe.replace(/[\\\/\*\?\:\[\]]/g, '').slice(0, 31)
+      let sufijo = 2
+      while (nombresHojas.has(nombre)) { nombre = nombre.slice(0, 28) + `_${sufijo++}` }
+      nombresHojas.add(nombre)
+      XLSX.utils.book_append_sheet(wb, construirHoja(porJefe[jefe]), nombre)
+    }
+
+    XLSX.writeFile(wb, `reporte_proyectos_${buildTimestamp()}.xlsx`)
   }
 
   async function eliminarTodos() {
@@ -647,6 +726,32 @@ export default function VistaProyectosBase({ user, perfil }) {
     cargarProyectos()
   }
 
+  // ── JEFE INLINE ──
+  async function guardarJefe(proyecto, nuevoJefeId) {
+    const anteriorId = proyecto.jefe_id || null
+    const nuevoId = nuevoJefeId || null
+    if (anteriorId === nuevoId) return
+    const anteriorNombre = colaboradores.find(c => c.id === anteriorId)?.colaborador || '-'
+    const nuevoNombre    = colaboradores.find(c => c.id === nuevoId)?.colaborador    || '-'
+    const { error } = await supabase.from('proyectos').update({ jefe_id: nuevoId }).eq('id', proyecto.id)
+    if (error) { toast.error('Error al actualizar jefe: ' + error.message); return }
+    await supabase.from('cambios').insert({
+      proyecto_id:     proyecto.id,
+      campo:           'JEFE',
+      valor_anterior:  anteriorNombre,
+      valor_nuevo:     nuevoNombre,
+      usuario:         user?.email || 'sistema',
+      motivo:          'Cambio directo desde tabla',
+      tipo_cambio:     'proyecto',
+      proyecto_nombre: proyecto.nombre,
+    })
+    const nuevoColab = nuevoId ? colaboradores.find(c => c.id === nuevoId) || null : null
+    setProyectos(prev => prev.map(p =>
+      p.id === proyecto.id ? { ...p, jefe_id: nuevoId, colaboradores: nuevoColab } : p
+    ))
+    toast.success('Jefe actualizado')
+  }
+
   // ── FECHA ADJUDICACIÓN INLINE ──
   async function actualizarFechaAdjudicacion(proyecto, valor, onInvalid) {
     if (!puedeEditarFechaAdjudicacion(proyecto.estado)) {
@@ -692,6 +797,16 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   function coincideFiltros(p, omitirCol = null) {
     const rendibleTxt = p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''
+    const hh = costoPorProyecto[normalizar(p.nombre)] || 0
+    const ing = parseFloat(p.ingresos) || 0
+    const gastos = parseFloat(p.gastos) || 0
+    const margen = ing - hh - gastos
+    const tieneFinanciero = ing > 0 || hh > 0 || gastos > 0
+    const fmtIng = ing > 0 ? fmt(ing) : ''
+    const fmtHH = hh > 0 ? fmt(hh) : ''
+    const fmtGastos = gastos > 0 ? fmt(gastos) : ''
+    const fmtMargen = tieneFinanciero ? fmt(margen) : ''
+    const hpTxt = proyEnHP.has(normalizar(p.nombre)) ? 'Sí' : 'No'
     const matchLinea = omitirCol === 'linea' || !filtros.linea?.length || filtros.linea.includes(p.ceco)
     const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(p.nombre)
     const matchJefe = omitirCol === 'jefe' || !filtros.jefe?.length || filtros.jefe.includes(p.colaboradores?.colaborador)
@@ -702,7 +817,14 @@ export default function VistaProyectosBase({ user, perfil }) {
     const matchRegion = omitirCol === 'region' || !filtros.region?.length || filtros.region.includes(p.region)
     const matchIndustria = omitirCol === 'industria' || !filtros.industria?.length || filtros.industria.includes(p.industria)
     const matchRendible = omitirCol === 'rendible' || !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
-    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchFinancista && matchRegion && matchIndustria && matchRendible
+    const matchCeco = omitirCol === 'ceco' || !filtros.ceco?.length || filtros.ceco.includes(p.ceco_codigo)
+    const matchIngresos = omitirCol === 'ingresos' || !filtros.ingresos?.length || filtros.ingresos.includes(fmtIng)
+    const matchHH = omitirCol === 'hh' || !filtros.hh?.length || filtros.hh.includes(fmtHH)
+    const matchGastos = omitirCol === 'gastos' || !filtros.gastos?.length || filtros.gastos.includes(fmtGastos)
+    const matchMargen = omitirCol === 'margen' || !filtros.margen?.length || filtros.margen.includes(fmtMargen)
+    const matchHP = omitirCol === 'hp' || !filtros.hp?.length || filtros.hp.includes(hpTxt)
+    const matchFechaAdj = omitirCol === 'fechaAdj' || !filtros.fechaAdj?.length || filtros.fechaAdj.includes(p.fecha_adjudicacion || '')
+    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchFinancista && matchRegion && matchIndustria && matchRendible && matchCeco && matchIngresos && matchHH && matchGastos && matchMargen && matchHP && matchFechaAdj
   }
 
   function opcionesPorColumna(col, obtenerValor) {
@@ -721,6 +843,17 @@ export default function VistaProyectosBase({ user, perfil }) {
     'rendible',
     (p) => (p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''),
   )
+  const opcionesCeco = opcionesPorColumna('ceco', p => p.ceco_codigo)
+  const opcionesIngresos = opcionesPorColumna('ingresos', p => (parseFloat(p.ingresos) || 0) > 0 ? fmt(parseFloat(p.ingresos)) : null)
+  const opcionesHH = opcionesPorColumna('hh', p => { const h = costoPorProyecto[normalizar(p.nombre)] || 0; return h > 0 ? fmt(h) : null })
+  const opcionesGastos = opcionesPorColumna('gastos', p => (parseFloat(p.gastos) || 0) > 0 ? fmt(parseFloat(p.gastos)) : null)
+  const opcionesMargen = opcionesPorColumna('margen', p => {
+    const h = costoPorProyecto[normalizar(p.nombre)] || 0
+    const ing = parseFloat(p.ingresos) || 0
+    const gastos = parseFloat(p.gastos) || 0
+    return (ing > 0 || h > 0 || gastos > 0) ? fmt(ing - h - gastos) : null
+  })
+  const opcionesFechaAdj = opcionesPorColumna('fechaAdj', p => p.fecha_adjudicacion || null)
 
   const proyectosFiltrados = proyectosBusqueda.filter((p) => coincideFiltros(p)).sort((a, b) => {
     let vA = ''
@@ -735,6 +868,8 @@ export default function VistaProyectosBase({ user, perfil }) {
     if (ordenCol === 'industria') { vA = a.industria || ''; vB = b.industria || '' }
     if (ordenCol === 'rendible') { vA = a.rendible === true ? 1 : a.rendible === false ? 0 : -1; vB = b.rendible === true ? 1 : b.rendible === false ? 0 : -1 }
     if (ordenCol === 'ceco') { vA = a.ceco_codigo || ''; vB = b.ceco_codigo || '' }
+    if (ordenCol === 'hp') { vA = proyEnHP.has(normalizar(a.nombre)) ? 1 : 0; vB = proyEnHP.has(normalizar(b.nombre)) ? 1 : 0 }
+    if (ordenCol === 'fechaAdj') { vA = a.fecha_adjudicacion || ''; vB = b.fecha_adjudicacion || '' }
     if (ordenCol === 'ingresos') { vA = parseFloat(a.ingresos) || 0; vB = parseFloat(b.ingresos) || 0 }
     if (ordenCol === 'gastos')   { vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0 }
     if (ordenCol === 'hh') { vA = costoPorProyecto[normalizar(a.nombre)] || 0; vB = costoPorProyecto[normalizar(b.nombre)] || 0 }
@@ -748,9 +883,7 @@ export default function VistaProyectosBase({ user, perfil }) {
     return ordenDir === 'asc' ? vA - vB : vB - vA
   })
 
-  const totalPaginas = Math.max(1, Math.ceil(proyectosFiltrados.length / PAGE_SIZE))
-  const paginaSegura = Math.min(paginaActual, totalPaginas)
-  const proyectosPagina = proyectosFiltrados.slice((paginaSegura - 1) * PAGE_SIZE, paginaSegura * PAGE_SIZE)
+  const proyectosPagina = proyectosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
 
   // Campo select reutilizable para jefe
   function SelectJefe({ value, onChange }) {
@@ -825,7 +958,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   return (
-    <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
+    <div>
       {/* Cabecera */}
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Proyectos</h2>
@@ -852,6 +985,15 @@ export default function VistaProyectosBase({ user, perfil }) {
             title="Exportar proyectos visibles a Excel"
           >
             ⬇ Exportar Excel
+          </button>
+          <button
+            onClick={generarReporte}
+            disabled={proyectosFiltrados.length === 0}
+            className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 disabled:opacity-50"
+            style={{ backgroundColor: '#0EA5E9' }}
+            title="Exportar reporte multi-hoja: todos + una hoja por jefe"
+          >
+            📊 Generar Reporte
           </button>
           <label
             className={`px-4 py-2 rounded-lg text-white font-medium transition-all cursor-pointer hover:opacity-90 ${procesando ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -922,47 +1064,55 @@ export default function VistaProyectosBase({ user, perfil }) {
       </div>
 
       {/* Tabla */}
-      <div className="flex-1 overflow-auto min-h-0">
       {loading ? (
         <div className="text-center py-12">
           <p className="text-gray-500">Cargando proyectos...</p>
         </div>
       ) : (
-        <div>
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
           <table className="w-full">
             <thead>
-              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
+              <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
                 <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold">#</ResizableTh>
                 <FilterableTh col="linea" label="Línea" opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="proyecto" label="Proyecto" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="jefe" label="Jefe" opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('ingresos')}>
-                  Ingresos {ordenCol === 'ingresos' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
-                </ResizableTh>
-                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('hh')}>
-                  HH {ordenCol === 'hh' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
-                </ResizableTh>
-                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('gastos')}>
-                  GGOO {ordenCol === 'gastos' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
-                </ResizableTh>
-                <ResizableTh className="py-3 px-3 text-gray-800 font-semibold text-right cursor-pointer select-none" onClick={() => toggleOrden('margen')}>
-                  Margen {ordenCol === 'margen' ? (ordenDir === 'asc' ? '↑' : '↓') : ''}
-                </ResizableTh>
+                <FilterableTh col="ingresos" label="Ingresos" align="right" style={{ width: '110px' }}
+                  opciones={opcionesIngresos} filtro={filtros.ingresos || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ingresos'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'ingresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="hh" label="HH" align="right" style={{ width: '100px' }}
+                  opciones={opcionesHH} filtro={filtros.hh || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'hh'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'hh'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="gastos" label="GGOO" align="right" style={{ width: '100px' }}
+                  opciones={opcionesGastos} filtro={filtros.gastos || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'gastos'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'gastos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }}
+                  opciones={opcionesMargen} filtro={filtros.margen || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'margen'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="estado" label="Estado" opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="tipo" label="Tipo" opciones={opcionesTipo} filtro={filtros.tipo || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'tipo'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'tipo'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="financista" label="Financista" opciones={opcionesPorColumna('financista', p => p.financistas?.nombre)} filtro={filtros.financista || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'financista'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'financista'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="region" label="Región" opciones={opcionesPorColumna('region', p => p.region)} filtro={filtros.region || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'region'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'region'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="industria" label="Industria" opciones={opcionesPorColumna('industria', p => p.industria)} filtro={filtros.industria || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'industria'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'industria'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="rendible" label="Rendible" align="center" opciones={opcionesRendible} filtro={filtros.rendible || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'rendible'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'rendible'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="ceco" label="CECO" opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}} sortable ordenActiva={ordenCol === 'ceco'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <ResizableTh className="text-center py-3 px-2 text-gray-800 font-semibold">HP</ResizableTh>
-                <ResizableTh className="text-center py-3 px-2 text-gray-800 font-semibold">Fecha Adj</ResizableTh>
+                <FilterableTh col="ceco" label="CECO" opciones={opcionesCeco} filtro={filtros.ceco || []} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ceco'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'ceco'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="hp" label="HP" align="center" style={{ width: '60px' }}
+                  opciones={['Sí', 'No']} filtro={filtros.hp || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'hp'} onToggleDropdown={setDropdownFiltro} />
+                <FilterableTh col="fechaAdj" label="Fecha Adj" align="center" style={{ width: '95px' }}
+                  opciones={opcionesFechaAdj} filtro={filtros.fechaAdj || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'fechaAdj'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'fechaAdj'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold">Acciones</ResizableTh>
               </tr>
             </thead>
             <tbody>
               {proyectosPagina.map((p, index) => {
-                const globalIndex = (paginaSegura - 1) * PAGE_SIZE + index + 1
+                const globalIndex = pagina * FILAS_POR_PAGINA + index + 1
                 const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
                 const ing    = parseFloat(p.ingresos) || 0
                 const gastos = parseFloat(p.gastos)   || 0
@@ -973,7 +1123,18 @@ export default function VistaProyectosBase({ user, perfil }) {
                     <td className="py-2 px-4 text-gray-500 text-sm">{globalIndex}</td>
                     <td className="py-2 px-4 text-gray-600 text-sm truncate" title={p.ceco}>{p.ceco}</td>
                     <td className="py-2 px-4 text-gray-800 font-medium text-sm">{p.nombre}</td>
-                    <td className="py-2 px-4 text-gray-700 text-sm truncate">{p.colaboradores?.colaborador || <span className="text-gray-400 italic">-</span>}</td>
+                    <td className="py-2 px-2">
+                      <select
+                        value={p.jefe_id || ''}
+                        onChange={e => guardarJefe(p, e.target.value)}
+                        className="w-full border border-gray-200 bg-transparent focus:bg-white focus:border-blue-300 rounded px-1 py-0.5 text-sm text-gray-700"
+                      >
+                        <option value="">Sin asignar</option>
+                        {colaboradores.map(c => (
+                          <option key={c.id} value={c.id}>{c.colaborador}</option>
+                        ))}
+                      </select>
+                    </td>
                     <td
                       className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer hover:bg-orange-50 group"
                       onClick={() => abrirModalEdicionFin(p, 'ingresos')}
@@ -1080,52 +1241,16 @@ export default function VistaProyectosBase({ user, perfil }) {
           </table>
         </div>
       )}
-      </div>
 
       {/* Paginación */}
-      {!loading && proyectosFiltrados.length > 0 && (
-        <div className="flex items-center justify-between px-2 py-2 border-t border-gray-200 bg-white flex-shrink-0">
-          <span className="text-sm text-gray-500">
-            Página {paginaSegura} de {totalPaginas} · {proyectosFiltrados.length} proyectos
-          </span>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setPaginaActual(1)}
-              disabled={paginaSegura === 1}
-              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-            >«</button>
-            <button
-              onClick={() => setPaginaActual(p => Math.max(1, p - 1))}
-              disabled={paginaSegura === 1}
-              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-            >‹</button>
-            {Array.from({ length: totalPaginas }, (_, i) => i + 1)
-              .filter(n => n === 1 || n === totalPaginas || Math.abs(n - paginaSegura) <= 2)
-              .reduce((acc, n, idx, arr) => {
-                if (idx > 0 && n - arr[idx - 1] > 1) acc.push('…')
-                acc.push(n)
-                return acc
-              }, [])
-              .map((n, i) => n === '…'
-                ? <span key={`ellipsis-${i}`} className="px-1 text-gray-400 text-sm">…</span>
-                : <button
-                    key={n}
-                    onClick={() => setPaginaActual(n)}
-                    className={`px-2 py-1 rounded text-sm border ${n === paginaSegura ? 'text-white border-orange-500' : 'border-gray-300 hover:bg-gray-50'}`}
-                    style={n === paginaSegura ? { backgroundColor: '#FF5100' } : {}}
-                  >{n}</button>
-              )
-            }
-            <button
-              onClick={() => setPaginaActual(p => Math.min(totalPaginas, p + 1))}
-              disabled={paginaSegura === totalPaginas}
-              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-            >›</button>
-            <button
-              onClick={() => setPaginaActual(totalPaginas)}
-              disabled={paginaSegura === totalPaginas}
-              className="px-2 py-1 rounded text-sm border border-gray-300 disabled:opacity-40 hover:bg-gray-50"
-            >»</button>
+      {!loading && proyectosFiltrados.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, proyectosFiltrados.length)} de {proyectosFiltrados.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= proyectosFiltrados.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
           </div>
         </div>
       )}

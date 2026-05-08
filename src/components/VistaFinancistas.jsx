@@ -18,6 +18,8 @@ export default function VistaFinancistas({ perfil }) {
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('nombre')
   const [ordenDir, setOrdenDir] = useState('asc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
   const [modalAgregar, setModalAgregar] = useState(false)
   const [form, setForm] = useState({ nombre: '', tipo: '', industria: '' })
 
@@ -79,6 +81,8 @@ export default function VistaFinancistas({ perfil }) {
   }
 
   function setFiltro(col, valor) { setFiltros(prev => ({ ...prev, [col]: valor })) }
+
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
 
   const filasFiltradas = filas
     .filter(f => {
@@ -204,9 +208,9 @@ export default function VistaFinancistas({ perfil }) {
             <tbody>
               {filasFiltradas.length === 0 ? (
                 <tr><td colSpan={5} className="py-12 text-center text-gray-400">Sin resultados.</td></tr>
-              ) : filasFiltradas.map((f, idx) => (
+              ) : filasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((f, idx) => (
                 <tr key={f.id} className="border-b border-gray-100 hover:bg-gray-50 transition-all">
-                  <td className="py-2 px-3 text-gray-400 text-sm text-center">{idx + 1}</td>
+                  <td className="py-2 px-3 text-gray-400 text-sm text-center">{pagina * FILAS_POR_PAGINA + idx + 1}</td>
                   <td className="py-2 px-2">
                     {esAdmin ? (
                       <input type="text" defaultValue={f.nombre} key={f.id + '_n'}
@@ -250,6 +254,18 @@ export default function VistaFinancistas({ perfil }) {
           </table>
         )}
       </div>
+
+      {!loading && filasFiltradas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, filasFiltradas.length)} de {filasFiltradas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= filasFiltradas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
 
       {modalAgregar && (
         <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50" onClick={() => setModalAgregar(false)}>

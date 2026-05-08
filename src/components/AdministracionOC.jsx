@@ -7,10 +7,13 @@ export default function AdministracionOC({ perfil }) {
   const [solicitudes, setSolicitudes] = useState([])
   const [_loading, setLoading] = useState(false)
   const [editando, setEditando] = useState(null)
+  const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('fecha')
   const [ordenDir, setOrdenDir] = useState('desc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   const empresaUsuario = perfil?.empresa || 'CGV'
 
@@ -86,12 +89,24 @@ export default function AdministracionOC({ perfil }) {
     }
   }
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
+
   function coincideFiltros(s, omitirCol = null) {
+    const q = busqueda.toLowerCase()
+    const fechaStr = s.fecha_creacion ? new Date(s.fecha_creacion).toLocaleDateString('es-CL') : ''
+    const valorStr = formatearValor(s.valor)
+    const matchBusqueda = !q || [s.usuario_email, String(s.id_correlativo || ''), s.proveedor, s.glosa, s.subproyecto, s.proyecto_nombre, valorStr, fechaStr, s.sol_netsuite, s.estado].some(v => (v || '').toLowerCase().includes(q))
     const matchAutor = omitirCol === 'autor' || !filtros.autor?.length || filtros.autor.includes(s.usuario_email)
+    const matchId = omitirCol === 'id' || !filtros.id?.length || filtros.id.includes(String(s.id_correlativo || ''))
     const matchProveedor = omitirCol === 'proveedor' || !filtros.proveedor?.length || filtros.proveedor.includes(s.proveedor)
+    const matchGlosa = omitirCol === 'glosa' || !filtros.glosa?.length || filtros.glosa.includes(s.glosa)
+    const matchSubproyecto = omitirCol === 'subproyecto' || !filtros.subproyecto?.length || filtros.subproyecto.includes(s.subproyecto)
     const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(s.proyecto_nombre)
+    const matchValor = omitirCol === 'valor' || !filtros.valor?.length || filtros.valor.includes(valorStr)
+    const matchFecha = omitirCol === 'fecha' || !filtros.fecha?.length || filtros.fecha.includes(fechaStr)
+    const matchNetsuite = omitirCol === 'netsuite' || !filtros.netsuite?.length || filtros.netsuite.includes(s.sol_netsuite)
     const matchEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(s.estado)
-    return matchAutor && matchProveedor && matchProyecto && matchEstado
+    return matchBusqueda && matchAutor && matchId && matchProveedor && matchGlosa && matchSubproyecto && matchProyecto && matchValor && matchFecha && matchNetsuite && matchEstado
   }
 
   function opcionesPorColumna(col, obtenerValor) {
@@ -102,8 +117,14 @@ export default function AdministracionOC({ perfil }) {
   }
 
   const opcionesAutor = opcionesPorColumna('autor', (s) => s.usuario_email)
+  const opcionesId = opcionesPorColumna('id', (s) => String(s.id_correlativo || '') || null)
   const opcionesProveedor = opcionesPorColumna('proveedor', (s) => s.proveedor)
+  const opcionesGlosa = opcionesPorColumna('glosa', (s) => s.glosa)
+  const opcionesSubproyecto = opcionesPorColumna('subproyecto', (s) => s.subproyecto)
   const opcionesProyecto = opcionesPorColumna('proyecto', (s) => s.proyecto_nombre)
+  const opcionesValor = opcionesPorColumna('valor', (s) => formatearValor(s.valor))
+  const opcionesFecha = opcionesPorColumna('fecha', (s) => s.fecha_creacion ? new Date(s.fecha_creacion).toLocaleDateString('es-CL') : null)
+  const opcionesNetsuite = opcionesPorColumna('netsuite', (s) => s.sol_netsuite)
   const opcionesEstado = opcionesPorColumna('estado', (s) => s.estado)
 
   const solicitudesFiltradas = solicitudes.filter((s) => coincideFiltros(s)).sort((a, b) => {
@@ -125,10 +146,17 @@ export default function AdministracionOC({ perfil }) {
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
-      <div className="mb-6 flex-shrink-0">
+      <div className="mb-4 flex-shrink-0 flex justify-between items-center flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-gray-800" style={{ color: '#FF5100' }}>
           Administracion de OC - {empresaUsuario === 'HUB_MET' ? 'HUB MET' : 'CGV'}
         </h2>
+        <input
+          type="text"
+          placeholder="Buscar..."
+          value={busqueda}
+          onChange={e => setBusqueda(e.target.value)}
+          className="px-4 py-2 rounded-lg bg-gray-100 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+        />
       </div>
 
       {solicitudes.length === 0 ? (
@@ -159,11 +187,11 @@ export default function AdministracionOC({ perfil }) {
                     col="id"
                     label="ID"
                     style={{ width: '88px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesId}
+                    filtro={filtros.id || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'id'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'id'}
                     ordenDir={ordenDir}
@@ -187,11 +215,11 @@ export default function AdministracionOC({ perfil }) {
                     col="glosa"
                     label="Glosa"
                     style={{ width: '220px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesGlosa}
+                    filtro={filtros.glosa || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'glosa'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'glosa'}
                     ordenDir={ordenDir}
@@ -201,11 +229,11 @@ export default function AdministracionOC({ perfil }) {
                     col="subproyecto"
                     label="Subproyecto"
                     style={{ width: '160px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesSubproyecto}
+                    filtro={filtros.subproyecto || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'subproyecto'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'subproyecto'}
                     ordenDir={ordenDir}
@@ -229,11 +257,11 @@ export default function AdministracionOC({ perfil }) {
                     col="valor"
                     label="Valor"
                     style={{ width: '125px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesValor}
+                    filtro={filtros.valor || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'valor'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'valor'}
                     ordenDir={ordenDir}
@@ -243,11 +271,11 @@ export default function AdministracionOC({ perfil }) {
                     col="fecha"
                     label="Fecha"
                     style={{ width: '115px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesFecha}
+                    filtro={filtros.fecha || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'fecha'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'fecha'}
                     ordenDir={ordenDir}
@@ -257,11 +285,11 @@ export default function AdministracionOC({ perfil }) {
                     col="netsuite"
                     label="Sol. NetSuite"
                     style={{ width: '130px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesNetsuite}
+                    filtro={filtros.netsuite || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'netsuite'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'netsuite'}
                     ordenDir={ordenDir}
@@ -284,7 +312,7 @@ export default function AdministracionOC({ perfil }) {
                 </tr>
               </thead>
               <tbody>
-                {solicitudesFiltradas.map((s) => (
+                {solicitudesFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((s) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.usuario_email}</td>
                     <td className="py-3 px-4 text-gray-800 font-medium">{s.id_correlativo || '-'}</td>
@@ -373,10 +401,19 @@ export default function AdministracionOC({ perfil }) {
             </table>
           </div>
 
-          <div className="p-4 bg-gray-50 border-t border-gray-200">
-            <p className="text-sm text-gray-600">
-              Total de solicitudes: <span className="font-semibold">{solicitudesFiltradas.length}</span>
-            </p>
+          <div className="p-3 bg-[#FFF5F0] border-t-2 border-gray-400 flex justify-between items-center flex-wrap gap-2">
+            <span className="text-sm font-bold text-gray-800">
+              TOTAL: {solicitudesFiltradas.length} de {solicitudes.length}
+            </span>
+            {solicitudesFiltradas.length > FILAS_POR_PAGINA && (
+              <div className="flex items-center gap-3">
+                <span className="text-sm text-gray-600">{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, solicitudesFiltradas.length)} de {solicitudesFiltradas.length}</span>
+                <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+                  className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 text-sm">← Anterior</button>
+                <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= solicitudesFiltradas.length}
+                  className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100 text-sm">Siguiente →</button>
+              </div>
+            )}
           </div>
         </div>
       )}

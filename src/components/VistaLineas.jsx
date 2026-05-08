@@ -31,6 +31,8 @@ export default function VistaLineas({ perfil }) {
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('linea')
   const [ordenDir, setOrdenDir] = useState('asc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarLineas()
@@ -151,6 +153,8 @@ export default function VistaLineas({ perfil }) {
     return [...new Set([...base, ...seleccionadas])].sort((a, b) => a.localeCompare(b, 'es'))
   }, [lineas, busqueda, filtros.linea])
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenDir])
+
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
@@ -231,7 +235,7 @@ export default function VistaLineas({ perfil }) {
               </tr>
             </thead>
             <tbody>
-              {lineasFiltradas.map((l) => (
+              {lineasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((l) => (
                 <tr key={l.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                   <td className="py-3 px-4 text-gray-800">{l.linea}</td>
                 </tr>
@@ -243,10 +247,26 @@ export default function VistaLineas({ perfil }) {
                   </td>
                 </tr>
               )}
+              {lineasFiltradas.length > 0 && (
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td className="py-3 px-4 text-gray-800 text-sm">TOTAL: {lineasFiltradas.length} de {lineas.length}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
       </div>
+      {!loading && lineasFiltradas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 flex-shrink-0 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, lineasFiltradas.length)} de {lineasFiltradas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= lineasFiltradas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -86,6 +86,15 @@ export default function VistaHorasProyectadas() {
   const [paginaCosto, setPaginaCosto] = useState(0)
   const [paginaLinea, setPaginaLinea] = useState(0)
   const FILAS_POR_PAGINA = 10
+  const [busquedaValidator, setBusquedaValidator] = useState('')
+  const [filtrosValidator, setFiltrosValidator] = useState({})
+  const [dropdownFiltroValidator, setDropdownFiltroValidator] = useState(null)
+  const [busquedaCostoPivot, setBusquedaCostoPivot] = useState('')
+  const [filtrosCostoPivot, setFiltrosCostoPivot] = useState({})
+  const [dropdownFiltroCostoPivot, setDropdownFiltroCostoPivot] = useState(null)
+  const [busquedaLineaPivot, setBusquedaLineaPivot] = useState('')
+  const [filtrosLineaPivot, setFiltrosLineaPivot] = useState({})
+  const [dropdownFiltroLineaPivot, setDropdownFiltroLineaPivot] = useState(null)
 
   useEffect(() => {
     cargarDatos()
@@ -98,6 +107,32 @@ export default function VistaHorasProyectadas() {
     document.addEventListener('click', cerrar)
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltro])
+
+  useEffect(() => {
+    if (!dropdownFiltroValidator) return
+    function cerrar() { setDropdownFiltroValidator(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltroValidator])
+
+  useEffect(() => {
+    if (!dropdownFiltroCostoPivot) return
+    function cerrar() { setDropdownFiltroCostoPivot(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltroCostoPivot])
+
+  useEffect(() => {
+    if (!dropdownFiltroLineaPivot) return
+    function cerrar() { setDropdownFiltroLineaPivot(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltroLineaPivot])
+
+  useEffect(() => { setPaginaMain(0) }, [busqueda, filtros, ordenCol, ordenDir])
+  useEffect(() => { setPaginaValidator(0) }, [busquedaValidator, filtrosValidator])
+  useEffect(() => { setPaginaCosto(0) }, [busquedaCostoPivot, filtrosCostoPivot])
+  useEffect(() => { setPaginaLinea(0) }, [busquedaLineaPivot, filtrosLineaPivot])
 
   async function cargarDatos() {
     setLoading(true)
@@ -203,19 +238,29 @@ export default function VistaHorasProyectadas() {
     setPaginaMain(0)
   }
 
+  function setFiltroValidator(col, valor) { setFiltrosValidator(prev => ({ ...prev, [col]: valor })) }
+  function setFiltroCostoPivot(col, valor) { setFiltrosCostoPivot(prev => ({ ...prev, [col]: valor })) }
+  function setFiltroLineaPivot(col, valor) { setFiltrosLineaPivot(prev => ({ ...prev, [col]: valor })) }
+
   function coincideFiltros(f) {
     const q = busqueda.toLowerCase()
     const linea = proyectosLinea[normalize(f.proyecto)] || ''
-    const matchBusqueda = !q || [f.colaborador, f.proyecto, f.mes, linea].some(v => (v || '').toLowerCase().includes(q))
+    const rut = colaboradoresRut[normalize(f.colaborador)] || ''
+    const costo = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
+    const costoStr = costo === 0 ? '' : Math.round(costo).toLocaleString('es-CL')
+    const matchBusqueda = !q || [f.colaborador, f.proyecto, f.mes, linea, rut].some(v => (v || '').toLowerCase().includes(q))
     const matchColaborador = !filtros.colaborador?.length || filtros.colaborador.includes(f.colaborador)
     const matchProyecto    = !filtros.proyecto?.length    || filtros.proyecto.includes(f.proyecto)
     const matchMes         = !filtros.mes?.length         || filtros.mes.includes(f.mes)
     const matchLinea       = !filtros.linea?.length       || filtros.linea.includes(linea)
+    const matchRut         = !filtros.rut?.length         || filtros.rut.includes(rut)
+    const matchHoras       = !filtros.horas?.length       || filtros.horas.includes(String(f.horas || ''))
+    const matchCosto       = !filtros.costo?.length       || filtros.costo.includes(costoStr)
     const enCol  = colaboradoresSet.has(normalize(f.colaborador))
     const enProy = proyectosSet.has(normalize(f.proyecto))
     const matchEnCol  = !filtros.enColaboradores?.length  || (filtros.enColaboradores.includes('Sí') && enCol)  || (filtros.enColaboradores.includes('No') && !enCol)
     const matchEnProy = !filtros.enProyectos?.length      || (filtros.enProyectos.includes('Sí') && enProy) || (filtros.enProyectos.includes('No') && !enProy)
-    return matchBusqueda && matchColaborador && matchProyecto && matchMes && matchLinea && matchEnCol && matchEnProy
+    return matchBusqueda && matchColaborador && matchProyecto && matchMes && matchLinea && matchRut && matchHoras && matchCosto && matchEnCol && matchEnProy
   }
 
   function opcionesPorColumna(obtenerValor, esmes = false) {
@@ -232,6 +277,12 @@ export default function VistaHorasProyectadas() {
   const opcionesProyecto    = opcionesPorColumna(f => f.proyecto)
   const opcionesMes         = opcionesPorColumna(f => f.mes, true)
   const opcionesLinea       = [...new Set(filas.map(f => proyectosLinea[normalize(f.proyecto)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesRut         = [...new Set(filas.map(f => colaboradoresRut[normalize(f.colaborador)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesHoras       = [...new Set(filas.map(f => String(f.horas || '')).filter(Boolean))].sort((a, b) => (parseFloat(a) || 0) - (parseFloat(b) || 0))
+  const opcionesCosto       = [...new Set(filas.map(f => {
+    const c = (parseFloat(f.horas) || 0) * (colaboradoresCosto[normalize(f.colaborador)]?.[f.mes] || 0)
+    return c === 0 ? '' : Math.round(c).toLocaleString('es-CL')
+  }).filter(Boolean))].sort((a, b) => (parseInt(a.replace(/\./g, '')) || 0) - (parseInt(b.replace(/\./g, '')) || 0))
 
   const filasFiltradas = filas
     .filter(coincideFiltros)
@@ -331,6 +382,52 @@ export default function VistaHorasProyectadas() {
     costoPorMesLinea[mes] = costoLineas.reduce((sum, l) => sum + (costoLineaPivot[l]?.[mes] || 0), 0)
   }
   const totalCostoLinea = MESES_ABREV.reduce((sum, m) => sum + costoPorMesLinea[m], 0)
+
+  const opcionesColaboradorValidator = [...validatorColabs]
+  const opcionesRutValidator = [...new Set(validatorColabs.map(c => colaboradoresRut[normalize(c)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesColaboradorCosto = [...costoColabs]
+  const opcionesRutCosto = [...new Set(costoColabs.map(c => colaboradoresRut[normalize(c)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesLineaPivot = [...costoLineas]
+
+  const validatorColabsFiltrados = validatorColabs.filter(col => {
+    const q = busquedaValidator.toLowerCase()
+    const rut = colaboradoresRut[normalize(col)] || ''
+    const matchBusqueda = !q || [col, rut].some(v => v.toLowerCase().includes(q))
+    const matchCol = !filtrosValidator.colaborador?.length || filtrosValidator.colaborador.includes(col)
+    const matchRut = !filtrosValidator.rut?.length || filtrosValidator.rut.includes(rut)
+    return matchBusqueda && matchCol && matchRut
+  })
+  const totalPorMesFiltrado = {}
+  for (const mes of MESES_ABREV) {
+    totalPorMesFiltrado[mes] = validatorColabsFiltrados.reduce((sum, c) => sum + (validatorPivot[c]?.[mes] || 0), 0)
+  }
+  const totalValidadorFiltrado = MESES_ABREV.reduce((sum, m) => sum + totalPorMesFiltrado[m], 0)
+
+  const costoColabsFiltrados = costoColabs.filter(col => {
+    const q = busquedaCostoPivot.toLowerCase()
+    const rut = colaboradoresRut[normalize(col)] || ''
+    const matchBusqueda = !q || [col, rut].some(v => v.toLowerCase().includes(q))
+    const matchCol = !filtrosCostoPivot.colaborador?.length || filtrosCostoPivot.colaborador.includes(col)
+    const matchRut = !filtrosCostoPivot.rut?.length || filtrosCostoPivot.rut.includes(rut)
+    return matchBusqueda && matchCol && matchRut
+  })
+  const costoPorMesFiltrado = {}
+  for (const mes of MESES_ABREV) {
+    costoPorMesFiltrado[mes] = costoColabsFiltrados.reduce((sum, c) => sum + (costoPivot[c]?.[mes] || 0), 0)
+  }
+  const totalCostoPivotFiltrado = MESES_ABREV.reduce((sum, m) => sum + costoPorMesFiltrado[m], 0)
+
+  const costoLineasFiltradas = costoLineas.filter(linea => {
+    const q = busquedaLineaPivot.toLowerCase()
+    const matchBusqueda = !q || linea.toLowerCase().includes(q)
+    const matchLinea = !filtrosLineaPivot.linea?.length || filtrosLineaPivot.linea.includes(linea)
+    return matchBusqueda && matchLinea
+  })
+  const costoPorMesLineaFiltrado = {}
+  for (const mes of MESES_ABREV) {
+    costoPorMesLineaFiltrado[mes] = costoLineasFiltradas.reduce((sum, l) => sum + (costoLineaPivot[l]?.[mes] || 0), 0)
+  }
+  const totalCostoLineaFiltrado = MESES_ABREV.reduce((sum, m) => sum + costoPorMesLineaFiltrado[m], 0)
 
   function exportarCostoPivot() {
     const rows = costoColabs.map(col => {
@@ -636,7 +733,11 @@ export default function VistaHorasProyectadas() {
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'colaborador'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'colaborador'} ordenDir={ordenDir} onOrdenar={toggleOrden}
                 />
-                <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-left" style={{ width: '110px' }}>RUT</ResizableTh>
+                <FilterableTh
+                  col="rut" label="RUT" align="left" style={{ width: '110px' }}
+                  opciones={opcionesRut} filtro={filtros.rut || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'rut'} onToggleDropdown={setDropdownFiltro}
+                />
                 <FilterableTh
                   col="proyecto" label="Proyecto" align="left"
                   opciones={opcionesProyecto} filtro={filtros.proyecto || []}
@@ -657,10 +758,15 @@ export default function VistaHorasProyectadas() {
                 />
                 <FilterableTh
                   col="horas" label="Horas" align="right" style={{ width: '90px' }}
-                  opciones={[]} filtro={[]} onFiltro={() => {}} dropdownAbierto={false} onToggleDropdown={() => {}}
+                  opciones={opcionesHoras} filtro={filtros.horas || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'horas'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'horas'} ordenDir={ordenDir} onOrdenar={toggleOrden}
                 />
-                <ResizableTh className="py-3 px-4 text-gray-800 font-semibold bg-[#FFF5F0] text-right" style={{ width: '120px' }}>Costo</ResizableTh>
+                <FilterableTh
+                  col="costo" label="Costo" align="right" style={{ width: '120px' }}
+                  opciones={opcionesCosto} filtro={filtros.costo || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'costo'} onToggleDropdown={setDropdownFiltro}
+                />
                 <FilterableTh
                   col="enColaboradores" label="En Colaboradores" align="center" style={{ width: '140px' }}
                   opciones={['Sí', 'No']} filtro={filtros.enColaboradores || []}
@@ -770,7 +876,14 @@ export default function VistaHorasProyectadas() {
       {!loading && (
         <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
           <h3 className="text-lg font-bold text-gray-800">Resumen por colaborador</h3>
-          <div className="flex gap-2 items-center">
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="text"
+              value={busquedaValidator}
+              onChange={e => setBusquedaValidator(e.target.value)}
+              placeholder="Buscar colaborador..."
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            />
             <label className="text-sm text-gray-600 font-medium">Año:</label>
             <select
               value={añoValidator}
@@ -803,8 +916,16 @@ export default function VistaHorasProyectadas() {
             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
               <thead>
                 <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
-                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
-                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
+                  <FilterableTh
+                    col="colaborador" label="Colaborador" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesColaboradorValidator} filtro={filtrosValidator.colaborador || []}
+                    onFiltro={setFiltroValidator} dropdownAbierto={dropdownFiltroValidator === 'colaborador'} onToggleDropdown={setDropdownFiltroValidator}
+                  />
+                  <FilterableTh
+                    col="rut" label="RUT" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesRutValidator} filtro={filtrosValidator.rut || []}
+                    onFiltro={setFiltroValidator} dropdownAbierto={dropdownFiltroValidator === 'rut'} onToggleDropdown={setDropdownFiltroValidator}
+                  />
                   {MESES_CORTOS.map((mc, i) => (
                     <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
@@ -812,7 +933,7 @@ export default function VistaHorasProyectadas() {
                 </tr>
               </thead>
               <tbody>
-                {validatorColabs.slice(paginaValidator * FILAS_POR_PAGINA, (paginaValidator + 1) * FILAS_POR_PAGINA).map((col, idx) => {
+                {validatorColabsFiltrados.slice(paginaValidator * FILAS_POR_PAGINA, (paginaValidator + 1) * FILAS_POR_PAGINA).map((col, idx) => {
                   const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (validatorPivot[col]?.[m] || 0), 0)
                   return (
                     <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
@@ -827,24 +948,24 @@ export default function VistaHorasProyectadas() {
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
+                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL ({validatorColabsFiltrados.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{totalPorMes[mes] === 0 ? '0,00' : totalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{totalPorMesFiltrado[mes] === 0 ? '0,00' : totalPorMesFiltrado[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   ))}
-                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{totalValidador.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{totalValidadorFiltrado.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
               </tbody>
             </table>
           )}
         </div>
       )}
-      {!loading && validatorColabs.length > FILAS_POR_PAGINA && (
+      {!loading && validatorColabsFiltrados.length > FILAS_POR_PAGINA && (
         <div className="flex justify-between items-center py-2 text-sm text-gray-600">
-          <span>{paginaValidator * FILAS_POR_PAGINA + 1}–{Math.min((paginaValidator + 1) * FILAS_POR_PAGINA, validatorColabs.length)} de {validatorColabs.length}</span>
+          <span>{paginaValidator * FILAS_POR_PAGINA + 1}–{Math.min((paginaValidator + 1) * FILAS_POR_PAGINA, validatorColabsFiltrados.length)} de {validatorColabsFiltrados.length}</span>
           <div className="flex gap-2">
             <button onClick={() => setPaginaValidator(p => Math.max(0, p - 1))} disabled={paginaValidator === 0}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
-            <button onClick={() => setPaginaValidator(p => p + 1)} disabled={(paginaValidator + 1) * FILAS_POR_PAGINA >= validatorColabs.length}
+            <button onClick={() => setPaginaValidator(p => p + 1)} disabled={(paginaValidator + 1) * FILAS_POR_PAGINA >= validatorColabsFiltrados.length}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
           </div>
         </div>
@@ -854,14 +975,23 @@ export default function VistaHorasProyectadas() {
       {!loading && (
         <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
           <h3 className="text-lg font-bold text-gray-800">Resumen de costo por colaborador</h3>
-          <button
-            onClick={exportarCostoPivot}
-            disabled={costoColabs.length === 0}
-            className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#6366F1' }}
-          >
-            Exportar Excel
-          </button>
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="text"
+              value={busquedaCostoPivot}
+              onChange={e => setBusquedaCostoPivot(e.target.value)}
+              placeholder="Buscar colaborador..."
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            />
+            <button
+              onClick={exportarCostoPivot}
+              disabled={costoColabs.length === 0}
+              className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#6366F1' }}
+            >
+              Exportar Excel
+            </button>
+          </div>
         </div>
       )}
 
@@ -874,8 +1004,16 @@ export default function VistaHorasProyectadas() {
             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
               <thead>
                 <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
-                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Colaborador</th>
-                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">RUT</th>
+                  <FilterableTh
+                    col="colaborador" label="Colaborador" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesColaboradorCosto} filtro={filtrosCostoPivot.colaborador || []}
+                    onFiltro={setFiltroCostoPivot} dropdownAbierto={dropdownFiltroCostoPivot === 'colaborador'} onToggleDropdown={setDropdownFiltroCostoPivot}
+                  />
+                  <FilterableTh
+                    col="rut" label="RUT" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesRutCosto} filtro={filtrosCostoPivot.rut || []}
+                    onFiltro={setFiltroCostoPivot} dropdownAbierto={dropdownFiltroCostoPivot === 'rut'} onToggleDropdown={setDropdownFiltroCostoPivot}
+                  />
                   {MESES_CORTOS.map((mc, i) => (
                     <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
@@ -883,7 +1021,7 @@ export default function VistaHorasProyectadas() {
                 </tr>
               </thead>
               <tbody>
-                {costoColabs.slice(paginaCosto * FILAS_POR_PAGINA, (paginaCosto + 1) * FILAS_POR_PAGINA).map((col, idx) => {
+                {costoColabsFiltrados.slice(paginaCosto * FILAS_POR_PAGINA, (paginaCosto + 1) * FILAS_POR_PAGINA).map((col, idx) => {
                   const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (costoPivot[col]?.[m] || 0), 0)
                   return (
                     <tr key={col} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
@@ -898,24 +1036,24 @@ export default function VistaHorasProyectadas() {
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL</td>
+                  <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL ({costoColabsFiltrados.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMes[mes] === 0 ? '—' : Math.round(costoPorMes[mes]).toLocaleString('es-CL')}</td>
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesFiltrado[mes]).toLocaleString('es-CL')}</td>
                   ))}
-                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoPivot).toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoPivotFiltrado).toLocaleString('es-CL')}</td>
                 </tr>
               </tbody>
             </table>
           )}
         </div>
       )}
-      {!loading && costoColabs.length > FILAS_POR_PAGINA && (
+      {!loading && costoColabsFiltrados.length > FILAS_POR_PAGINA && (
         <div className="flex justify-between items-center py-2 text-sm text-gray-600">
-          <span>{paginaCosto * FILAS_POR_PAGINA + 1}–{Math.min((paginaCosto + 1) * FILAS_POR_PAGINA, costoColabs.length)} de {costoColabs.length}</span>
+          <span>{paginaCosto * FILAS_POR_PAGINA + 1}–{Math.min((paginaCosto + 1) * FILAS_POR_PAGINA, costoColabsFiltrados.length)} de {costoColabsFiltrados.length}</span>
           <div className="flex gap-2">
             <button onClick={() => setPaginaCosto(p => Math.max(0, p - 1))} disabled={paginaCosto === 0}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
-            <button onClick={() => setPaginaCosto(p => p + 1)} disabled={(paginaCosto + 1) * FILAS_POR_PAGINA >= costoColabs.length}
+            <button onClick={() => setPaginaCosto(p => p + 1)} disabled={(paginaCosto + 1) * FILAS_POR_PAGINA >= costoColabsFiltrados.length}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
           </div>
         </div>
@@ -925,14 +1063,23 @@ export default function VistaHorasProyectadas() {
       {!loading && (
         <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
           <h3 className="text-lg font-bold text-gray-800">Resumen de costo por línea</h3>
-          <button
-            onClick={exportarCostoLinea}
-            disabled={costoLineas.length === 0}
-            className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
-            style={{ backgroundColor: '#6366F1' }}
-          >
-            Exportar Excel
-          </button>
+          <div className="flex gap-2 items-center flex-wrap">
+            <input
+              type="text"
+              value={busquedaLineaPivot}
+              onChange={e => setBusquedaLineaPivot(e.target.value)}
+              placeholder="Buscar línea..."
+              className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+            />
+            <button
+              onClick={exportarCostoLinea}
+              disabled={costoLineas.length === 0}
+              className="px-4 py-1.5 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90 disabled:opacity-50"
+              style={{ backgroundColor: '#6366F1' }}
+            >
+              Exportar Excel
+            </button>
+          </div>
         </div>
       )}
 
@@ -945,7 +1092,11 @@ export default function VistaHorasProyectadas() {
             <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
               <thead>
                 <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
-                  <th className="py-2 px-4 text-left font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]">Línea</th>
+                  <FilterableTh
+                    col="linea" label="Línea" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesLineaPivot} filtro={filtrosLineaPivot.linea || []}
+                    onFiltro={setFiltroLineaPivot} dropdownAbierto={dropdownFiltroLineaPivot === 'linea'} onToggleDropdown={setDropdownFiltroLineaPivot}
+                  />
                   {MESES_CORTOS.map((mc, i) => (
                     <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
@@ -953,7 +1104,7 @@ export default function VistaHorasProyectadas() {
                 </tr>
               </thead>
               <tbody>
-                {costoLineas.slice(paginaLinea * FILAS_POR_PAGINA, (paginaLinea + 1) * FILAS_POR_PAGINA).map((linea, idx) => {
+                {costoLineasFiltradas.slice(paginaLinea * FILAS_POR_PAGINA, (paginaLinea + 1) * FILAS_POR_PAGINA).map((linea, idx) => {
                   const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (costoLineaPivot[linea]?.[m] || 0), 0)
                   return (
                     <tr key={linea} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
@@ -967,24 +1118,24 @@ export default function VistaHorasProyectadas() {
                   )
                 })}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td className="py-2 px-4 text-gray-800">TOTAL</td>
+                  <td className="py-2 px-4 text-gray-800">TOTAL ({costoLineasFiltradas.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesLinea[mes] === 0 ? '—' : Math.round(costoPorMesLinea[mes]).toLocaleString('es-CL')}</td>
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesLineaFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesLineaFiltrado[mes]).toLocaleString('es-CL')}</td>
                   ))}
-                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoLinea).toLocaleString('es-CL')}</td>
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoLineaFiltrado).toLocaleString('es-CL')}</td>
                 </tr>
               </tbody>
             </table>
           )}
         </div>
       )}
-      {!loading && costoLineas.length > FILAS_POR_PAGINA && (
+      {!loading && costoLineasFiltradas.length > FILAS_POR_PAGINA && (
         <div className="flex justify-between items-center py-2 text-sm text-gray-600">
-          <span>{paginaLinea * FILAS_POR_PAGINA + 1}–{Math.min((paginaLinea + 1) * FILAS_POR_PAGINA, costoLineas.length)} de {costoLineas.length}</span>
+          <span>{paginaLinea * FILAS_POR_PAGINA + 1}–{Math.min((paginaLinea + 1) * FILAS_POR_PAGINA, costoLineasFiltradas.length)} de {costoLineasFiltradas.length}</span>
           <div className="flex gap-2">
             <button onClick={() => setPaginaLinea(p => Math.max(0, p - 1))} disabled={paginaLinea === 0}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
-            <button onClick={() => setPaginaLinea(p => p + 1)} disabled={(paginaLinea + 1) * FILAS_POR_PAGINA >= costoLineas.length}
+            <button onClick={() => setPaginaLinea(p => p + 1)} disabled={(paginaLinea + 1) * FILAS_POR_PAGINA >= costoLineasFiltradas.length}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
           </div>
         </div>

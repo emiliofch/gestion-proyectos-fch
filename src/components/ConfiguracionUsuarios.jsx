@@ -17,10 +17,13 @@ export default function ConfiguracionUsuarios({ user }) {
   const [nuevoCorreoCGV, setNuevoCorreoCGV] = useState('')
   const [nuevoCorreoHUBMET, setNuevoCorreoHUBMET] = useState('')
   const [guardandoCorreos, setGuardandoCorreos] = useState(false)
+  const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('fecha')
   const [ordenDir, setOrdenDir] = useState('desc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarUsuarios()
@@ -194,11 +197,17 @@ export default function ConfiguracionUsuarios({ user }) {
     }
   }
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
+
   function coincideFiltros(u, omitirCol = null) {
+    const q = busqueda.toLowerCase()
+    const fechaStr = u.created_at ? new Date(u.created_at).toLocaleDateString('es-CL') : ''
+    const matchBusqueda = !q || [u.email, u.rol, u.empresa, fechaStr].some(v => (v || '').toLowerCase().includes(q))
     const matchEmail = omitirCol === 'email' || !filtros.email?.length || filtros.email.includes(u.email)
     const matchRol = omitirCol === 'rol' || !filtros.rol?.length || filtros.rol.includes(u.rol || 'usuario')
     const matchEmpresa = omitirCol === 'empresa' || !filtros.empresa?.length || filtros.empresa.includes(u.empresa || 'CGV')
-    return matchEmail && matchRol && matchEmpresa
+    const matchFecha = omitirCol === 'fecha' || !filtros.fecha?.length || filtros.fecha.includes(fechaStr)
+    return matchBusqueda && matchEmail && matchRol && matchEmpresa && matchFecha
   }
 
   function opcionesPorColumna(col, obtenerValor) {
@@ -211,6 +220,7 @@ export default function ConfiguracionUsuarios({ user }) {
   const opcionesEmail = opcionesPorColumna('email', (u) => u.email)
   const opcionesRol = opcionesPorColumna('rol', (u) => u.rol || 'usuario')
   const opcionesEmpresa = opcionesPorColumna('empresa', (u) => u.empresa || 'CGV')
+  const opcionesFecha = opcionesPorColumna('fecha', (u) => u.created_at ? new Date(u.created_at).toLocaleDateString('es-CL') : null)
 
   const usuariosFiltrados = usuarios
     .filter((u) => coincideFiltros(u))
@@ -382,7 +392,16 @@ export default function ConfiguracionUsuarios({ user }) {
 
       {/* Tabla de Usuarios */}
       <div className="overflow-x-auto">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Usuarios Registrados</h3>
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-gray-800">Usuarios Registrados</h3>
+          <input
+            type="text"
+            placeholder="Buscar usuario..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-100 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
         <table className="w-full">
           <thead>
             <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
@@ -428,11 +447,11 @@ export default function ConfiguracionUsuarios({ user }) {
               <FilterableTh
                 col="fecha"
                 label="Fecha Creacion"
-                opciones={[]}
-                filtro={[]}
-                onFiltro={() => {}}
-                dropdownAbierto={false}
-                onToggleDropdown={() => {}}
+                opciones={opcionesFecha}
+                filtro={filtros.fecha || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'fecha'}
+                onToggleDropdown={setDropdownFiltro}
                 sortable
                 ordenActiva={ordenCol === 'fecha'}
                 ordenDir={ordenDir}
@@ -441,7 +460,7 @@ export default function ConfiguracionUsuarios({ user }) {
             </tr>
           </thead>
           <tbody>
-            {usuariosFiltrados.map(u => (
+            {usuariosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map(u => (
               <tr key={u.id} className="border-b border-gray-200 hover:bg-gray-50">
                 <td className="py-3 px-4 text-gray-800">{u.email}</td>
                 <td className="py-3 px-4">
@@ -475,8 +494,26 @@ export default function ConfiguracionUsuarios({ user }) {
                 <td className="py-3 px-4 text-gray-800 text-sm">{new Date(u.created_at).toLocaleString()}</td>
               </tr>
             ))}
+            {usuariosFiltrados.length > 0 && (
+              <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                <td colSpan={4} className="py-3 px-4 text-gray-800 text-sm">
+                  TOTAL: {usuariosFiltrados.length} de {usuarios.length}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
+        {usuariosFiltrados.length > FILAS_POR_PAGINA && (
+          <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 border-t border-gray-200">
+            <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, usuariosFiltrados.length)} de {usuariosFiltrados.length}</span>
+            <div className="flex gap-2">
+              <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+                className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+              <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= usuariosFiltrados.length}
+                className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

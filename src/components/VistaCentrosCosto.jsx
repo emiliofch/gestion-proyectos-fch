@@ -31,6 +31,8 @@ export default function VistaCentrosCosto({ perfil }) {
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('ceco')
   const [ordenDir, setOrdenDir] = useState('asc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarCentros()
@@ -151,6 +153,8 @@ export default function VistaCentrosCosto({ perfil }) {
     return [...new Set([...base, ...seleccionadas])].sort((a, b) => a.localeCompare(b, 'es'))
   }, [centros, busqueda, filtros.ceco])
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenDir])
+
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
@@ -234,7 +238,7 @@ export default function VistaCentrosCosto({ perfil }) {
               </tr>
             </thead>
             <tbody>
-              {centrosFiltrados.map((c) => (
+              {centrosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((c) => (
                 <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                   <td className="py-3 px-4 text-gray-800">{c.ceco}</td>
                 </tr>
@@ -246,10 +250,26 @@ export default function VistaCentrosCosto({ perfil }) {
                   </td>
                 </tr>
               )}
+              {centrosFiltrados.length > 0 && (
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td className="py-3 px-4 text-gray-800 text-sm">TOTAL: {centrosFiltrados.length} de {centros.length}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         )}
       </div>
+      {!loading && centrosFiltrados.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 flex-shrink-0 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, centrosFiltrados.length)} de {centrosFiltrados.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= centrosFiltrados.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

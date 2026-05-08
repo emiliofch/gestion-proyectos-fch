@@ -41,6 +41,8 @@ export default function VistaColaboradoresCostos() {
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState(null)
   const [ordenDir, setOrdenDir] = useState('asc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
   const [progreso, setProgreso] = useState(null)
   const cancelarRef = useRef(false)
   const [modalAgregar, setModalAgregar] = useState(false)
@@ -269,14 +271,18 @@ export default function VistaColaboradoresCostos() {
     else { setOrdenCol(col); setOrdenDir('asc') }
   }
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
+
   function coincideFiltros(f) {
     const q = busqueda.toLowerCase()
     const enCol = colaboradoresSet.has(normalize(f.colaborador))
-    const matchBusqueda    = !q || [f.colaborador, f.mes].some(v => (v || '').toLowerCase().includes(q))
+    const rut = colaboradoresRut[normalize(f.colaborador)] || ''
+    const matchBusqueda    = !q || [f.colaborador, f.mes, rut].some(v => (v || '').toLowerCase().includes(q))
     const matchColaborador = !filtros.colaborador?.length || filtros.colaborador.includes(f.colaborador)
+    const matchRut         = !filtros.rut?.length         || filtros.rut.includes(rut)
     const matchMes         = !filtros.mes?.length         || filtros.mes.includes(f.mes)
     const matchEnCol       = !filtros.enColaboradores?.length || (filtros.enColaboradores.includes('Sí') && enCol) || (filtros.enColaboradores.includes('No') && !enCol)
-    return matchBusqueda && matchColaborador && matchMes && matchEnCol
+    return matchBusqueda && matchColaborador && matchRut && matchMes && matchEnCol
   }
 
   function opcionesPorColumna(obtenerValor, esmes = false) {
@@ -288,6 +294,7 @@ export default function VistaColaboradoresCostos() {
   }
 
   const opcionesColaborador = opcionesPorColumna(f => f.colaborador)
+  const opcionesRut         = opcionesPorColumna(f => colaboradoresRut[normalize(f.colaborador)] || null)
   const opcionesMes         = opcionesPorColumna(f => f.mes, true)
 
   const filasFiltradas = filas
@@ -400,7 +407,11 @@ export default function VistaColaboradoresCostos() {
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'colaborador'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'colaborador'} ordenDir={ordenDir} onOrdenar={toggleOrden}
                 />
-                <ResizableTh className="py-3 px-4 text-gray-500 font-semibold bg-[#FFF5F0] text-left" style={{ width: '110px' }}>RUT</ResizableTh>
+                <FilterableTh
+                  col="rut" label="RUT" align="left" style={{ width: '110px' }}
+                  opciones={opcionesRut} filtro={filtros.rut || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'rut'} onToggleDropdown={setDropdownFiltro}
+                />
                 <FilterableTh
                   col="mes" label="Mes" align="left" style={{ width: '160px' }}
                   opciones={opcionesMes} filtro={filtros.mes || []}
@@ -428,12 +439,12 @@ export default function VistaColaboradoresCostos() {
                   </td>
                 </tr>
               )}
-              {filasFiltradas.map((f, idx) => {
+              {filasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((f, idx) => {
                 const enCol = colaboradoresSet.has(normalize(f.colaborador))
                 const mesOpts = MES_OPTIONS.includes(f.mes) ? MES_OPTIONS : [f.mes, ...MES_OPTIONS]
                 return (
                   <tr key={f.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                    <td className="py-2 px-2 text-gray-400 text-sm text-center">{idx + 1}</td>
+                    <td className="py-2 px-2 text-gray-400 text-sm text-center">{pagina * FILAS_POR_PAGINA + idx + 1}</td>
                     <td className="py-2 px-2">
                       <input
                         type="text"
@@ -502,6 +513,18 @@ export default function VistaColaboradoresCostos() {
           </table>
         )}
       </div>
+
+      {!loading && filasFiltradas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 flex-shrink-0 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, filasFiltradas.length)} de {filasFiltradas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= filasFiltradas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
 
       {/* MODAL AGREGAR */}
       {modalAgregar && (

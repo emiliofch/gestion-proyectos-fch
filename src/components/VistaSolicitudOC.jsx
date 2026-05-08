@@ -1,6 +1,7 @@
 ﻿import { useState, useEffect } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
+import FilterableTh from './FilterableTh'
 
 const MAX_ADJUNTO_MB = 5
 const IMAGE_EXTENSIONS_FOR_WEBP = new Set([
@@ -76,6 +77,13 @@ export default function VistaSolicitudOC({ user, perfil }) {
   const [proyectos, setProyectos] = useState([])
   const [loading, setLoading] = useState(false)
   const [solicitudes, setSolicitudes] = useState([])
+  const [busqueda, setBusqueda] = useState('')
+  const [filtros, setFiltros] = useState({})
+  const [dropdownFiltro, setDropdownFiltro] = useState(null)
+  const [ordenCol, setOrdenCol] = useState('fecha')
+  const [ordenDir, setOrdenDir] = useState('desc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   const tiposDocumento = [
     { value: 'factura', label: 'Factura' },
@@ -90,6 +98,15 @@ export default function VistaSolicitudOC({ user, perfil }) {
     cargarProyectos()
     cargarSolicitudes()
   }, [])
+
+  useEffect(() => {
+    if (!dropdownFiltro) return
+    function cerrar() { setDropdownFiltro(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltro])
+
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
 
   // Intencional: recalculo de CECO cuando cambia proyecto seleccionado.
   useEffect(() => {
@@ -434,6 +451,63 @@ export default function VistaSolicitudOC({ user, perfil }) {
 
   const adjuntosRequeridos = valor && parseFloat(valor) >= 1500000 ? 3 : 1
 
+  function setFiltro(col, v) { setFiltros(prev => ({ ...prev, [col]: v })) }
+  function toggleOrden(col) {
+    if (ordenCol === col) setOrdenDir(d => d === 'asc' ? 'desc' : 'asc')
+    else { setOrdenCol(col); setOrdenDir('asc') }
+  }
+
+  function coincideFiltrosHist(s, omitirCol = null) {
+    const q = busqueda.toLowerCase()
+    const fechaStr = s.fecha_creacion ? new Date(s.fecha_creacion).toLocaleDateString('es-CL') : ''
+    const valorStr = formatearValor(s.valor)
+    const matchBusqueda = !q || [String(s.id_correlativo || ''), s.proveedor, s.glosa, s.proyecto_nombre, valorStr, fechaStr, s.estado, s.sol_netsuite].some(v => (v || '').toLowerCase().includes(q))
+    const matchId = omitirCol === 'id' || !filtros.id?.length || filtros.id.includes(String(s.id_correlativo || ''))
+    const matchProveedor = omitirCol === 'proveedor' || !filtros.proveedor?.length || filtros.proveedor.includes(s.proveedor)
+    const matchGlosa = omitirCol === 'glosa' || !filtros.glosa?.length || filtros.glosa.includes(s.glosa)
+    const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(s.proyecto_nombre)
+    const matchValor = omitirCol === 'valor' || !filtros.valor?.length || filtros.valor.includes(valorStr)
+    const matchFecha = omitirCol === 'fecha' || !filtros.fecha?.length || filtros.fecha.includes(fechaStr)
+    const matchEstado = omitirCol === 'estado' || !filtros.estado?.length || filtros.estado.includes(s.estado)
+    const matchNetsuite = omitirCol === 'netsuite' || !filtros.netsuite?.length || filtros.netsuite.includes(s.sol_netsuite)
+    return matchBusqueda && matchId && matchProveedor && matchGlosa && matchProyecto && matchValor && matchFecha && matchEstado && matchNetsuite
+  }
+
+  function opcionesPorColumnaHist(col, obtenerValor) {
+    const visibles = solicitudes.filter(s => coincideFiltrosHist(s, col))
+    const base = visibles.map(obtenerValor).filter(Boolean)
+    const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+  }
+
+  const opcionesId = opcionesPorColumnaHist('id', s => String(s.id_correlativo || '') || null)
+  const opcionesProveedor = opcionesPorColumnaHist('proveedor', s => s.proveedor)
+  const opcionesGlosa = opcionesPorColumnaHist('glosa', s => s.glosa)
+  const opcionesProyecto = opcionesPorColumnaHist('proyecto', s => s.proyecto_nombre)
+  const opcionesValor = opcionesPorColumnaHist('valor', s => formatearValor(s.valor))
+  const opcionesFecha = opcionesPorColumnaHist('fecha', s => s.fecha_creacion ? new Date(s.fecha_creacion).toLocaleDateString('es-CL') : null)
+  const opcionesEstado = opcionesPorColumnaHist('estado', s => s.estado)
+  const opcionesNetsuite = opcionesPorColumnaHist('netsuite', s => s.sol_netsuite)
+
+  const solicitudesFiltradas = solicitudes.filter(s => coincideFiltrosHist(s)).sort((a, b) => {
+    let vA, vB
+    switch (ordenCol) {
+      case 'id': vA = Number(a.id_correlativo) || 0; vB = Number(b.id_correlativo) || 0; break
+      case 'proveedor': vA = a.proveedor || ''; vB = b.proveedor || ''; break
+      case 'glosa': vA = a.glosa || ''; vB = b.glosa || ''; break
+      case 'proyecto': vA = a.proyecto_nombre || ''; vB = b.proyecto_nombre || ''; break
+      case 'valor': vA = Number(a.valor) || 0; vB = Number(b.valor) || 0; break
+      case 'fecha': vA = new Date(a.fecha_creacion).getTime() || 0; vB = new Date(b.fecha_creacion).getTime() || 0; break
+      case 'estado': vA = a.estado || ''; vB = b.estado || ''; break
+      case 'netsuite': vA = a.sol_netsuite || ''; vB = b.sol_netsuite || ''; break
+      default: vA = new Date(a.fecha_creacion).getTime() || 0; vB = new Date(b.fecha_creacion).getTime() || 0
+    }
+    if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+    return ordenDir === 'asc' ? vA - vB : vB - vA
+  })
+
+  const totalValor = solicitudesFiltradas.reduce((sum, s) => sum + (parseFloat(s.valor) || 0), 0)
+
   return (
     <div>
       <h2 className="text-2xl font-bold mb-6" style={{ color: '#FF5100' }}>
@@ -642,9 +716,18 @@ export default function VistaSolicitudOC({ user, perfil }) {
 
       {/* Historial de solicitudes */}
       <div className="bg-white rounded-lg shadow-lg p-6 mt-8">
-        <h3 className="text-xl font-bold text-gray-800 mb-4">
-          Mis Solicitudes - {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
-        </h3>
+        <div className="flex justify-between items-center mb-4 flex-wrap gap-3">
+          <h3 className="text-xl font-bold text-gray-800">
+            Mis Solicitudes - {perfil?.empresa === 'HUB_MET' ? 'HUB MET' : 'CGV'}
+          </h3>
+          <input
+            type="text"
+            placeholder="Buscar..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-100 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
 
         {solicitudes.length === 0 ? (
           <p className="text-gray-600 text-center py-8">No hay solicitudes registradas</p>
@@ -652,32 +735,53 @@ export default function VistaSolicitudOC({ user, perfil }) {
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
-                <tr className="border-b-2 border-gray-300 bg-gray-50">
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">ID</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proveedor</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Glosa</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Proyecto</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Valor</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Fecha</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Estado</th>
-                  <th className="text-left py-3 px-4 text-gray-800 font-semibold">Sol. NetSuite</th>
+                <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0', position: 'sticky', top: 0, zIndex: 10 }}>
+                  <FilterableTh col="id" label="ID" style={{ width: '80px' }}
+                    opciones={opcionesId} filtro={filtros.id || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'id'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'id'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="proveedor" label="Proveedor"
+                    opciones={opcionesProveedor} filtro={filtros.proveedor || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proveedor'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'proveedor'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="glosa" label="Glosa"
+                    opciones={opcionesGlosa} filtro={filtros.glosa || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'glosa'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'glosa'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="proyecto" label="Proyecto"
+                    opciones={opcionesProyecto} filtro={filtros.proyecto || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proyecto'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="valor" label="Valor" align="right" style={{ width: '130px' }}
+                    opciones={opcionesValor} filtro={filtros.valor || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'valor'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'valor'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="fecha" label="Fecha" style={{ width: '110px' }}
+                    opciones={opcionesFecha} filtro={filtros.fecha || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'fecha'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'fecha'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="estado" label="Estado" style={{ width: '140px' }}
+                    opciones={opcionesEstado} filtro={filtros.estado || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'estado'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="netsuite" label="Sol. NetSuite" style={{ width: '130px' }}
+                    opciones={opcionesNetsuite} filtro={filtros.netsuite || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'netsuite'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'netsuite'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 </tr>
               </thead>
               <tbody>
-                {solicitudes.map((s) => (
+                {solicitudesFiltradas.length === 0 && (
+                  <tr><td colSpan={8} className="py-8 text-center text-gray-500">Sin resultados para los filtros aplicados.</td></tr>
+                )}
+                {solicitudesFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((s) => (
                   <tr key={s.id} className="border-b border-gray-200 hover:bg-gray-50">
-                    <td className="py-3 px-4 text-gray-800 font-medium">
-                      {s.id_correlativo || '-'}
-                    </td>
+                    <td className="py-3 px-4 text-gray-800 font-medium">{s.id_correlativo || '-'}</td>
                     <td className="py-3 px-4 text-gray-800">{s.proveedor}</td>
                     <td className="py-3 px-4 text-gray-800">{s.glosa}</td>
                     <td className="py-3 px-4 text-gray-800 text-sm">{s.proyecto_nombre}</td>
-                    <td className="py-3 px-4 text-gray-800 font-semibold">
-                      {formatearValor(s.valor)}
-                    </td>
-                    <td className="py-3 px-4 text-gray-800 text-sm">
-                      {new Date(s.fecha_creacion).toLocaleDateString('es-CL')}
-                    </td>
+                    <td className="py-3 px-4 text-gray-800 font-semibold text-right">{formatearValor(s.valor)}</td>
+                    <td className="py-3 px-4 text-gray-800 text-sm">{new Date(s.fecha_creacion).toLocaleDateString('es-CL')}</td>
                     <td className="py-3 px-4">
                       <span className={`px-3 py-1 rounded-full text-xs font-medium ${
                         s.estado === 'enviada' ? 'bg-blue-100 text-blue-800' :
@@ -687,17 +791,31 @@ export default function VistaSolicitudOC({ user, perfil }) {
                         s.estado === 'finalizado flujo' ? 'bg-green-200 text-green-900' :
                         s.estado === 'anulada' ? 'bg-red-100 text-red-800' :
                         'bg-gray-100 text-gray-800'
-                      }`}>
-                        {s.estado}
-                      </span>
+                      }`}>{s.estado}</span>
                     </td>
-                    <td className="py-3 px-4 text-gray-800 text-sm">
-                      {s.sol_netsuite || '-'}
-                    </td>
+                    <td className="py-3 px-4 text-gray-800 text-sm">{s.sol_netsuite || '-'}</td>
                   </tr>
                 ))}
+                {solicitudesFiltradas.length > 0 && (
+                  <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                    <td colSpan={4} className="py-3 px-4 text-gray-800 text-sm">TOTAL: {solicitudesFiltradas.length} de {solicitudes.length}</td>
+                    <td className="py-3 px-4 text-right text-gray-800">{formatearValor(totalValor)}</td>
+                    <td colSpan={3} />
+                  </tr>
+                )}
               </tbody>
             </table>
+            {solicitudesFiltradas.length > FILAS_POR_PAGINA && (
+              <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 border-t border-gray-200">
+                <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, solicitudesFiltradas.length)} de {solicitudesFiltradas.length}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+                    className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+                  <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= solicitudesFiltradas.length}
+                    className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+                </div>
+              </div>
+            )}
           </div>
         )}
       </div>

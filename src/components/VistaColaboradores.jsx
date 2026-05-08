@@ -31,6 +31,8 @@ export default function VistaColaboradores({ perfil }) {
   const [modalCrear, setModalCrear] = useState(false)
   const [formCrear, setFormCrear] = useState({ colaborador: '', rut: '', costo_empresa: '' })
   const [enHorasProy, setEnHorasProy] = useState(new Set())
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarColaboradores()
@@ -255,12 +257,18 @@ export default function VistaColaboradores({ perfil }) {
     c.rut?.toLowerCase().includes(busqueda.toLowerCase())
   )
 
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
+
   function coincideFiltros(c, omitirCol = null) {
     if (omitirCol !== 'colaborador' && filtros.colaborador?.length && !filtros.colaborador.includes(c.colaborador)) return false
     if (omitirCol !== 'rut' && filtros.rut?.length && !filtros.rut.includes(c.rut)) return false
     if (omitirCol !== 'enHorasProy' && filtros.enHorasProy?.length) {
       const val = enHorasProy.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No'
       if (!filtros.enHorasProy.includes(val)) return false
+    }
+    if (omitirCol !== 'costoEmpresa' && filtros.costoEmpresa?.length) {
+      const val = c.costo_empresa !== null && c.costo_empresa !== undefined ? String(Math.round(c.costo_empresa)) : '-'
+      if (!filtros.costoEmpresa.includes(val)) return false
     }
     return true
   }
@@ -278,12 +286,18 @@ export default function VistaColaboradores({ perfil }) {
     colaboradoresBusqueda.filter(c => coincideFiltros(c, 'enHorasProy'))
       .map(c => enHorasProy.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No')
   )].sort()
+  const opcionesCostoEmpresa = opcionesPorColumna('costoEmpresa', (c) =>
+    c.costo_empresa !== null && c.costo_empresa !== undefined ? String(Math.round(c.costo_empresa)) : null
+  )
 
   const filtrados = colaboradoresBusqueda.filter((c) => coincideFiltros(c)).sort((a, b) => {
-    const vA = ordenCol === 'rut' ? (a.rut || '') : (a.colaborador || '')
-    const vB = ordenCol === 'rut' ? (b.rut || '') : (b.colaborador || '')
+    if (ordenCol === 'rut') { const vA = a.rut || ''; const vB = b.rut || ''; return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es') }
+    if (ordenCol === 'costoEmpresa') { const vA = parseFloat(a.costo_empresa) || 0; const vB = parseFloat(b.costo_empresa) || 0; return ordenDir === 'asc' ? vA - vB : vB - vA }
+    const vA = a.colaborador || ''; const vB = b.colaborador || ''
     return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
   })
+
+  const totalCosto = filtrados.reduce((s, c) => s + (parseFloat(c.costo_empresa) || 0), 0)
 
   function formatCosto(val) {
     if (val === null || val === undefined || val === '') return '-'
@@ -417,18 +431,32 @@ export default function VistaColaboradores({ perfil }) {
                   dropdownAbierto={dropdownFiltro === 'enHorasProy'}
                   onToggleDropdown={setDropdownFiltro}
                 />
-                <ResizableTh className="text-right py-3 px-4 text-gray-800 font-semibold" style={{ width: '160px' }}>
-                  Costo Empresa
-                </ResizableTh>
+                <FilterableTh
+                  col="costoEmpresa"
+                  label="Costo Empresa"
+                  align="right"
+                  style={{ width: '160px' }}
+                  opciones={opcionesCostoEmpresa}
+                  filtro={filtros.costoEmpresa || []}
+                  onFiltro={setFiltro}
+                  dropdownAbierto={dropdownFiltro === 'costoEmpresa'}
+                  onToggleDropdown={setDropdownFiltro}
+                  sortable
+                  ordenActiva={ordenCol === 'costoEmpresa'}
+                  ordenDir={ordenDir}
+                  onOrdenar={toggleOrden}
+                />
                 {esAdmin && (
                   <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '140px' }}>Acciones</ResizableTh>
                 )}
               </tr>
             </thead>
             <tbody>
-              {filtrados.map((c, i) => (
+              {filtrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((c, i) => {
+                const globalIdx = pagina * FILAS_POR_PAGINA + i + 1
+                return (
                 <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                  <td className="py-3 px-4 text-gray-500 text-sm">{i + 1}</td>
+                  <td className="py-3 px-4 text-gray-500 text-sm">{globalIdx}</td>
                   <td className="py-3 px-4 text-gray-800 font-medium">{c.colaborador}</td>
                   <td className="py-3 px-4 text-gray-600">{c.rut || '-'}</td>
                   <td className="py-3 px-2 text-center">
@@ -458,12 +486,30 @@ export default function VistaColaboradores({ perfil }) {
                     </td>
                   )}
                 </tr>
-              ))}
+              )})}
+              {filtrados.length > 0 && (
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td colSpan={4} className="py-3 px-4 text-gray-800 text-sm">TOTAL: {filtrados.length} de {colaboradores.length}</td>
+                  <td className="py-3 px-4 text-right text-gray-800 text-sm">{totalCosto > 0 ? Math.round(totalCosto).toLocaleString('es-CL') : '-'}</td>
+                  {esAdmin && <td />}
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
       )}
       </div>
+      {!loading && filtrados.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 flex-shrink-0 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, filtrados.length)} de {filtrados.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= filtrados.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
 
       {/* Modal Crear */}
       {modalCrear && (

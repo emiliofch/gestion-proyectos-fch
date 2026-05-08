@@ -11,7 +11,6 @@ function SortIcon({ active, dir }) {
       </svg>
     )
   }
-
   if (dir === 'asc') {
     return (
       <svg className="w-3 h-3 inline-block ml-1 text-gray-500" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -19,7 +18,6 @@ function SortIcon({ active, dir }) {
       </svg>
     )
   }
-
   return (
     <svg className="w-3 h-3 inline-block ml-1 text-gray-500" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <path d="M8 13l-4-5h8l-4 5z" fill="currentColor" />
@@ -54,10 +52,12 @@ export default function FilterableTh({
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const seleccionados = Array.isArray(filtro) ? filtro : (filtro ? [filtro] : [])
   const [seleccionTemporal, setSeleccionTemporal] = useState(seleccionados)
+  const [busquedaInterna, setBusquedaInterna] = useState('')
 
   useEffect(() => {
     if (dropdownAbierto) {
       setSeleccionTemporal(seleccionados)
+      setBusquedaInterna('')
     }
   }, [dropdownAbierto, filtro])
 
@@ -72,8 +72,11 @@ export default function FilterableTh({
 
   const hasOptions = opciones && opciones.length > 0
   const total = opciones?.length || 0
-  const todosMarcados = total > 0 && seleccionTemporal.length === total
   const activoFiltro = seleccionados.length > 0
+
+  const opcionesFiltradas = busquedaInterna
+    ? opciones.filter(op => String(op).toLowerCase().includes(busquedaInterna.toLowerCase()))
+    : opciones
 
   function toggleValor(valor) {
     const existe = seleccionTemporal.includes(valor)
@@ -122,16 +125,33 @@ export default function FilterableTh({
                 style={{ position: 'absolute', top: dropPos.top + 2, left: dropPos.left, zIndex: 9999 }}
                 onClick={(e) => e.stopPropagation()}
               >
-                <div className="max-h-[240px] overflow-y-auto">
-                  <label className="flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 bg-gray-50">
-                    <input
-                      type="checkbox"
-                      checked={todosMarcados || seleccionTemporal.length === 0}
-                      onChange={() => setSeleccionTemporal([])}
-                    />
-                    <span className={seleccionTemporal.length === 0 ? 'font-semibold text-orange-600' : 'text-gray-700'}>(Todos)</span>
-                  </label>
-                  {opciones.map((op) => (
+                {/* Barra de búsqueda interna */}
+                <div className="px-2 py-1.5 border-b border-gray-100">
+                  <input
+                    type="text"
+                    value={busquedaInterna}
+                    onChange={e => setBusquedaInterna(e.target.value)}
+                    onClick={e => e.stopPropagation()}
+                    autoFocus
+                    className="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:ring-1 focus:ring-orange-400"
+                    placeholder="Buscar..."
+                  />
+                </div>
+                <div className="max-h-[220px] overflow-y-auto">
+                  {!busquedaInterna && (
+                    <label className="flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 bg-gray-50 cursor-pointer hover:bg-orange-50">
+                      <input
+                        type="checkbox"
+                        checked={seleccionTemporal.length === 0}
+                        onChange={() => setSeleccionTemporal([])}
+                      />
+                      <span className={seleccionTemporal.length === 0 ? 'font-semibold text-orange-600' : 'text-gray-700'}>(Todos)</span>
+                    </label>
+                  )}
+                  {opcionesFiltradas.length === 0 && (
+                    <div className="px-3 py-3 text-xs text-gray-400 text-center">Sin resultados</div>
+                  )}
+                  {opcionesFiltradas.map((op) => (
                     <label
                       key={op}
                       className="flex items-center gap-2 px-3 py-2 text-sm hover:bg-orange-50 cursor-pointer"
@@ -147,22 +167,27 @@ export default function FilterableTh({
                     </label>
                   ))}
                 </div>
-                <div className="flex items-center justify-end gap-2 p-2 border-t border-gray-100 bg-gray-50">
-                  <button
-                    type="button"
-                    onClick={cancelarFiltro}
-                    className="px-3 py-1 text-xs rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
-                  >
-                    Cancelar
-                  </button>
-                  <button
-                    type="button"
-                    onClick={aceptarFiltro}
-                    className="px-3 py-1 text-xs rounded text-white hover:opacity-90"
-                    style={{ backgroundColor: '#FF5100' }}
-                  >
-                    Aceptar
-                  </button>
+                <div className="flex items-center justify-between gap-2 p-2 border-t border-gray-100 bg-gray-50">
+                  <span className="text-xs text-gray-400">
+                    {seleccionTemporal.length > 0 ? `${seleccionTemporal.length} sel.` : `${total} opciones`}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={cancelarFiltro}
+                      className="px-3 py-1 text-xs rounded border border-gray-300 bg-white text-gray-700 hover:bg-gray-100"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="button"
+                      onClick={aceptarFiltro}
+                      className="px-3 py-1 text-xs rounded text-white hover:opacity-90"
+                      style={{ backgroundColor: '#FF5100' }}
+                    >
+                      Aceptar
+                    </button>
+                  </div>
                 </div>
               </div>,
               document.body

@@ -8,10 +8,13 @@ function fmtVal(v) {
 }
 
 export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambios, setTipoControlCambios, perfil, onEliminarCambio }) {
+  const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
   const [ordenCol, setOrdenCol] = useState('fecha')
   const [ordenDir, setOrdenDir] = useState('desc')
+  const [pagina, setPagina] = useState(0)
+  const FILAS_POR_PAGINA = 10
   const esAdmin = perfil?.rol === 'admin'
 
   const esVistaEstados = tipoControlCambios === 'estado'
@@ -27,11 +30,15 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
   }, [dropdownFiltro])
 
   useEffect(() => {
+    setBusqueda('')
     setFiltros({})
     setDropdownFiltro(null)
     setOrdenCol('fecha')
     setOrdenDir('desc')
+    setPagina(0)
   }, [tipoControlCambios])
+
+  useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
 
   function setFiltro(col, valor) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
@@ -47,12 +54,18 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
   }
 
   const coincideFiltros = useMemo(() => (c, omitirCol = null) => {
+    const q = busqueda.toLowerCase()
+    const fechaStr = c.fecha ? new Date(c.fecha).toLocaleDateString('es-CL') : ''
+    const matchBusqueda = !q || [c.proyecto_nombre, c.campo, c.usuario, c.motivo, String(c.valor_anterior ?? ''), String(c.valor_nuevo ?? ''), fechaStr].some(v => (v || '').toLowerCase().includes(q))
     const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(c.proyecto_nombre)
     const matchCampo = omitirCol === 'campo' || !filtros.campo?.length || filtros.campo.includes(c.campo)
+    const matchFecha = omitirCol === 'fecha' || !filtros.fecha?.length || filtros.fecha.includes(fechaStr)
+    const matchAnterior = omitirCol === 'anterior' || !filtros.anterior?.length || filtros.anterior.includes(String(c.valor_anterior ?? ''))
     const matchUsuario = omitirCol === 'usuario' || !filtros.usuario?.length || filtros.usuario.includes(c.usuario)
+    const matchMotivo = omitirCol === 'motivo' || !filtros.motivo?.length || filtros.motivo.includes(c.motivo)
     const matchEstadoNuevo = omitirCol === 'estadoNuevo' || !filtros.estadoNuevo?.length || filtros.estadoNuevo.includes(c.valor_nuevo)
-    return matchProyecto && matchCampo && matchUsuario && matchEstadoNuevo
-  }, [filtros])
+    return matchBusqueda && matchProyecto && matchCampo && matchFecha && matchAnterior && matchUsuario && matchMotivo && matchEstadoNuevo
+  }, [filtros, busqueda])
 
   const opcionesPorColumna = useMemo(() => (col, obtenerValor) => {
     const visibles = cambiosFiltrados.filter((c) => coincideFiltros(c, col))
@@ -63,7 +76,10 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
 
   const opcionesProyecto = useMemo(() => opcionesPorColumna('proyecto', (c) => c.proyecto_nombre), [opcionesPorColumna])
   const opcionesCampo = useMemo(() => opcionesPorColumna('campo', (c) => c.campo), [opcionesPorColumna])
+  const opcionesFecha = useMemo(() => opcionesPorColumna('fecha', (c) => c.fecha ? new Date(c.fecha).toLocaleDateString('es-CL') : null), [opcionesPorColumna])
+  const opcionesAnterior = useMemo(() => opcionesPorColumna('anterior', (c) => String(c.valor_anterior ?? '') || null), [opcionesPorColumna])
   const opcionesUsuario = useMemo(() => opcionesPorColumna('usuario', (c) => c.usuario), [opcionesPorColumna])
+  const opcionesMotivo = useMemo(() => opcionesPorColumna('motivo', (c) => c.motivo), [opcionesPorColumna])
   const opcionesEstadoNuevo = useMemo(() => opcionesPorColumna('estadoNuevo', (c) => c.valor_nuevo), [opcionesPorColumna])
 
   const cambiosConFiltros = useMemo(() => cambiosFiltrados.filter((c) => coincideFiltros(c)).sort((a, b) => {
@@ -84,9 +100,16 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
-      <div className="flex justify-between items-center flex-shrink-0 pb-3">
+      <div className="flex justify-between items-center flex-shrink-0 pb-3 flex-wrap gap-3">
         <h2 className="text-2xl font-bold text-gray-800">Control de Cambios</h2>
-        <div className="flex gap-2">
+        <div className="flex gap-2 flex-wrap items-center">
+          <input
+            type="text"
+            placeholder="Buscar..."
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-100 text-gray-800 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
           <button
             onClick={() => setTipoControlCambios('valor')}
             className={`px-4 py-2 rounded-lg font-medium transition-all ${tipoControlCambios === 'valor' ? 'text-white' : 'bg-gray-200 text-gray-800'}`}
@@ -138,11 +161,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 col="fecha"
                 label="Fecha"
                 style={{ width: '150px' }}
-                opciones={[]}
-                filtro={[]}
-                onFiltro={() => {}}
-                dropdownAbierto={false}
-                onToggleDropdown={() => {}}
+                opciones={opcionesFecha}
+                filtro={filtros.fecha || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'fecha'}
+                onToggleDropdown={setDropdownFiltro}
                 sortable
                 ordenActiva={ordenCol === 'fecha'}
                 ordenDir={ordenDir}
@@ -170,11 +193,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                     col="anterior"
                     label={esVistaEstados ? 'Estado anterior' : 'Anterior'}
                     style={{ width: '130px' }}
-                    opciones={[]}
-                    filtro={[]}
-                    onFiltro={() => {}}
-                    dropdownAbierto={false}
-                    onToggleDropdown={() => {}}
+                    opciones={opcionesAnterior}
+                    filtro={filtros.anterior || []}
+                    onFiltro={setFiltro}
+                    dropdownAbierto={dropdownFiltro === 'anterior'}
+                    onToggleDropdown={setDropdownFiltro}
                     sortable
                     ordenActiva={ordenCol === 'anterior'}
                     ordenDir={ordenDir}
@@ -213,11 +236,11 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
               <FilterableTh
                 col="motivo"
                 label="Motivo"
-                opciones={[]}
-                filtro={[]}
-                onFiltro={() => {}}
-                dropdownAbierto={false}
-                onToggleDropdown={() => {}}
+                opciones={opcionesMotivo}
+                filtro={filtros.motivo || []}
+                onFiltro={setFiltro}
+                dropdownAbierto={dropdownFiltro === 'motivo'}
+                onToggleDropdown={setDropdownFiltro}
                 sortable
                 ordenActiva={ordenCol === 'motivo'}
                 ordenDir={ordenDir}
@@ -231,7 +254,7 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
             </tr>
           </thead>
           <tbody>
-            {cambiosConFiltros.map((c) => (
+            {cambiosConFiltros.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((c) => (
               <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                 {muestraProyecto && (
                   <td className="py-3 px-4 text-gray-800 font-medium">{c.proyecto_nombre || 'N/A'}</td>
@@ -272,9 +295,27 @@ export default function VistaControlCambios({ cambiosFiltrados, tipoControlCambi
                 </td>
               </tr>
             )}
+            {cambiosConFiltros.length > 0 && (
+              <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                <td colSpan={totalColumnas} className="py-3 px-4 text-gray-800 text-sm">
+                  TOTAL: {cambiosConFiltros.length} registro{cambiosConFiltros.length !== 1 ? 's' : ''}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </div>
+      {cambiosConFiltros.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 px-2 text-sm text-gray-600 flex-shrink-0 border-t border-gray-200">
+          <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, cambiosConFiltros.length)} de {cambiosConFiltros.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= cambiosConFiltros.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
