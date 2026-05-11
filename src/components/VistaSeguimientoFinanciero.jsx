@@ -402,14 +402,13 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   async function cargarHeatmapNoEfectivos() {
     setLoadingHeatmap(true)
     try {
-      const { data: proyectos, error } = await supabase
+      const { data: proyectos, error: projErr } = await supabase
         .from('proyectos')
         .select('nombre, estado')
 
-      if (error) {
-        toast.error('Error cargando proyectos: ' + error.message)
+      if (projErr) {
+        toast.error('Error cargando proyectos: ' + projErr.message)
         setHeatmapRows([])
-        setLoadingHeatmap(false)
         return
       }
 
@@ -419,47 +418,50 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           .map((p) => p.nombre)
       )
 
-      const response = await fetch(HH_PROYECTADAS_PATH)
-      if (!response.ok) {
-        toast.error('No se encontro hh_proyectadas_2026.xlsx en /public')
+      if (proyectosNoEfectivo.size === 0) {
         setHeatmapRows([])
-        setLoadingHeatmap(false)
         return
       }
 
-      const arrayBuffer = await response.arrayBuffer()
-      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-      const sheetName = workbook.SheetNames[0]
-      const worksheet = workbook.Sheets[sheetName]
-      const data = XLSX.utils.sheet_to_json(worksheet, { defval: '' })
+      const PAGE = 1000
+      let todas = [], from = 0
+      while (true) {
+        const { data, error } = await supabase
+          .from('horas_proyectadas')
+          .select('colaborador, proyecto, mes, horas')
+          .range(from, from + PAGE - 1)
+        if (error) { toast.error('Error cargando HH: ' + error.message); setHeatmapRows([]); return }
+        todas = [...todas, ...(data || [])]
+        if (!data || data.length < PAGE) break
+        from += PAGE
+      }
 
+      const añoActual = new Date().getFullYear()
       const acumulado = {}
-      data.forEach((row) => {
-        const colaborador = String(row.COLABORADOR || '').trim()
-        const proyecto = String(row.PROYECTO || '').trim()
-        if (!colaborador || !proyecto) return
-        if (!proyectosNoEfectivo.has(proyecto)) return
 
-        if (!acumulado[colaborador]) {
-          acumulado[colaborador] = { colaborador }
-          MESES_HH_ALL.forEach((m) => { acumulado[colaborador][m] = 0 })
+      for (const f of todas) {
+        if (!proyectosNoEfectivo.has(f.proyecto)) continue
+        const [parte, añoCorto] = (f.mes || '').split('-')
+        const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+        if (añoFull !== añoActual) continue
+        const idx = MESES_ORDEN.indexOf((parte || '').slice(0, 3).toLowerCase())
+        if (idx < 0) continue
+        const mesNombre = MESES_HH_ALL[idx]
+        if (!acumulado[f.colaborador]) {
+          acumulado[f.colaborador] = { colaborador: f.colaborador }
+          MESES_HH_ALL.forEach((m) => { acumulado[f.colaborador][m] = 0 })
         }
-
-        MESES_HH_ALL.forEach((mes) => {
-          const valor = parseNumber(row[mes]) || 0
-          acumulado[colaborador][mes] += valor
-        })
-      })
+        acumulado[f.colaborador][mesNombre] = (acumulado[f.colaborador][mesNombre] || 0) + (parseFloat(f.horas) || 0)
+      }
 
       const filas = Object.values(acumulado).map((r) => ({
         ...r,
-        total: MESES_HH_VIEW.reduce((sum, mes) => sum + (r[mes] || 0), 0)
+        total: MESES_HH_VIEW.reduce((sum, m) => sum + (r[m] || 0), 0)
       }))
-
       filas.sort((a, b) => (b.total || 0) - (a.total || 0))
       setHeatmapRows(filas)
-    } catch (error) {
-      toast.error('Error leyendo hh_proyectadas_2026.xlsx: ' + error.message)
+    } catch (err) {
+      toast.error('Error cargando heatmap: ' + err.message)
       setHeatmapRows([])
     } finally {
       setLoadingHeatmap(false)
@@ -1266,7 +1268,13 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       </section>
 
       <section className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Heatmap Asignacion HH a Proyectos No Efectivos</h3>
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-lg font-bold text-gray-800">Heatmap Asignacion HH a Proyectos No Efectivos</h3>
+          <span
+            className="text-xs text-gray-400 cursor-help select-none"
+            title="Horas: tabla horas_proyectadas (Supabase), año en curso. Estados: tabla proyectos, filtrado por estado = No Efectivo."
+          >ⓘ</span>
+        </div>
         {loadingHeatmap ? (
           <div className="text-center py-8 text-gray-500">Cargando HH proyectadas...</div>
         ) : heatmapRows.length === 0 ? (
