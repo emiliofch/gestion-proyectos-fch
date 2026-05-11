@@ -10,6 +10,35 @@ const TIPOS = [
   { value: 'GASTO_RH', label: 'Gasto en Recurso Humano' },
 ]
 
+
+const CUENTAS_OPERACIONALES = [
+  '42200048 Subcontratos',
+  '42200003 Consultores',
+  '42200016 Otras Compras',
+  '42200002 Servicios Temporales',
+  '42200076 Subcontratos Afectos Ti',
+  '42200011 Arriendo De Locales Y Oficinas',
+  '42200070 Subcontratos Afectos Mktg',
+  '42200049 Gastos Consumos Nacionales/Viáticos',
+  '42200039 Arriendo De Equipos Computacionales',
+  '42200005 Pasajes Aéreos Nacionales',
+  '42200060 Garantías',
+  '42200028 Materiales',
+  '42200010 Seguros',
+  '42200064 Iva Directo No Recuperable',
+  '42200051 Gastos Estadía Nacional',
+  '42200007 Gastos Legales',
+  '42200054 Radiotaxis',
+  '42200066 Subcontratos Exentos De Iva',
+  '42200006 Pasajes Aéreos Internacionales',
+  '42200025 Suministros De Oficina',
+  '42200004 Gastos De Representación',
+  '42200022 Teléfono',
+  '42200050 Gastos Consumos Internacionales/Viatico',
+  '42200052 Gastos Estadía Internacional',
+  '42200024 Fotocopias',
+]
+
 const DEFAULT_PORCENTAJES = { imprevistos: 1, overhead: 5, margen: 10 }
 
 function formatCLP(value) {
@@ -43,7 +72,9 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const [, setCargandoDatos] = useState(true)
   const [, setGuardandoDatos] = useState(false)
   const [hidratado, setHidratado] = useState(false)
-  const [form, setForm] = useState({ item: '', valor: '', tipo: TIPOS[0].value })
+  const [form, setForm] = useState({ item: '', valor: '', tipo: TIPOS[0].value, horas: '' })
+  const [customOpMode, setCustomOpMode] = useState(false)
+  const [cargosRH, setCargosRH] = useState([])
 
   const isEditing = editingId !== null
   const isModoNuevo = mode === 'nuevo'
@@ -69,6 +100,9 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   const totalesPorItem = useMemo(() => rows.reduce((acc, row) => {
     acc[row.id] = meses.reduce((sum, mes) => {
       const key = `${mes}-${row.id}`
+      if (row.tipo === 'GASTO_RH') {
+        return sum + (Number(celdasActivas[key]) || 0) * (Number(row.valor) || 0)
+      }
       return sum + (celdasActivas[key] ? Number(row.valor) || 0 : 0)
     }, 0)
     return acc
@@ -86,7 +120,8 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
 
   function resetForm() {
     setEditingId(null)
-    setForm({ item: '', valor: '', tipo: TIPOS[0].value })
+    setForm({ item: '', valor: '', tipo: TIPOS[0].value, horas: '' })
+    setCustomOpMode(false)
   }
 
   function snapshotActual(overrides = {}) {
@@ -188,6 +223,12 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     cargarProceso()
   }, [userId, empresa, isModoNuevo])
 
+  useEffect(() => {
+    supabase.rpc('listar_cargos_rh').then(({ data }) => {
+      if (data) setCargosRH(data.map(r => r.cargo))
+    })
+  }, [])
+
   // Intencional: en modo nuevo siempre se parte con formulario limpio.
   useEffect(() => {
     if (isModoNuevo) {
@@ -232,25 +273,38 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
     if (!silencioso) toast.success('Proceso de costeo guardado')
   }
 
-  function handleSubmit(event, forcedTipo = form.tipo) {
+  async function handleSubmit(event, forcedTipo = form.tipo) {
     event.preventDefault()
+    const tipo = forcedTipo
+
+    if (tipo === 'GASTO_RH') {
+      const cargo = form.item.trim()
+      if (!cargo) return toast.warning('Debes seleccionar un cargo.')
+      const { data, error } = await supabase.rpc('calcular_tarifa_rh', { p_cargo: cargo })
+      if (error || data == null) return toast.error('No se pudo obtener la tarifa del cargo.')
+      const valor = Number(data)
+      const isEditingThisSection = isEditing && editingRow?.tipo === tipo
+      if (isEditingThisSection) {
+        setRows((prev) => prev.map((row) => row.id === editingId ? { ...row, item: cargo, valor, tipo } : row))
+        toast.success('Input actualizado.')
+        return resetForm()
+      }
+      setRows((prev) => [...prev, { id: makeId(), item: cargo, valor, tipo }])
+      toast.success('Input agregado.')
+      return resetForm()
+    }
 
     const item = form.item.trim()
     const valor = Number(form.valor)
-    const tipo = forcedTipo
     if (!item) return toast.warning('Debes ingresar un item.')
-    if (!Number.isFinite(valor) || valor < 0) return toast.warning('Debes ingresar un valor numerico valido.')
+    if (!Number.isFinite(valor)) return toast.warning('Debes ingresar un valor numerico valido.')
     if (!TIPOS.some((t) => t.value === tipo)) return toast.warning('Tipo de input invalido.')
-    if (isEditing && editingRow && editingRow.tipo !== tipo) {
-      return toast.warning('Finaliza la edicion en su misma seccion.')
-    }
-
-    if (isEditing) {
+    const isEditingThisSection = isEditing && editingRow?.tipo === tipo
+    if (isEditingThisSection) {
       setRows((prev) => prev.map((row) => row.id === editingId ? { ...row, item, valor, tipo } : row))
       toast.success('Input actualizado.')
       return resetForm()
     }
-
     setRows((prev) => [...prev, { id: makeId(), item, valor, tipo }])
     toast.success('Input agregado.')
     resetForm()
@@ -258,7 +312,10 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
 
   function handleEdit(row) {
     setEditingId(row.id)
-    setForm({ item: row.item, valor: String(row.valor), tipo: row.tipo })
+    setForm({ item: row.item, valor: String(row.valor), tipo: row.tipo, horas: String(row.horas || '') })
+    if (row.tipo === 'GASTO_OPERACIONAL') {
+      setCustomOpMode(!CUENTAS_OPERACIONALES.includes(row.item))
+    }
   }
 
   function handleDelete(id) {
@@ -275,6 +332,17 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
   function toggleCelda(mes, rowId) {
     const key = `${mes}-${rowId}`
     setCeldasActivas((prev) => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  function setCeldaHoras(mes, rowId, val) {
+    const key = `${mes}-${rowId}`
+    const horas = parseFloat(val) || 0
+    setCeldasActivas((prev) => {
+      const next = { ...prev }
+      if (horas === 0) delete next[key]
+      else next[key] = horas
+      return next
+    })
   }
 
   async function guardarCosteoProyecto({ guardarComo = false } = {}) {
@@ -511,27 +579,39 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
 
       <h2 className="text-2xl font-bold mt-8 mb-4" style={{ color: '#FF5100' }}>Costos</h2>
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-        <h3 className="text-lg font-semibold mb-3">Costo de Recurso Humano</h3>
+        <h3 className="text-lg font-semibold mb-1">Costo de Recurso Humano</h3>
+        <p className="text-sm text-gray-500 mb-3">Agrega los cargos que participarán en el proyecto. Más abajo, en <strong>Temporalidad</strong>, indicarás cuántas horas trabaja cada cargo por mes.</p>
         <form onSubmit={(event) => handleSubmit(event, 'GASTO_RH')} className="mb-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value, tipo: 'GASTO_RH' })} className="px-3 py-2 border rounded-lg" placeholder="Item" />
-            <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value, tipo: 'GASTO_RH' })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
+          <div className="flex gap-3 items-end">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">Cargo</label>
+              <select
+                value={form.item}
+                onChange={e => setForm({ ...form, item: e.target.value, tipo: 'GASTO_RH' })}
+                className="w-full px-3 py-2 border rounded-lg bg-white"
+                title="Selecciona el tipo de recurso humano a costear"
+              >
+                <option value="">— Seleccionar cargo —</option>
+                {cargosRH.map(c => (
+                  <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+                ))}
+              </select>
+            </div>
             <div className="flex gap-2">
-              <button type="submit" className="flex-1 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing && editingRow?.tipo === 'GASTO_RH' ? 'Guardar' : 'Agregar'}</button>
+              <button type="submit" className="px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing && editingRow?.tipo === 'GASTO_RH' ? 'Guardar' : 'Agregar'}</button>
               {isEditing && <button type="button" onClick={resetForm} className="px-4 py-2 rounded-lg bg-gray-200 font-medium">Cancelar</button>}
             </div>
           </div>
         </form>
         <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Item</th><th className="text-right px-4 py-3 font-semibold">Valor</th><th className="text-left px-4 py-3 font-semibold">Acciones</th></tr></thead>
+            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Cargo</th><th className="text-left px-4 py-3 font-semibold">Acciones</th></tr></thead>
             <tbody>
-              {rowsRH.length === 0 && <tr><td colSpan={3} className="px-4 py-6 text-center text-gray-500">No hay costos de recurso humano.</td></tr>}
+              {rowsRH.length === 0 && <tr><td colSpan={2} className="px-4 py-6 text-center text-gray-500">No hay recursos humanos. Las horas se asignan en Temporalidad.</td></tr>}
               {rowsRH.map((row) => (
                 <tr key={row.id} className="border-t border-gray-100">
-                  <td className="px-4 py-3">{row.item}</td>
-                  <td className="px-4 py-3 text-right">{formatCLP(row.valor)}</td>
-                  <td className="px-4 py-3"><div className="flex gap-2"><button type="button" onClick={() => handleEdit(row)} className="px-3 py-1 rounded bg-blue-50 text-blue-700 font-medium">Editar</button><button type="button" onClick={() => handleDelete(row.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 font-medium">Quitar</button></div></td>
+                  <td className="px-4 py-3 font-medium">{row.item.charAt(0).toUpperCase() + row.item.slice(1)}</td>
+                  <td className="px-4 py-3"><button type="button" onClick={() => handleDelete(row.id)} className="px-3 py-1 rounded bg-red-50 text-red-700 font-medium">Quitar</button></td>
                 </tr>
               ))}
             </tbody>
@@ -540,11 +620,40 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
       </div>
 
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
-        <h3 className="text-lg font-semibold mb-3">Costos Operacionales</h3>
+        <h3 className="text-lg font-semibold mb-1">Costos Operacionales</h3>
+        <p className="text-sm text-gray-500 mb-3">Selecciona la cuenta contable e ingresa el valor del gasto. Más abajo, en <strong>Temporalidad</strong>, marcarás en qué meses aplica.</p>
         <form onSubmit={(event) => handleSubmit(event, 'GASTO_OPERACIONAL')} className="mb-4">
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input value={form.item} onChange={(e) => setForm({ ...form, item: e.target.value, tipo: 'GASTO_OPERACIONAL' })} className="px-3 py-2 border rounded-lg" placeholder="Item" />
-            <input type="number" min="0" step="0.01" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value, tipo: 'GASTO_OPERACIONAL' })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
+            <div className="flex flex-col gap-2">
+              <select
+                value={customOpMode ? '__custom__' : (CUENTAS_OPERACIONALES.includes(form.item) ? form.item : '')}
+                onChange={e => {
+                  if (e.target.value === '__custom__') {
+                    setCustomOpMode(true)
+                    setForm({ ...form, item: '', tipo: 'GASTO_OPERACIONAL' })
+                  } else {
+                    setCustomOpMode(false)
+                    setForm({ ...form, item: e.target.value, tipo: 'GASTO_OPERACIONAL' })
+                  }
+                }}
+                className="px-3 py-2 border rounded-lg bg-white"
+              >
+                <option value="">— Seleccionar cuenta —</option>
+                {CUENTAS_OPERACIONALES.map(c => <option key={c} value={c}>{c}</option>)}
+                <option value="__custom__">✏ Personalizado...</option>
+              </select>
+              {customOpMode && (
+                <input
+                  type="text"
+                  value={form.item}
+                  onChange={e => setForm({ ...form, item: e.target.value, tipo: 'GASTO_OPERACIONAL' })}
+                  className="px-3 py-2 border border-orange-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-400"
+                  placeholder="Descripción personalizada"
+                  autoFocus
+                />
+              )}
+            </div>
+            <input type="number" step="any" value={form.valor} onChange={(e) => setForm({ ...form, valor: e.target.value, tipo: 'GASTO_OPERACIONAL' })} className="px-3 py-2 border rounded-lg" placeholder="Valor" />
             <div className="flex gap-2">
               <button type="submit" className="flex-1 px-4 py-2 rounded-lg text-white font-medium" style={{ backgroundColor: '#FF5100' }}>{isEditing && editingRow?.tipo === 'GASTO_OPERACIONAL' ? 'Guardar' : 'Agregar'}</button>
               {isEditing && <button type="button" onClick={resetForm} className="px-4 py-2 rounded-lg bg-gray-200 font-medium">Cancelar</button>}
@@ -568,18 +677,81 @@ export default function VistaCosteoInputs({ user, perfil, mode = 'nuevo' }) {
         </div>
       </div>
 
-      <h2 className="text-2xl font-bold mt-8 mb-4" style={{ color: '#FF5100' }}>Temporalidad de Proyecto</h2>
+      <h2 className="text-2xl font-bold mt-8 mb-1" style={{ color: '#FF5100' }}>Temporalidad de Proyecto</h2>
+      <p className="text-sm text-gray-500 mb-4">Indica la duración del proyecto e ingresa la dedicación de cada ítem por mes. Para <strong>Recursos Humanos</strong>: escribe las horas que trabaja ese cargo en cada mes. Para <strong>Costos Operacionales</strong>: marca los meses en que aplica ese gasto.</p>
       <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end mb-4">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Duracion del proyecto (meses)</label><input type="number" min="1" step="1" value={duracionMeses} onChange={(e) => setDuracionMeses(Math.max(1, Number(e.target.value) || 1))} className="w-full px-3 py-2 border rounded-lg" /></div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Duración del proyecto (meses)</label>
+            <input type="number" min="1" step="1" value={duracionMeses} onChange={(e) => setDuracionMeses(Math.max(1, Number(e.target.value) || 1))} className="w-full px-3 py-2 border rounded-lg" />
+          </div>
           <div className="md:col-span-2" />
         </div>
         <div className="overflow-x-auto border border-gray-200 rounded-lg bg-white">
           <table className="w-full text-sm">
-            <thead className="bg-[#FFF5F0]"><tr><th className="text-left px-4 py-3 font-semibold">Tipo de costo</th><th className="text-left px-4 py-3 font-semibold">Item</th>{meses.map((mes) => <th key={mes} className="text-center px-4 py-3 font-semibold min-w-24">Mes {mes}</th>)}<th className="text-right px-4 py-3 font-semibold">Total</th></tr></thead>
+            <thead className="bg-[#FFF5F0]">
+              <tr>
+                <th className="text-left px-4 py-3 font-semibold">Tipo de costo</th>
+                <th className="text-left px-4 py-3 font-semibold">Item</th>
+                {meses.map((mes) => <th key={mes} className="text-center px-4 py-3 font-semibold min-w-24">Mes {mes}</th>)}
+                <th className="text-right px-4 py-3 font-semibold">Total</th>
+              </tr>
+            </thead>
             <tbody>
-              {rowsOrdenadas.map((row) => (<tr key={row.id} className="border-t border-gray-100"><td className="px-4 py-3">{TIPOS.find((t) => t.value === row.tipo)?.label || row.tipo}</td><td className="px-4 py-3 font-medium">{row.item}</td>{meses.map((mes) => { const key = `${mes}-${row.id}`; return <td key={key} className="px-4 py-3 text-center"><input type="checkbox" checked={Boolean(celdasActivas[key])} onChange={() => toggleCelda(mes, row.id)} className="h-4 w-4 accent-[#FF5100]" /></td> })}<td className="px-4 py-3 text-right font-semibold">{formatCLP(totalesPorItem[row.id] || 0)}</td></tr>))}
+              {rowsOrdenadas.map((row) => {
+                const isRH = row.tipo === 'GASTO_RH'
+                return (
+                  <tr key={row.id} className="border-t border-gray-100">
+                    <td className="px-4 py-3">{TIPOS.find((t) => t.value === row.tipo)?.label || row.tipo}</td>
+                    <td className="px-4 py-3 font-medium capitalize">{row.item}</td>
+                    {meses.map((mes) => {
+                      const key = `${mes}-${row.id}`
+                      return (
+                        <td key={key} className="px-4 py-3 text-center">
+                          {isRH ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.5"
+                              value={Number(celdasActivas[key]) || ''}
+                              onChange={(e) => setCeldaHoras(mes, row.id, e.target.value)}
+                              className="w-16 text-center border border-gray-300 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-orange-400"
+                              title={`Horas de ${row.item} en el mes ${mes}`}
+                              placeholder="0"
+                            />
+                          ) : (
+                            <input
+                              type="checkbox"
+                              checked={Boolean(celdasActivas[key])}
+                              onChange={() => toggleCelda(mes, row.id)}
+                              className="h-4 w-4 accent-[#FF5100]"
+                              title={`¿Aplica ${row.item} en el mes ${mes}?`}
+                            />
+                          )}
+                        </td>
+                      )
+                    })}
+                    <td className="px-4 py-3 text-right font-semibold" title={isRH ? 'Costo total = suma de horas por mes × tarifa del cargo' : 'Costo total = valor × meses activos'}>
+                      {formatCLP(totalesPorItem[row.id] || 0)}
+                    </td>
+                  </tr>
+                )
+              })}
               {rows.length === 0 && <tr><td colSpan={meses.length + 3} className="px-4 py-8 text-center text-gray-500">Agrega inputs para generar la matriz de costeo.</td></tr>}
+              {rows.length > 0 && (
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td className="px-4 py-3" colSpan={2}>TOTAL ({rows.length})</td>
+                  {meses.map((mes) => {
+                    const totalMes = rows.reduce((sum, row) => {
+                      const key = `${mes}-${row.id}`
+                      if (row.tipo === 'GASTO_RH') return sum + (Number(celdasActivas[key]) || 0) * (Number(row.valor) || 0)
+                      return sum + (celdasActivas[key] ? Number(row.valor) || 0 : 0)
+                    }, 0)
+                    return <td key={mes} className="px-4 py-3 text-center tabular-nums">{totalMes > 0 ? formatCLP(totalMes) : '—'}</td>
+                  })}
+                  <td className="px-4 py-3 text-right tabular-nums">{formatCLP(costoFch)}</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
