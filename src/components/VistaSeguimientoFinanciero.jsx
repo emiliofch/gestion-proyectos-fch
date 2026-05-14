@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { supabase } from '../supabaseClient'
 import * as XLSX from 'xlsx'
+import jsPDF from 'jspdf'
 import { toast } from 'react-toastify'
 import { normalizarEstadoProyecto } from '../constants/estadosProyecto'
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
@@ -15,13 +16,14 @@ const PRESUPUESTO_PATH = '/ppto2026.xlsx'
 const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
 const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado', 'Meta'])
-const ESTADO_NO_EFECTIVO = 'No Efectivo'
+const ESTADOS_HEATMAP = new Set(['No Efectivo', 'Meta'])
+const ESTADOS_TODOS_SIN_CANCELADO = new Set(['Efectivo', 'No Efectivo', 'Adjudicado', 'Meta'])
 const MESES_HH_ALL = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ]
 const MESES_HH_VIEW = [
-  'Marzo', 'Abril', 'Mayo', 'Junio',
+  'Mayo', 'Junio',
   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
 ]
 const MESES_ORDEN = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
@@ -80,6 +82,20 @@ function formatPercent(value) {
   return `${(Number(value) * 100).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%`
 }
 
+function buildPdfDateLabel() {
+  return new Date().toLocaleString('es-CL', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+function buildPdfFileTimestamp() {
+  return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
+}
+
 function diffCellStyle(value, maxAbs, invert = false) {
   if (value === null || value === undefined || !maxAbs) return undefined
   const abs = Math.abs(value)
@@ -114,6 +130,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [notasSens, setNotasSens] = useState('')
   const editorRef = useRef(null)
   const editorSensRef = useRef(null)
+  const reporteRef = useRef(null)
   const [notasCargadas, setNotasCargadas] = useState(false)
   const [notasSensCargadas, setNotasSensCargadas] = useState(false)
   const [autoLoaded, setAutoLoaded] = useState(false)
@@ -129,6 +146,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [ordenPipelineDir, setOrdenPipelineDir] = useState('asc')
   const [hhPorLinea, setHhPorLinea] = useState({})         // normalizeLinea(ceco) → costo total HP
   const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizeKey(nombre) → costo total HP
+  const [allProyectos, setAllProyectos] = useState([])     // todos los proyectos sin filtro de nulos
 
   useEffect(() => {
     cargarLineas()
@@ -335,6 +353,8 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       return
     }
 
+    setAllProyectos(data || [])
+
     const base = (data || [])
       .filter(p => p.ingresos !== null || p.gastos !== null)
       .map(p => ({
@@ -414,7 +434,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
       const proyectosNoEfectivo = new Set(
         (proyectos || [])
-          .filter((p) => normalizarEstadoProyecto(p.estado) === ESTADO_NO_EFECTIVO)
+          .filter((p) => ESTADOS_HEATMAP.has(normalizarEstadoProyecto(p.estado)))
           .map((p) => p.nombre)
       )
 
@@ -835,10 +855,272 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     return max
   }, [sensibilidadRows, sensibilidadTotales])
 
+  const todosPorLinea = useMemo(() => {
+    const acumulado = {}
+    allProyectos.forEach((p) => {
+      const estado = normalizarEstadoProyecto(p.estado) || ''
+      if (!ESTADOS_TODOS_SIN_CANCELADO.has(estado)) return
+      const linea = p.ceco || ''
+      const key = normalizeLinea(linea)
+      const ingresos = parseFloat(p.ingresos) || 0
+      const gastos = parseFloat(p.gastos) || 0
+      if (!acumulado[key]) {
+        acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+      }
+      acumulado[key].ingresos += ingresos
+      acumulado[key].gasto += gastos
+    })
+    for (const key of Object.keys(acumulado)) {
+      const hh = hhPorLinea[key] || 0
+      acumulado[key].hh = hh
+      acumulado[key].margen = acumulado[key].ingresos - hh - acumulado[key].gasto
+    }
+    return acumulado
+  }, [allProyectos, hhPorLinea])
+
+  const todosRows = useMemo(() => {
+    return lineasUnicas.map((linea) => {
+      const key = normalizeLinea(linea.linea)
+      const presupuesto = presupuestoLineas[key] || { linea: linea.linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+      const todos = todosPorLinea[key] || { linea: linea.linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+      return {
+        linea: linea.linea,
+        presupuesto,
+        todos,
+        diferencias: {
+          ingresos: todos.ingresos - presupuesto.ingresos,
+          hh: todos.hh - presupuesto.hh,
+          gasto: todos.gasto - presupuesto.gasto,
+          margen: todos.margen - presupuesto.margen,
+        },
+      }
+    })
+  }, [lineasUnicas, presupuestoLineas, todosPorLinea])
+
+  const todosTotales = useMemo(() => {
+    const presupuesto = todosRows.reduce(
+      (acc, row) => {
+        acc.ingresos += row.presupuesto.ingresos
+        acc.hh += row.presupuesto.hh
+        acc.gasto += row.presupuesto.gasto
+        acc.margen += row.presupuesto.margen
+        return acc
+      },
+      { ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+    )
+    const todos = Object.values(todosPorLinea).reduce(
+      (acc, row) => {
+        acc.ingresos += row.ingresos
+        acc.hh += row.hh
+        acc.gasto += row.gasto
+        acc.margen += row.margen
+        return acc
+      },
+      { ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+    )
+    return {
+      presupuesto,
+      todos,
+      diferencias: {
+        ingresos: todos.ingresos - presupuesto.ingresos,
+        hh: todos.hh - presupuesto.hh,
+        gasto: todos.gasto - presupuesto.gasto,
+        margen: todos.margen - presupuesto.margen,
+      },
+    }
+  }, [todosRows, todosPorLinea])
+
+  const todosDiffMax = useMemo(() => {
+    const max = { ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+    todosRows.forEach((row) => {
+      max.ingresos = Math.max(max.ingresos, Math.abs(row.diferencias.ingresos || 0))
+      max.hh = Math.max(max.hh, Math.abs(row.diferencias.hh || 0))
+      max.gasto = Math.max(max.gasto, Math.abs(row.diferencias.gasto || 0))
+      max.margen = Math.max(max.margen, Math.abs(row.diferencias.margen || 0))
+    })
+    max.ingresos = Math.max(max.ingresos, Math.abs(todosTotales.diferencias.ingresos || 0))
+    max.hh = Math.max(max.hh, Math.abs(todosTotales.diferencias.hh || 0))
+    max.gasto = Math.max(max.gasto, Math.abs(todosTotales.diferencias.gasto || 0))
+    max.margen = Math.max(max.margen, Math.abs(todosTotales.diferencias.margen || 0))
+    return max
+  }, [todosRows, todosTotales])
+
+  const detalleVsSensibilidad = useMemo(() => {
+    const porLinea = {}
+    allProyectos.forEach((p) => {
+      const estado = normalizarEstadoProyecto(p.estado) || ''
+      if (estado !== 'No Efectivo' && estado !== 'Meta') return
+      const lineaRaw = p.ceco || ''
+      const key = normalizeLinea(lineaRaw)
+      const ingresos = parseFloat(p.ingresos) || 0
+      const gastos = parseFloat(p.gastos) || 0
+      if (ingresos - gastos === 0) return
+      if (!porLinea[key]) porLinea[key] = { linea: lineaRaw, proyectos: [] }
+      porLinea[key].proyectos.push({
+        nombre: p.nombre || '—',
+        fecha_adjudicacion: normalizarMesAdjudicacion(p.fecha_adjudicacion) || '—',
+        ingresos,
+        gastos,
+        margen: ingresos - gastos,
+      })
+    })
+    return Object.values(porLinea)
+      .map((g) => ({
+        ...g,
+        subtotal: g.proyectos.reduce((a, p) => ({
+          ingresos: a.ingresos + p.ingresos,
+          gastos: a.gastos + p.gastos,
+          margen: a.margen + p.margen,
+        }), { ingresos: 0, gastos: 0, margen: 0 }),
+      }))
+      .filter((g) => g.proyectos.length > 0)
+  }, [allProyectos])
+
+  async function exportarReportePDF() {
+    if (!reporteRef.current) return
+
+    try {
+      const { default: html2canvas } = await import('html2canvas')
+      const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
+      const fechaGeneracion = buildPdfDateLabel()
+      const titulo = `Reporte Seguimiento Financiero - ${fechaGeneracion}`
+      const margin = 24
+      const headerH = 24
+      const pageWidth = doc.internal.pageSize.getWidth()
+      const pageHeight = doc.internal.pageSize.getHeight()
+      const printableWidth = pageWidth - margin * 2
+      const printableHeight = pageHeight - margin * 2 - headerH
+
+      const addHeader = () => {
+        doc.setFont('helvetica', 'bold')
+        doc.setFontSize(11)
+        doc.text(titulo, margin, margin + 10)
+      }
+
+      // Medir posiciones de secciones ANTES de tocar estilos
+      const container = reporteRef.current
+      const sections = Array.from(container.querySelectorAll(':scope > section'))
+      const containerTop = container.getBoundingClientRect().top + window.scrollY
+      const sectionRanges = sections.map((s) => {
+        const r = s.getBoundingClientRect()
+        return {
+          top: r.top + window.scrollY - containerTop,
+          bottom: r.bottom + window.scrollY - containerTop,
+        }
+      })
+
+      // Forzar fondo blanco y quitar sombras para el render
+      const prevContainerBg = container.style.background
+      container.style.background = '#ffffff'
+      const prevSectionBgs = sections.map((s) => s.style.background)
+      const prevSectionShadows = sections.map((s) => s.style.boxShadow)
+      sections.forEach((s) => {
+        s.style.background = '#ffffff'
+        s.style.boxShadow = 'none'
+      })
+
+      const canvas = await html2canvas(container, {
+        backgroundColor: '#ffffff',
+        scale: 1,
+        useCORS: true,
+        logging: false,
+        ignoreElements: (el) => el?.dataset?.pdfIgnore === 'true',
+        scrollY: -window.scrollY,
+      })
+
+      // Restaurar estilos
+      container.style.background = prevContainerBg
+      sections.forEach((s, i) => {
+        s.style.background = prevSectionBgs[i]
+        s.style.boxShadow = prevSectionShadows[i]
+      })
+
+      // Escala: px de canvas por px de DOM
+      const domScale = canvas.width / container.offsetWidth
+
+      // Convertir límites de secciones a px de canvas
+      const sectionsPx = sectionRanges.map((r) => ({
+        top: Math.round(r.top * domScale),
+        bottom: Math.round(r.bottom * domScale),
+      }))
+
+      // "Zonas seguras de corte": el espacio entre el bottom de una sección
+      // y el top de la siguiente (los márgenes space-y-8)
+      // Un corte en Y es seguro si cae en alguno de esos intervalos
+      const isSafeCut = (y) => {
+        for (let i = 0; i < sectionsPx.length - 1; i++) {
+          if (y >= sectionsPx[i].bottom && y <= sectionsPx[i + 1].top) return true
+        }
+        return false
+      }
+
+      // Dado un corte ideal en Y, retrocede hasta la zona segura más cercana
+      const bestCutPoint = (idealY) => {
+        // Buscar hacia atrás hasta 40% de la página por una zona segura
+        const minY = idealY * 0.6
+        for (let y = idealY; y >= minY; y--) {
+          if (isSafeCut(y)) return y
+        }
+        return idealY // no hay zona segura, cortar en el punto ideal
+      }
+
+      // Generar páginas
+      addHeader()
+      let rendered = 0
+      let firstPage = true
+
+      while (rendered < canvas.height) {
+        if (!firstPage) {
+          doc.addPage()
+          addHeader()
+        }
+        firstPage = false
+
+        const curY = margin + headerH
+        const availablePt = pageHeight - margin - curY
+        const availablePx = Math.floor(canvas.width * availablePt / printableWidth)
+        const remaining = canvas.height - rendered
+        let sliceH
+
+        if (remaining <= availablePx) {
+          sliceH = remaining
+        } else {
+          const idealCut = rendered + availablePx
+          sliceH = bestCutPoint(idealCut) - rendered
+          if (sliceH <= 0) sliceH = availablePx // fallback
+        }
+
+        const sliceCanvas = document.createElement('canvas')
+        sliceCanvas.width = canvas.width
+        sliceCanvas.height = sliceH
+        sliceCanvas.getContext('2d').drawImage(
+          canvas, 0, rendered, canvas.width, sliceH, 0, 0, canvas.width, sliceH
+        )
+        const slicePt = sliceH * printableWidth / canvas.width
+        doc.addImage(sliceCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', margin, curY, printableWidth, slicePt)
+
+        rendered += sliceH
+      }
+
+      doc.save(`seguimiento_financiero_${buildPdfFileTimestamp()}.pdf`)
+    } catch (error) {
+      toast.error('Error exportando PDF: ' + error.message)
+    }
+  }
+
   return (
-    <div className="space-y-8">
+    <div ref={reporteRef} className="space-y-8">
       <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
         <h2 className="text-2xl font-bold text-gray-800">Seguimiento Financiero</h2>
+        <button
+          type="button"
+          onClick={exportarReportePDF}
+          data-pdf-ignore="true"
+          className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 self-start md:self-auto"
+          style={{ backgroundColor: '#FF5100' }}
+        >
+          Exportar PDF
+        </button>
       </div>
 
       <section className="bg-white rounded-xl shadow-lg p-6">
@@ -1003,11 +1285,11 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       </section>
 
       <section className="bg-white rounded-xl shadow-lg p-6">
-        <h3 className="text-lg font-bold text-gray-800 mb-4">Analisis de Pipeline</h3>
+        <h3 className="text-lg font-bold text-gray-800 mb-4">Analisis de Pipeline (Proyectos no efectivos y efectivos por adjudicar)</h3>
 
         {loadingPipeline ? (
           <div className="text-center py-8 text-gray-500">Cargando oportunidades...</div>
-        ) : pipelineOrdenado.length === 0 ? (
+        ) : pipeline.length === 0 ? (
           <div className="text-center py-8 text-gray-500">No hay oportunidades en estado Efectivo o No Efectivo.</div>
         ) : (
           <div className="overflow-x-auto">
@@ -1040,6 +1322,11 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
                 </tr>
               </thead>
               <tbody>
+                {pipelineOrdenado.length === 0 && (
+                  <tr>
+                    <td colSpan={9} className="py-6 text-center text-gray-400 italic">Sin resultados para el filtro aplicado.</td>
+                  </tr>
+                )}
                 {pipelineOrdenado.map((o) => {
                   const ingresos = parseFloat(o.ingresos) || 0
                   const hh = costoPorProyecto[normalizeKey(o.proyectos?.nombre || '')] || 0
@@ -1079,17 +1366,19 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
                     </tr>
                   )
                 })}
-                <tr className="bg-green-100 font-semibold">
-                  <td className="py-3 px-4 text-gray-700">TOTAL</td>
-                  <td className="py-3 px-4"></td>
-                  <td className="py-3 px-4"></td>
-                  <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.ingresos)}</td>
-                  <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.hh)}</td>
-                  <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.gastos)}</td>
-                  <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.margen)}</td>
-                  <td className="py-3 px-4 text-center"></td>
-                  <td className="py-3 px-4 text-center text-sm"></td>
-                </tr>
+                {pipelineOrdenado.length > 0 && (
+                  <tr className="bg-green-100 font-semibold">
+                    <td className="py-3 px-4 text-gray-700">TOTAL</td>
+                    <td className="py-3 px-4"></td>
+                    <td className="py-3 px-4"></td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.ingresos)}</td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.hh)}</td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.gastos)}</td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesPipeline.margen)}</td>
+                    <td className="py-3 px-4 text-center"></td>
+                    <td className="py-3 px-4 text-center text-sm"></td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -1269,16 +1558,223 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
       <section className="bg-white rounded-xl shadow-lg p-6">
         <div className="flex items-center gap-2 mb-4">
-          <h3 className="text-lg font-bold text-gray-800">Heatmap Asignacion HH a Proyectos No Efectivos</h3>
+          <h3 className="text-lg font-bold text-gray-800">Proyeccion Total (todos los estados exc. Cancelado)</h3>
+          <div className="relative group">
+            <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-400 text-gray-600 text-xs font-bold cursor-default">?</span>
+            <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-[420px] rounded-md bg-gray-800 text-white text-xs p-3 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50 space-y-2">
+              <p className="font-bold text-sm border-b border-gray-600 pb-1">Reglas — Proyeccion Total</p>
+              <p><span className="font-semibold text-gray-300">Estados incluidos:</span> Efectivo, No Efectivo, Adjudicado y Meta. Se excluye Cancelado.</p>
+              <p className="font-semibold text-gray-300 pt-1">Estados y su efecto:</p>
+              <ul className="space-y-1 pl-1">
+                <li><span className="text-green-400 font-semibold">Efectivo</span> → suma Ingresos y GGOO</li>
+                <li><span className="text-blue-400 font-semibold">Adjudicado</span> → suma Ingresos y GGOO</li>
+                <li><span className="text-red-400 font-semibold">No Efectivo</span> → suma Ingresos y GGOO</li>
+                <li><span className="text-purple-400 font-semibold">Meta</span> → suma Ingresos y GGOO</li>
+              </ul>
+              <p className="text-gray-400 italic">HH se calcula igual que en Sensibilidad: costo de horas proyectadas agrupado por línea, para todos los proyectos sin excepción de estado.</p>
+              <p className="border-t border-gray-600 pt-1"><span className="font-semibold text-gray-300">Margen:</span> Ingresos − HH − GGOO</p>
+            </div>
+          </div>
+        </div>
+        <div className="overflow-x-auto">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr>
+                <th className="border border-gray-300 text-white px-2 py-2 text-left" rowSpan={2} style={{ width: '220px', backgroundColor: '#006E5E' }}>
+                  Linea
+                </th>
+                <th className="border border-gray-300 text-white px-2 py-2 text-center" colSpan={4} style={{ backgroundColor: '#0F7D69' }}>
+                  Presupuesto 2026
+                </th>
+                <th className="border border-gray-300 text-white px-2 py-2 text-center" colSpan={4} style={{ backgroundColor: '#5B4A8A' }}>
+                  Proyeccion Total
+                </th>
+                <th className="border border-gray-300 text-white px-2 py-2 text-center" colSpan={4} style={{ backgroundColor: '#1F3A5A' }}>
+                  Diferencias
+                </th>
+              </tr>
+              <tr>
+                {['Ing', 'HH', 'Gasto', 'Mg'].map((label) => (
+                  <th key={`ppto-${label}`} className="border border-gray-300 text-white px-1 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#0F7D69' }}>
+                    {label}
+                  </th>
+                ))}
+                {['Ing', 'HH', 'Gasto', 'Mg'].map((label) => (
+                  <th key={`todos-${label}`} className="border border-gray-300 text-white px-1 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#5B4A8A' }}>
+                    {label}
+                  </th>
+                ))}
+                {['Ing', 'HH', 'Gasto', 'Mg'].map((label) => (
+                  <th key={`diff-${label}`} className="border border-gray-300 text-white px-1 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#1F3A5A' }}>
+                    {label}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {todosRows.map((row) => (
+                <tr key={row.linea}>
+                  <td className="border border-gray-300 px-2 py-2 font-medium text-gray-700 break-words" style={{ width: '220px' }}>
+                    {row.linea}
+                  </td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.presupuesto.ingresos)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.presupuesto.hh)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.presupuesto.gasto)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap border-r-4 border-r-black">{formatNumber(row.presupuesto.margen)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.todos.ingresos)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.todos.hh)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(row.todos.gasto)}</td>
+                  <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap border-r-4 border-r-black">{formatNumber(row.todos.margen)}</td>
+                  <td
+                    className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                    style={diffCellStyle(row.diferencias.ingresos, todosDiffMax.ingresos)}
+                  >
+                    {formatNumber(row.diferencias.ingresos)}
+                  </td>
+                  <td
+                    className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                    style={diffCellStyle(row.diferencias.hh, todosDiffMax.hh, true)}
+                  >
+                    {formatNumber(row.diferencias.hh)}
+                  </td>
+                  <td
+                    className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                    style={diffCellStyle(row.diferencias.gasto, todosDiffMax.gasto, true)}
+                  >
+                    {formatNumber(row.diferencias.gasto)}
+                  </td>
+                  <td
+                    className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                    style={diffCellStyle(row.diferencias.margen, todosDiffMax.margen)}
+                  >
+                    {formatNumber(row.diferencias.margen)}
+                  </td>
+                </tr>
+              ))}
+              <tr className="bg-green-100 font-semibold">
+                <td className="border border-gray-300 px-2 py-2">TOTAL</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.presupuesto.ingresos)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.presupuesto.hh)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.presupuesto.gasto)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap border-r-4 border-r-black">{formatNumber(todosTotales.presupuesto.margen)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.todos.ingresos)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.todos.hh)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap">{formatNumber(todosTotales.todos.gasto)}</td>
+                <td className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap border-r-4 border-r-black">{formatNumber(todosTotales.todos.margen)}</td>
+                <td
+                  className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                  style={diffCellStyle(todosTotales.diferencias.ingresos, todosDiffMax.ingresos)}
+                >
+                  {formatNumber(todosTotales.diferencias.ingresos)}
+                </td>
+                <td
+                  className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                  style={diffCellStyle(todosTotales.diferencias.hh, todosDiffMax.hh, true)}
+                >
+                  {formatNumber(todosTotales.diferencias.hh)}
+                </td>
+                <td
+                  className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                  style={diffCellStyle(todosTotales.diferencias.gasto, todosDiffMax.gasto, true)}
+                >
+                  {formatNumber(todosTotales.diferencias.gasto)}
+                </td>
+                <td
+                  className="border border-gray-300 px-1 py-2 text-center whitespace-nowrap"
+                  style={diffCellStyle(todosTotales.diferencias.margen, todosDiffMax.margen)}
+                >
+                  {formatNumber(todosTotales.diferencias.margen)}
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        {detalleVsSensibilidad.length > 0 && (
+          <div className="mt-6">
+            <h4 className="text-sm font-bold text-gray-700 mb-2">
+              Detalle proyectos No Efectivos y Meta (explican la diferencia de margen vs Sensibilidad)
+            </h4>
+            <p className="text-xs text-gray-500 mb-3">
+              Margen = Ingresos − Gastos (sin HH, ya que las HH son iguales en ambas tablas). Incluye No Efectivos y Meta, que en Sensibilidad no suman ingresos/GGOO. La suma por línea cuadra con la diferencia de margen entre Proyección Total y Sensibilidad.
+            </p>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-left" style={{ backgroundColor: '#006E5E', width: '220px' }}>Línea</th>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-left" style={{ backgroundColor: '#0F7D69' }}>Proyecto</th>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#0F7D69' }}>Fecha Adj.</th>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#5B4A8A' }}>Ingresos</th>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#5B4A8A' }}>Gastos</th>
+                    <th className="border border-gray-300 text-white px-2 py-2 text-center whitespace-nowrap" style={{ backgroundColor: '#1F3A5A' }}>Margen (Ing−Gasto)</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {detalleVsSensibilidad.map((grupo) => (
+                    <>
+                      {grupo.proyectos.map((p, i) => (
+                        <tr key={`${grupo.linea}-${i}`} className="border-b border-gray-200" style={{ backgroundColor: i % 2 === 0 ? '#F8F7FB' : '#FFFFFF' }}>
+                          {i === 0 && (
+                            <td
+                              className="border border-gray-300 px-2 py-2 font-medium text-gray-700 align-top"
+                              rowSpan={grupo.proyectos.length + 1}
+                              style={{ width: '220px', backgroundColor: '#F0FAF8' }}
+                            >
+                              {grupo.linea}
+                            </td>
+                          )}
+                          <td className="border border-gray-300 px-2 py-2 text-gray-700">{p.nombre}</td>
+                          <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap text-gray-600">{p.fecha_adjudicacion}</td>
+                          <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">{formatNumber(p.ingresos)}</td>
+                          <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">{formatNumber(p.gastos)}</td>
+                          <td className={`border border-gray-300 px-2 py-2 text-center whitespace-nowrap font-medium ${p.margen >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                            {formatNumber(p.margen)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="font-semibold" style={{ backgroundColor: '#E8E4F3' }}>
+                        <td className="border border-gray-300 px-2 py-2 text-gray-700 italic" colSpan={2}>Subtotal {grupo.linea}</td>
+                        <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">{formatNumber(grupo.subtotal.ingresos)}</td>
+                        <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">{formatNumber(grupo.subtotal.gastos)}</td>
+                        <td className={`border border-gray-300 px-2 py-2 text-center whitespace-nowrap ${grupo.subtotal.margen >= 0 ? 'text-green-700' : 'text-red-700'}`}>
+                          {formatNumber(grupo.subtotal.margen)}
+                        </td>
+                      </tr>
+                    </>
+                  ))}
+                  <tr className="font-bold bg-green-100">
+                    <td className="border border-gray-300 px-2 py-2">TOTAL</td>
+                    <td className="border border-gray-300 px-2 py-2 text-gray-500 text-xs italic" colSpan={2}>Suma de No Efectivos y Meta</td>
+                    <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">
+                      {formatNumber(detalleVsSensibilidad.reduce((a, g) => a + g.subtotal.ingresos, 0))}
+                    </td>
+                    <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">
+                      {formatNumber(detalleVsSensibilidad.reduce((a, g) => a + g.subtotal.gastos, 0))}
+                    </td>
+                    <td className="border border-gray-300 px-2 py-2 text-center whitespace-nowrap">
+                      {formatNumber(detalleVsSensibilidad.reduce((a, g) => a + g.subtotal.margen, 0))}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
+
+      <section className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex items-center gap-2 mb-4">
+          <h3 className="text-lg font-bold text-gray-800">Heatmap Asignacion HH a Proyectos No Efectivos y Meta</h3>
           <span
             className="text-xs text-gray-400 cursor-help select-none"
-            title="Horas: tabla horas_proyectadas (Supabase), año en curso. Estados: tabla proyectos, filtrado por estado = No Efectivo."
+            title="Horas: tabla horas_proyectadas (Supabase), año en curso. Estados incluidos: No Efectivo y Meta."
           >ⓘ</span>
         </div>
         {loadingHeatmap ? (
           <div className="text-center py-8 text-gray-500">Cargando HH proyectadas...</div>
         ) : heatmapRows.length === 0 ? (
-          <div className="text-center py-8 text-gray-500">No hay registros para proyectos No Efectivos.</div>
+          <div className="text-center py-8 text-gray-500">No hay registros para proyectos No Efectivos o Meta.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full border-collapse table-fixed text-[11px]">

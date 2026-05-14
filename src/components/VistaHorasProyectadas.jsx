@@ -85,7 +85,7 @@ export default function VistaHorasProyectadas() {
   const [paginaValidator, setPaginaValidator] = useState(0)
   const [paginaCosto, setPaginaCosto] = useState(0)
   const [paginaLinea, setPaginaLinea] = useState(0)
-  const FILAS_POR_PAGINA = 10
+  const FILAS_POR_PAGINA = 20
   const [busquedaValidator, setBusquedaValidator] = useState('')
   const [filtrosValidator, setFiltrosValidator] = useState({})
   const [dropdownFiltroValidator, setDropdownFiltroValidator] = useState(null)
@@ -95,6 +95,12 @@ export default function VistaHorasProyectadas() {
   const [busquedaLineaPivot, setBusquedaLineaPivot] = useState('')
   const [filtrosLineaPivot, setFiltrosLineaPivot] = useState({})
   const [dropdownFiltroLineaPivot, setDropdownFiltroLineaPivot] = useState(null)
+  const [busquedaDetalle, setBusquedaDetalle] = useState('')
+  const [filtrosDetalle, setFiltrosDetalle] = useState({})
+  const [dropdownFiltroDetalle, setDropdownFiltroDetalle] = useState(null)
+  const [paginaDetalle, setPaginaDetalle] = useState(0)
+  const [celdaEditando, setCeldaEditando] = useState(null) // { colaborador, proyecto, mes }
+  const [celdaValor, setCeldaValor] = useState('')
 
   useEffect(() => {
     cargarDatos()
@@ -129,10 +135,18 @@ export default function VistaHorasProyectadas() {
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownFiltroLineaPivot])
 
+  useEffect(() => {
+    if (!dropdownFiltroDetalle) return
+    function cerrar() { setDropdownFiltroDetalle(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownFiltroDetalle])
+
   useEffect(() => { setPaginaMain(0) }, [busqueda, filtros, ordenCol, ordenDir])
   useEffect(() => { setPaginaValidator(0) }, [busquedaValidator, filtrosValidator])
   useEffect(() => { setPaginaCosto(0) }, [busquedaCostoPivot, filtrosCostoPivot])
   useEffect(() => { setPaginaLinea(0) }, [busquedaLineaPivot, filtrosLineaPivot])
+  useEffect(() => { setPaginaDetalle(0) }, [busquedaDetalle, filtrosDetalle, añoValidator])
 
   async function cargarDatos() {
     setLoading(true)
@@ -428,6 +442,99 @@ export default function VistaHorasProyectadas() {
     costoPorMesLineaFiltrado[mes] = costoLineasFiltradas.reduce((sum, l) => sum + (costoLineaPivot[l]?.[mes] || 0), 0)
   }
   const totalCostoLineaFiltrado = MESES_ABREV.reduce((sum, m) => sum + costoPorMesLineaFiltrado[m], 0)
+
+  function setFiltroDetalle(col, valor) { setFiltrosDetalle(prev => ({ ...prev, [col]: valor })) }
+
+  async function guardarCeldaDetalle(colaborador, proyecto, mes, nuevoValor) {
+    const horas = parseFloat(nuevoValor) || 0
+    const mesCompleto = `${mes}-${String(añoValidator).slice(-2)}`
+
+    const rowsMatch = filas.filter(f => {
+      const [abrev, añoCorto] = (f.mes || '').split('-')
+      const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+      return normalize(f.colaborador) === normalize(colaborador)
+        && normalize(f.proyecto) === normalize(proyecto)
+        && (abrev || '').toLowerCase() === mes
+        && añoFull === añoValidator
+    })
+
+    if (horas === 0) {
+      if (rowsMatch.length === 0) { setCeldaEditando(null); return }
+      const ids = rowsMatch.map(r => r.id)
+      const { error } = await supabase.from('horas_proyectadas').delete().in('id', ids)
+      if (error) { toast.error('Error: ' + error.message); return }
+      setFilas(prev => prev.filter(f => !ids.includes(f.id)))
+      toast.success('Registro eliminado')
+      setCeldaEditando(null)
+      return
+    }
+
+    if (rowsMatch.length === 0) {
+      const proyObj = proyectosLista.find(p => normalize(p.nombre) === normalize(proyecto))
+      const { data, error } = await supabase
+        .from('horas_proyectadas')
+        .insert({ colaborador, proyecto, proyecto_id: proyObj?.id || null, mes: mesCompleto, horas })
+        .select().single()
+      if (error) { toast.error('Error: ' + error.message); return }
+      setFilas(prev => [...prev, data])
+    } else if (rowsMatch.length === 1) {
+      if (rowsMatch[0].horas === horas) { setCeldaEditando(null); return }
+      const { error } = await supabase.from('horas_proyectadas').update({ horas }).eq('id', rowsMatch[0].id)
+      if (error) { toast.error('Error: ' + error.message); return }
+      setFilas(prev => prev.map(f => f.id === rowsMatch[0].id ? { ...f, horas } : f))
+    } else {
+      const ids = rowsMatch.map(r => r.id)
+      const { error: delErr } = await supabase.from('horas_proyectadas').delete().in('id', ids)
+      if (delErr) { toast.error('Error: ' + delErr.message); return }
+      const proyObj = proyectosLista.find(p => normalize(p.nombre) === normalize(proyecto))
+      const { data, error: insErr } = await supabase
+        .from('horas_proyectadas')
+        .insert({ colaborador, proyecto, proyecto_id: proyObj?.id || null, mes: mesCompleto, horas })
+        .select().single()
+      if (insErr) { toast.error('Error: ' + insErr.message); return }
+      setFilas(prev => [...prev.filter(f => !ids.includes(f.id)), data])
+    }
+
+    toast.success('Guardado')
+    setCeldaEditando(null)
+  }
+
+  // pivot horas por colaborador × proyecto
+  const detallePivot = {}
+  for (const f of filas) {
+    const [abrev, añoCorto] = (f.mes || '').split('-')
+    const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
+    if (añoFull !== añoValidator) continue
+    const mesKey = (abrev || '').toLowerCase()
+    if (!MESES_ABREV.includes(mesKey)) continue
+    const key = `${f.colaborador}|||${f.proyecto}`
+    if (!detallePivot[key]) detallePivot[key] = { colaborador: f.colaborador, proyecto: f.proyecto }
+    detallePivot[key][mesKey] = (detallePivot[key][mesKey] || 0) + (parseFloat(f.horas) || 0)
+  }
+  const detalleFilas = Object.values(detallePivot).sort((a, b) => {
+    const colCmp = (a.colaborador || '').localeCompare(b.colaborador || '', 'es')
+    if (colCmp !== 0) return colCmp
+    return (a.proyecto || '').localeCompare(b.proyecto || '', 'es')
+  })
+
+  const opcionesColaboradorDetalle = [...new Set(detalleFilas.map(r => r.colaborador))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesProyectoDetalle    = [...new Set(detalleFilas.map(r => r.proyecto))].sort((a, b) => a.localeCompare(b, 'es'))
+  const opcionesLineaDetalle       = [...new Set(detalleFilas.map(r => proyectosLinea[normalize(r.proyecto)] || '').filter(Boolean))].sort((a, b) => a.localeCompare(b, 'es'))
+
+  const detalleFilasFiltradas = detalleFilas.filter(row => {
+    const q = busquedaDetalle.toLowerCase()
+    const linea = proyectosLinea[normalize(row.proyecto)] || ''
+    const matchBusqueda = !q || [row.colaborador, row.proyecto, linea].some(v => (v || '').toLowerCase().includes(q))
+    const matchColaborador = !filtrosDetalle.colaborador?.length || filtrosDetalle.colaborador.includes(row.colaborador)
+    const matchProyecto    = !filtrosDetalle.proyecto?.length    || filtrosDetalle.proyecto.includes(row.proyecto)
+    const matchLinea       = !filtrosDetalle.linea?.length       || filtrosDetalle.linea.includes(linea)
+    return matchBusqueda && matchColaborador && matchProyecto && matchLinea
+  })
+  const detalleTotalPorMes = {}
+  for (const mes of MESES_ABREV) {
+    detalleTotalPorMes[mes] = detalleFilasFiltradas.reduce((sum, r) => sum + (r[mes] || 0), 0)
+  }
+  const detalleTotalGeneral = MESES_ABREV.reduce((sum, m) => sum + detalleTotalPorMes[m], 0)
 
   function exportarCostoPivot() {
     const rows = costoColabs.map(col => {
@@ -1136,6 +1243,121 @@ export default function VistaHorasProyectadas() {
             <button onClick={() => setPaginaLinea(p => Math.max(0, p - 1))} disabled={paginaLinea === 0}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
             <button onClick={() => setPaginaLinea(p => p + 1)} disabled={(paginaLinea + 1) * FILAS_POR_PAGINA >= costoLineasFiltradas.length}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+          </div>
+        </div>
+      )}
+
+      {/* ── HEADER DETALLE COLABORADOR × PROYECTO ── */}
+      {!loading && (
+        <div className="flex-shrink-0 flex justify-between items-center pt-3 pb-1 flex-wrap gap-3">
+          <h3 className="text-lg font-bold text-gray-800">Horas por colaborador y proyecto</h3>
+          <input
+            type="text"
+            value={busquedaDetalle}
+            onChange={e => setBusquedaDetalle(e.target.value)}
+            placeholder="Buscar..."
+            className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 w-48"
+          />
+        </div>
+      )}
+
+      {/* ── TABLA DETALLE COLABORADOR × PROYECTO ── */}
+      {!loading && (
+        <div className="overflow-x-auto border border-gray-200 rounded-lg">
+          {detalleFilas.length === 0 ? (
+            <p className="text-sm text-gray-400 italic p-4">Sin datos para {añoValidator}.</p>
+          ) : (
+            <table className="w-full text-sm" style={{ tableLayout: 'auto' }}>
+              <thead>
+                <tr style={{ backgroundColor: '#FFF5F0' }} className="border-b-2 border-gray-300">
+                  <FilterableTh
+                    col="colaborador" label="Colaborador" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesColaboradorDetalle} filtro={filtrosDetalle.colaborador || []}
+                    onFiltro={setFiltroDetalle} dropdownAbierto={dropdownFiltroDetalle === 'colaborador'} onToggleDropdown={setDropdownFiltroDetalle}
+                  />
+                  <FilterableTh
+                    col="proyecto" label="Proyecto" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesProyectoDetalle} filtro={filtrosDetalle.proyecto || []}
+                    onFiltro={setFiltroDetalle} dropdownAbierto={dropdownFiltroDetalle === 'proyecto'} onToggleDropdown={setDropdownFiltroDetalle}
+                  />
+                  <FilterableTh
+                    col="linea" label="Línea" align="left" style={{ whiteSpace: 'nowrap' }}
+                    opciones={opcionesLineaDetalle} filtro={filtrosDetalle.linea || []}
+                    onFiltro={setFiltroDetalle} dropdownAbierto={dropdownFiltroDetalle === 'linea'} onToggleDropdown={setDropdownFiltroDetalle}
+                  />
+                  {MESES_CORTOS.map((mc, i) => (
+                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                  ))}
+                  <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                {detalleFilasFiltradas.slice(paginaDetalle * FILAS_POR_PAGINA, (paginaDetalle + 1) * FILAS_POR_PAGINA).map((row, idx) => {
+                  const linea = proyectosLinea[normalize(row.proyecto)] || ''
+                  const rowTotal = MESES_ABREV.reduce((sum, m) => sum + (row[m] || 0), 0)
+                  return (
+                    <tr key={`${row.colaborador}|||${row.proyecto}`} className={`border-b border-gray-100 ${idx % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-orange-50 transition-colors`}>
+                      <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">{row.colaborador}</td>
+                      <td className="py-2 px-4 text-gray-700 whitespace-nowrap">{row.proyecto}</td>
+                      <td className="py-2 px-4 text-gray-500 whitespace-nowrap">{linea || <span className="text-gray-300">—</span>}</td>
+                      {MESES_ABREV.map(mes => {
+                        const h = row[mes] || 0
+                        const isEditing = celdaEditando?.colaborador === row.colaborador && celdaEditando?.proyecto === row.proyecto && celdaEditando?.mes === mes
+                        if (isEditing) {
+                          return (
+                            <td key={mes} className="py-1 px-2 text-right">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.5"
+                                className="w-20 text-right border border-orange-400 rounded px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-orange-500"
+                                value={celdaValor}
+                                onChange={e => setCeldaValor(e.target.value)}
+                                onBlur={() => guardarCeldaDetalle(row.colaborador, row.proyecto, mes, celdaValor)}
+                                onKeyDown={e => {
+                                  if (e.key === 'Enter') { e.preventDefault(); guardarCeldaDetalle(row.colaborador, row.proyecto, mes, celdaValor) }
+                                  if (e.key === 'Escape') setCeldaEditando(null)
+                                }}
+                                autoFocus
+                              />
+                            </td>
+                          )
+                        }
+                        return (
+                          <td
+                            key={mes}
+                            className={`py-2 px-3 text-right tabular-nums cursor-pointer hover:bg-orange-100 ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}
+                            title="Clic para editar"
+                            onClick={() => { setCeldaEditando({ colaborador: row.colaborador, proyecto: row.proyecto, mes }); setCeldaValor(h === 0 ? '' : String(h)) }}
+                          >
+                            {h === 0 ? '—' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        )
+                      })}
+                      <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{rowTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    </tr>
+                  )
+                })}
+                <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                  <td colSpan={3} className="py-2 px-4 text-gray-800">TOTAL ({detalleFilasFiltradas.length})</td>
+                  {MESES_ABREV.map(mes => (
+                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{detalleTotalPorMes[mes] === 0 ? '—' : detalleTotalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                  ))}
+                  <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{detalleTotalGeneral.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+      {!loading && detalleFilasFiltradas.length > FILAS_POR_PAGINA && (
+        <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+          <span>{paginaDetalle * FILAS_POR_PAGINA + 1}–{Math.min((paginaDetalle + 1) * FILAS_POR_PAGINA, detalleFilasFiltradas.length)} de {detalleFilasFiltradas.length}</span>
+          <div className="flex gap-2">
+            <button onClick={() => setPaginaDetalle(p => Math.max(0, p - 1))} disabled={paginaDetalle === 0}
+              className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+            <button onClick={() => setPaginaDetalle(p => p + 1)} disabled={(paginaDetalle + 1) * FILAS_POR_PAGINA >= detalleFilasFiltradas.length}
               className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
           </div>
         </div>

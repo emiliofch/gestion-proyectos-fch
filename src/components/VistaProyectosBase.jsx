@@ -9,6 +9,7 @@ import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 
 const TIPOS_PROYECTO = ['Público', 'Privado']
 const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
+const COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES = ['tipo', 'financista', 'region', 'industria', 'rendible', 'ceco', 'hp']
 const REGIONES_CHILE = [
   'Arica y Parinacota', 'Tarapacá', 'Antofagasta', 'Atacama', 'Coquimbo',
   'Valparaíso', 'Metropolitana', "O'Higgins", 'Maule', 'Ñuble',
@@ -66,6 +67,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [financistas, setFinancistas] = useState([])
   const [loading, setLoading] = useState(true)
   const [busqueda, setBusqueda] = useState('')
+  const [modoVista, setModoVista] = useState('proyectos')
   const [procesando, setProcesando] = useState(false)
   const [eliminandoTodos, setEliminandoTodos] = useState(false)
   const [mostrarInstrucciones, setMostrarInstrucciones] = useState(false)
@@ -94,6 +96,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [motivoAccionEstado, setMotivoAccionEstado] = useState('')
 
   const [procesandoFin, setProcesandoFin] = useState(false)
+  const esVistaOportunidades = modoVista === 'oportunidades'
 
   useEffect(() => {
     cargarLineas()
@@ -112,6 +115,29 @@ export default function VistaProyectosBase({ user, perfil }) {
   }, [dropdownFiltro])
 
   useEffect(() => { setPagina(0) }, [busqueda, filtros, ordenCol, ordenDir])
+
+  useEffect(() => {
+    if (!esVistaOportunidades) return
+
+    setFiltros((prev) => {
+      let huboCambios = false
+      const next = { ...prev }
+
+      for (const columna of COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES) {
+        if (columna in next) {
+          delete next[columna]
+          huboCambios = true
+        }
+      }
+
+      return huboCambios ? next : prev
+    })
+
+    if (COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES.includes(ordenCol)) {
+      setOrdenCol('proyecto')
+      setOrdenDir('asc')
+    }
+  }, [esVistaOportunidades, ordenCol])
 
   async function cargarLineas() {
     const { data, error } = await supabase
@@ -884,6 +910,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   })
 
   const proyectosPagina = proyectosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
+  const columnasOcultasCount = esVistaOportunidades ? COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES.length : 0
 
   // Campo select reutilizable para jefe
   function SelectJefe({ value, onChange }) {
@@ -963,6 +990,28 @@ export default function VistaProyectosBase({ user, perfil }) {
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Proyectos</h2>
         <div className="flex gap-2 flex-wrap items-center">
+          <button
+            type="button"
+            onClick={() => setModoVista('proyectos')}
+            className="px-4 py-2 rounded-lg font-medium transition-all"
+            style={{
+              backgroundColor: esVistaOportunidades ? '#E5E7EB' : '#FF5100',
+              color: esVistaOportunidades ? '#374151' : '#FFFFFF'
+            }}
+          >
+            Vista proyectos
+          </button>
+          <button
+            type="button"
+            onClick={() => setModoVista('oportunidades')}
+            className="px-4 py-2 rounded-lg font-medium transition-all"
+            style={{
+              backgroundColor: esVistaOportunidades ? '#0EA5E9' : '#E5E7EB',
+              color: esVistaOportunidades ? '#FFFFFF' : '#374151'
+            }}
+          >
+            vista oportunidades
+          </button>
           <input
             type="text"
             placeholder="Buscar..."
@@ -1094,8 +1143,10 @@ export default function VistaProyectosBase({ user, perfil }) {
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'margen'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="estado" label="Estado" opciones={opcionesEstado} filtro={filtros.estado || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'estado'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'estado'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="tipo" label="Tipo" opciones={opcionesTipo} filtro={filtros.tipo || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'tipo'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'tipo'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="financista" label="Financista" opciones={opcionesPorColumna('financista', p => p.financistas?.nombre)} filtro={filtros.financista || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'financista'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'financista'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                {!esVistaOportunidades && <FilterableTh col="tipo" label="Tipo" opciones={opcionesTipo} filtro={filtros.tipo || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'tipo'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'tipo'} ordenDir={ordenDir} onOrdenar={toggleOrden} />}
+                {!esVistaOportunidades && <FilterableTh col="financista" label="Financista" opciones={opcionesPorColumna('financista', p => p.financistas?.nombre)} filtro={filtros.financista || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'financista'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'financista'} ordenDir={ordenDir} onOrdenar={toggleOrden} />}
+                {!esVistaOportunidades && (
+                  <>
                 <FilterableTh col="region" label="Región" opciones={opcionesPorColumna('region', p => p.region)} filtro={filtros.region || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'region'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'region'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="industria" label="Industria" opciones={opcionesPorColumna('industria', p => p.industria)} filtro={filtros.industria || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'industria'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'industria'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="rendible" label="Rendible" align="center" opciones={opcionesRendible} filtro={filtros.rendible || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'rendible'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'rendible'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
@@ -1103,6 +1154,8 @@ export default function VistaProyectosBase({ user, perfil }) {
                 <FilterableTh col="hp" label="HP" align="center" style={{ width: '60px' }}
                   opciones={['Sí', 'No']} filtro={filtros.hp || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'hp'} onToggleDropdown={setDropdownFiltro} />
+                  </>
+                )}
                 <FilterableTh col="fechaAdj" label="Fecha Adj" align="center" style={{ width: '95px' }}
                   opciones={opcionesFechaAdj} filtro={filtros.fechaAdj || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'fechaAdj'} onToggleDropdown={setDropdownFiltro}
@@ -1165,6 +1218,8 @@ export default function VistaProyectosBase({ user, perfil }) {
                       }
                     </td>
                     <td className="py-2 px-2">{badgeEstadoSelect(p.estado, p, solicitarCambioEstado)}</td>
+                    {!esVistaOportunidades && (
+                      <>
                     <td className="py-2 px-4 text-gray-600 text-sm">{p.tipo || <span className="text-gray-400 italic">-</span>}</td>
                     <td className="py-2 px-4 text-gray-600 text-sm truncate">{p.financistas?.nombre || <span className="text-gray-400 italic">-</span>}</td>
                     <td className="py-2 px-4 text-gray-600 text-sm">{p.region || <span className="text-gray-400 italic">-</span>}</td>
@@ -1177,6 +1232,8 @@ export default function VistaProyectosBase({ user, perfil }) {
                         : <span className="text-gray-300 text-xs">No</span>
                       }
                     </td>
+                      </>
+                    )}
                     <td className="py-2 px-1 text-center">
                       {puedeEditarFechaAdjudicacion(p.estado) ? (
                         <input
@@ -1214,7 +1271,7 @@ export default function VistaProyectosBase({ user, perfil }) {
               })}
               {proyectosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={18} className="py-12 text-center text-gray-400">
+                  <td colSpan={18 - columnasOcultasCount} className="py-12 text-center text-gray-400">
                     {busqueda ? 'No hay proyectos que coincidan con la búsqueda' : 'No hay proyectos cargados'}
                   </td>
                 </tr>
@@ -1233,7 +1290,7 @@ export default function VistaProyectosBase({ user, perfil }) {
                     <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totHH)}</td>
                     <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totGastos)}</td>
                     <td className={`py-2 px-3 text-right tabular-nums text-sm ${totMargen >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(totMargen)}</td>
-                    <td colSpan={10} />
+                    <td colSpan={10 - columnasOcultasCount} />
                   </tr>
                 </tfoot>
               )
