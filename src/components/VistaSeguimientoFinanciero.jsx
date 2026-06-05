@@ -82,6 +82,7 @@ function formatPercent(value) {
   return `${(Number(value) * 100).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%`
 }
 
+
 function buildPdfDateLabel() {
   return new Date().toLocaleString('es-CL', {
     year: 'numeric',

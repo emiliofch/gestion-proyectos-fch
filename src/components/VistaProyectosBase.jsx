@@ -85,6 +85,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [motivoCambio, setMotivoCambio] = useState('')
   const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizado(nombre) → costo total HH
   const [proyEnHP, setProyEnHP] = useState(new Set())         // normalizado(nombre) en horas_proyectadas
+  const [proyEnIngresoReal, setProyEnIngresoReal] = useState(new Set()) // normalizado(nombre) en ingreso_real_acumulado
 
   // Edición financiera (Ingresos / GGOO)
   const [modalEdicionFin, setModalEdicionFin] = useState(null) // { proyecto, campo }
@@ -105,6 +106,7 @@ export default function VistaProyectosBase({ user, perfil }) {
     cargarFinancistas()
     cargarProyectos()
     cargarCostosHorasProyectadas()
+    cargarIngresoReal()
   }, [])
 
   useEffect(() => {
@@ -188,6 +190,14 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   async function cargarCostosHorasProyectadas() {
     const PAGE = 1000
+    const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
+
+    // Convierte "2026-04-01" → "abr-26" para comparar con hh_acumulado_real
+    function mesAClave(mesStr) {
+      if (!mesStr) return ''
+      const d = new Date(mesStr.length === 7 ? mesStr + '-01' : mesStr)
+      return MESES_ES[d.getUTCMonth()] + '-' + String(d.getUTCFullYear()).slice(2)
+    }
 
     // Costos mensuales: { normalizar(colaborador) → { mes → costo_mes } }
     const costoMap = {}
@@ -216,16 +226,44 @@ export default function VistaProyectosBase({ user, perfil }) {
       from += PAGE
     }
 
+    // Cargar datos reales: { "proyecto_key|mes" → monto_real }
+    // y set de pares cubiertos para no sumar el proyectado en esos períodos
+    const { data: reales } = await supabase.from('hh_acumulado_real').select('nombre_proyecto, mes, monto_hh_real')
+    const costosReales = {}   // pKey → suma monto real
+    const cubiertos = new Set() // "pKey|mes" pares con data real
+    for (const r of reales || []) {
+      const pKey = normalizar(r.nombre_proyecto)
+      if (!pKey) continue
+      const mesKey = `${pKey}|${r.mes}`
+      cubiertos.add(mesKey)
+      costosReales[pKey] = (costosReales[pKey] || 0) + (parseFloat(r.monto_hh_real) || 0)
+    }
+
+    // Proyectado solo para pares (proyecto, mes) no cubiertos por real
     const costos = {}
     const enHP = new Set()
     for (const f of todas) {
       const pKey = normalizar(f.proyecto)
       if (pKey) enHP.add(pKey)
+      const mesKey = `${pKey}|${mesAClave(f.mes)}`
+      if (cubiertos.has(mesKey)) continue // ya lo cubre el real
       const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizar(f.colaborador)]?.[f.mes] || 0)
       costos[pKey] = (costos[pKey] || 0) + costo
     }
+
+    // Final: proyectado (no cubierto) + real
+    for (const [pKey, monto] of Object.entries(costosReales)) {
+      costos[pKey] = (costos[pKey] || 0) + monto
+    }
+
     setCostoPorProyecto(costos)
     setProyEnHP(enHP)
+  }
+
+  async function cargarIngresoReal() {
+    const { data } = await supabase.from('ingreso_real_acumulado').select('nombre')
+    const enIR = new Set((data || []).map(r => normalizar(r.nombre)).filter(Boolean))
+    setProyEnIngresoReal(enIR)
   }
 
   async function cargarProyectos() {
@@ -510,9 +548,9 @@ export default function VistaProyectosBase({ user, perfil }) {
     const fechaAdjudicacion = normalizarMesAdjudicacion(formData.fecha_adjudicacion)
     if (fechaAdjudicacion === undefined) return 'Fecha de adjudicación inválida. Usa formato "ene-26"'
     const estadoActual = normalizarEstadoProyecto(formData.estado)
-    const fechaOpcional = estadoActual === 'Adjudicado' || estadoActual === 'Cancelado'
+    const fechaOpcional = estadoActual === 'Adjudicado' || estadoActual === 'Cancelado' || estadoActual === 'Meta'
     if (!fechaOpcional && !fechaAdjudicacion) {
-      return 'Debes seleccionar fecha de adjudicación cuando el estado no es "Adjudicado" ni "Cancelado"'
+      return 'Debes seleccionar fecha de adjudicación cuando el estado no es "Adjudicado", "Cancelado" ni "Meta"'
     }
     return null
   }
@@ -662,6 +700,10 @@ export default function VistaProyectosBase({ user, perfil }) {
       toast.error(`No se puede eliminar "${proyecto.nombre}" porque tiene horas proyectadas cargadas.`)
       return
     }
+    if (proyEnIngresoReal.has(normalizar(proyecto.nombre))) {
+      toast.error(`No se puede eliminar "${proyecto.nombre}" porque tiene datos en Ingreso Real Acumulado.`)
+      return
+    }
     if (!confirm(`¿Eliminar el proyecto "${proyecto.nombre}"?`)) return
 
     await supabase.from('cambios').insert({
@@ -779,6 +821,14 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   // ── FECHA ADJUDICACIÓN INLINE ──
+  async function guardarComentario(proyecto, valor) {
+    const comentario = valor.trim() || null
+    if (comentario === (proyecto.comentarios || null)) return
+    const { error } = await supabase.from('proyectos').update({ comentarios: comentario }).eq('id', proyecto.id)
+    if (error) { toast.error('Error al guardar comentario: ' + error.message); return }
+    setProyectos(prev => prev.map(p => p.id === proyecto.id ? { ...p, comentarios: comentario } : p))
+  }
+
   async function actualizarFechaAdjudicacion(proyecto, valor, onInvalid) {
     if (!puedeEditarFechaAdjudicacion(proyecto.estado)) {
       toast.error('Fecha de adjudicación solo editable para estado Efectivo o No Efectivo')
@@ -1154,12 +1204,16 @@ export default function VistaProyectosBase({ user, perfil }) {
                 <FilterableTh col="hp" label="HP" align="center" style={{ width: '60px' }}
                   opciones={['Sí', 'No']} filtro={filtros.hp || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'hp'} onToggleDropdown={setDropdownFiltro} />
+                <FilterableTh col="margenReal" label="margen real?" align="center" style={{ width: '100px' }}
+                  opciones={['Sí', 'No']} filtro={filtros.margenReal || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'margenReal'} onToggleDropdown={setDropdownFiltro} />
                   </>
                 )}
                 <FilterableTh col="fechaAdj" label="Fecha Adj" align="center" style={{ width: '95px' }}
                   opciones={opcionesFechaAdj} filtro={filtros.fechaAdj || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'fechaAdj'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'fechaAdj'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <ResizableTh className="py-3 px-4 text-gray-800 font-semibold bg-[#FFF5F0]" style={{ minWidth: '180px' }}>Comentarios</ResizableTh>
                 <ResizableTh className="text-center py-3 px-4 text-gray-800 font-semibold">Acciones</ResizableTh>
               </tr>
             </thead>
@@ -1171,6 +1225,7 @@ export default function VistaProyectosBase({ user, perfil }) {
                 const gastos = parseFloat(p.gastos)   || 0
                 const margen = ing - hh - gastos
                 const enHP   = proyEnHP.has(normalizar(p.nombre))
+                const enIR   = proyEnIngresoReal.has(normalizar(p.nombre))
                 return (
                   <tr key={p.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
                     <td className="py-2 px-4 text-gray-500 text-sm">{globalIndex}</td>
@@ -1232,6 +1287,12 @@ export default function VistaProyectosBase({ user, perfil }) {
                         : <span className="text-gray-300 text-xs">No</span>
                       }
                     </td>
+                    <td className="py-2 px-2 text-center">
+                      {enIR
+                        ? <span className="px-1.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700">Sí</span>
+                        : <span className="text-gray-300 text-xs">No</span>
+                      }
+                    </td>
                       </>
                     )}
                     <td className="py-2 px-1 text-center">
@@ -1248,6 +1309,15 @@ export default function VistaProyectosBase({ user, perfil }) {
                         <span className="text-xs text-gray-500">{p.fecha_adjudicacion || <span className="text-gray-300">—</span>}</span>
                       )}
                     </td>
+                    <td className="py-1 px-2" style={{ minWidth: '180px' }}>
+                      <textarea
+                        defaultValue={p.comentarios || ''}
+                        onBlur={e => guardarComentario(p, e.target.value)}
+                        rows={2}
+                        className="w-full text-xs px-2 py-1 border border-gray-200 rounded resize-none focus:outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-transparent hover:bg-white"
+                        placeholder="Agregar comentario..."
+                      />
+                    </td>
                     <td className="py-2 px-2 text-center">
                       <div className="flex gap-1 justify-center">
                         <button
@@ -1258,9 +1328,9 @@ export default function VistaProyectosBase({ user, perfil }) {
                         </button>
                         <button
                           onClick={() => eliminarProyecto(p)}
-                          disabled={enHP}
-                          className={`px-2 py-1 rounded-lg text-white font-medium transition-all text-xs ${enHP ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
-                          title={enHP ? 'No se puede eliminar: tiene HH cargadas' : 'Eliminar proyecto'}
+                          disabled={enHP || enIR}
+                          className={`px-2 py-1 rounded-lg text-white font-medium transition-all text-xs ${(enHP || enIR) ? 'bg-gray-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'}`}
+                          title={enHP ? 'No se puede eliminar: tiene HH cargadas' : enIR ? 'No se puede eliminar: tiene datos en Ingreso Real Acumulado' : 'Eliminar proyecto'}
                         >
                           Eliminar
                         </button>
@@ -1366,7 +1436,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fecha de adjudicación {['Adjudicado', 'Cancelado'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
+                Fecha de adjudicación {['Adjudicado', 'Cancelado', 'Meta'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
               </label>
               <input
                 type="text"
@@ -1547,7 +1617,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-1">
-                Fecha de adjudicación {['Adjudicado', 'Cancelado'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
+                Fecha de adjudicación {['Adjudicado', 'Cancelado', 'Meta'].includes(normalizarEstadoProyecto(formData.estado)) ? '(opcional)' : '*'}
               </label>
               <input
                 type="text"

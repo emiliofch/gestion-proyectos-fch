@@ -30,6 +30,8 @@ import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
 import VistaHorasProyectadas from './components/VistaHorasProyectadas'
 import VistaColaboradoresCostos from './components/VistaColaboradoresCostos'
 import VistaFinancistas from './components/VistaFinancistas'
+import VistaIngresoRealAcumulado from './components/VistaIngresoRealAcumulado'
+import VistaHHAcumuladoReal from './components/VistaHHAcumuladoReal'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -659,7 +661,7 @@ function App() {
             <button
               onClick={() => setSubmenuTablas(!submenuTablas)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>🗂 Tablas</span>
               <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -724,6 +726,20 @@ function App() {
                   style={{ color: vista === 'financistas' ? '#FF5100' : '#374151', backgroundColor: vista === 'financistas' ? '#FFF5F0' : 'transparent' }}
                 >
                   🏦 Financistas
+                </button>
+                <button
+                  onClick={() => { setVista('ingreso-real-acumulado'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'ingreso-real-acumulado' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-real-acumulado' ? '#FFF5F0' : 'transparent' }}
+                >
+                  💰 Ingreso Real Acumulado
+                </button>
+                <button
+                  onClick={() => { setVista('hh-acumulado-real'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'hh-acumulado-real' ? '#FF5100' : '#374151', backgroundColor: vista === 'hh-acumulado-real' ? '#FFF5F0' : 'transparent' }}
+                >
+                  ⏱️ HH Acumulado Real
                 </button>
               </div>
             )}
@@ -928,6 +944,14 @@ function App() {
 
             {vista === 'financistas' && (
               <VistaFinancistas perfil={perfil} />
+            )}
+
+            {vista === 'ingreso-real-acumulado' && (
+              <VistaIngresoRealAcumulado />
+            )}
+
+            {vista === 'hh-acumulado-real' && (
+              <VistaHHAcumuladoReal />
             )}
 
 

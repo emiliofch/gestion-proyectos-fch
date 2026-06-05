@@ -101,10 +101,12 @@ export default function VistaHorasProyectadas() {
   const [paginaDetalle, setPaginaDetalle] = useState(0)
   const [celdaEditando, setCeldaEditando] = useState(null) // { colaborador, proyecto, mes }
   const [celdaValor, setCeldaValor] = useState('')
+  const [mesesCubiertosHH, setMesesCubiertosHH] = useState(new Set())
 
   useEffect(() => {
     cargarDatos()
     cargarValidaciones()
+    cargarMesesCubiertos()
   }, [])
 
   useEffect(() => {
@@ -147,6 +149,11 @@ export default function VistaHorasProyectadas() {
   useEffect(() => { setPaginaCosto(0) }, [busquedaCostoPivot, filtrosCostoPivot])
   useEffect(() => { setPaginaLinea(0) }, [busquedaLineaPivot, filtrosLineaPivot])
   useEffect(() => { setPaginaDetalle(0) }, [busquedaDetalle, filtrosDetalle, añoValidator])
+
+  async function cargarMesesCubiertos() {
+    const { data } = await supabase.from('hh_acumulado_real').select('mes').not('mes', 'is', null).neq('mes', '')
+    setMesesCubiertosHH(new Set((data || []).map(r => r.mes).filter(Boolean)))
+  }
 
   async function cargarDatos() {
     setLoading(true)
@@ -240,6 +247,17 @@ export default function VistaHorasProyectadas() {
     if (error) { toast.error('Error al eliminar: ' + error.message); return }
     setFilas(prev => prev.filter(f => f.id !== id))
     toast.success('Fila eliminada')
+  }
+
+  async function duplicarFila(f) {
+    const { data, error } = await supabase
+      .from('horas_proyectadas')
+      .insert({ colaborador: f.colaborador, proyecto_id: f.proyecto_id, proyecto: f.proyecto, mes: f.mes, horas: f.horas })
+      .select()
+      .single()
+    if (error) { toast.error('Error al duplicar: ' + error.message); return }
+    setFilas(prev => [...prev, data])
+    toast.success('Registro duplicado')
   }
 
   function toggleOrden(col) {
@@ -603,6 +621,20 @@ export default function VistaHorasProyectadas() {
     XLSX.writeFile(wb, `resumen_horas_${añoValidator}_${buildTimestamp()}.xlsx`)
   }
 
+  // Meses cubiertos por datos reales para el año seleccionado (abreviaturas, ej: "ene", "abr")
+  const mesesCubiertosAbrev = new Set(
+    [...mesesCubiertosHH].flatMap(mes => {
+      const [abrev, anio] = mes.split('-')
+      const anioFull = parseInt(anio || 0) + (parseInt(anio || 0) < 100 ? 2000 : 0)
+      return anioFull === añoValidator ? [abrev.toLowerCase()] : []
+    })
+  )
+  function mesHeaderCls(abrev) {
+    return mesesCubiertosAbrev.has(abrev)
+      ? 'py-2 px-3 text-right font-semibold text-white whitespace-nowrap bg-gray-600'
+      : 'py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]'
+  }
+
   // ── IMPORTAR EXCEL ──
   async function importarExcel(e) {
     const file = e.target.files[0]
@@ -884,7 +916,7 @@ export default function VistaHorasProyectadas() {
                   opciones={['Sí', 'No']} filtro={filtros.enProyectos || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enProyectos'} onToggleDropdown={setDropdownFiltro}
                 />
-                <ResizableTh className="bg-[#FFF5F0]" style={{ width: '42px' }} />
+                <ResizableTh className="bg-[#FFF5F0]" style={{ width: '72px' }} />
               </tr>
             </thead>
             <tbody>
@@ -945,12 +977,20 @@ export default function VistaHorasProyectadas() {
                       <span className={`px-2 py-0.5 rounded-full text-xs font-medium border ${enProy ? 'bg-green-100 text-green-800 border-green-300' : 'bg-red-100 text-red-700 border-red-300'}`}>{enProy ? 'Sí' : 'No'}</span>
                     </td>
                     <td className="py-2 px-2 text-center">
-                      <button onClick={() => eliminarFila(f.id)} className="text-gray-300 hover:text-red-500 transition-all" title="Eliminar fila">
-                        <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" /><path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
-                        </svg>
-                      </button>
+                      <div className="flex items-center justify-center gap-2">
+                        <button onClick={() => duplicarFila(f)} className="text-gray-300 hover:text-blue-500 transition-all" title="Duplicar fila">
+                          <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <rect x="9" y="9" width="13" height="13" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                          </svg>
+                        </button>
+                        <button onClick={() => eliminarFila(f.id)} className="text-gray-300 hover:text-red-500 transition-all" title="Eliminar fila">
+                          <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M3 6h18" /><path strokeLinecap="round" strokeLinejoin="round" d="M8 6V4h8v2" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M6 6l1 14h10l1-14" /><path strokeLinecap="round" strokeLinejoin="round" d="M10 11v6M14 11v6" />
+                          </svg>
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 )
@@ -1034,7 +1074,7 @@ export default function VistaHorasProyectadas() {
                     onFiltro={setFiltroValidator} dropdownAbierto={dropdownFiltroValidator === 'rut'} onToggleDropdown={setDropdownFiltroValidator}
                   />
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                    <th key={mc} className={mesHeaderCls(MESES_ABREV[i])} title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
@@ -1048,7 +1088,8 @@ export default function VistaHorasProyectadas() {
                       <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">{colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}</td>
                       {MESES_ABREV.map(mes => {
                         const h = validatorPivot[col]?.[mes] || 0
-                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{h === 0 ? '0,00' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                        const cubierto = mesesCubiertosAbrev.has(mes)
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${cubierto ? 'bg-gray-100 text-gray-400' : h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{h === 0 ? '0,00' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                       })}
                       <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{rowTotal.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                     </tr>
@@ -1057,7 +1098,7 @@ export default function VistaHorasProyectadas() {
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL ({validatorColabsFiltrados.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{totalPorMesFiltrado[mes] === 0 ? '0,00' : totalPorMesFiltrado[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td key={mes} className={`py-2 px-3 text-right tabular-nums text-gray-800 ${mesesCubiertosAbrev.has(mes) ? 'bg-gray-200' : ''}`}>{totalPorMesFiltrado[mes] === 0 ? '0,00' : totalPorMesFiltrado[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   ))}
                   <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{totalValidadorFiltrado.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
@@ -1122,7 +1163,7 @@ export default function VistaHorasProyectadas() {
                     onFiltro={setFiltroCostoPivot} dropdownAbierto={dropdownFiltroCostoPivot === 'rut'} onToggleDropdown={setDropdownFiltroCostoPivot}
                   />
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                    <th key={mc} className={mesHeaderCls(MESES_ABREV[i])} title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
@@ -1136,7 +1177,8 @@ export default function VistaHorasProyectadas() {
                       <td className="py-2 px-4 text-sm text-gray-500 tabular-nums whitespace-nowrap">{colaboradoresRut[normalize(col)] || <span className="text-gray-300">—</span>}</td>
                       {MESES_ABREV.map(mes => {
                         const c = costoPivot[col]?.[mes] || 0
-                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
+                        const cubierto = mesesCubiertosAbrev.has(mes)
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${cubierto ? 'bg-gray-100 text-gray-400' : c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
                       })}
                       <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{Math.round(rowTotal).toLocaleString('es-CL')}</td>
                     </tr>
@@ -1145,7 +1187,7 @@ export default function VistaHorasProyectadas() {
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="py-2 px-4 text-gray-800">TOTAL ({costoColabsFiltrados.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesFiltrado[mes]).toLocaleString('es-CL')}</td>
+                    <td key={mes} className={`py-2 px-3 text-right tabular-nums text-gray-800 ${mesesCubiertosAbrev.has(mes) ? 'bg-gray-200' : ''}`}>{costoPorMesFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesFiltrado[mes]).toLocaleString('es-CL')}</td>
                   ))}
                   <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoPivotFiltrado).toLocaleString('es-CL')}</td>
                 </tr>
@@ -1205,7 +1247,7 @@ export default function VistaHorasProyectadas() {
                     onFiltro={setFiltroLineaPivot} dropdownAbierto={dropdownFiltroLineaPivot === 'linea'} onToggleDropdown={setDropdownFiltroLineaPivot}
                   />
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                    <th key={mc} className={mesHeaderCls(MESES_ABREV[i])} title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
@@ -1218,7 +1260,8 @@ export default function VistaHorasProyectadas() {
                       <td className="py-2 px-4 font-medium text-gray-700 whitespace-nowrap">{linea}</td>
                       {MESES_ABREV.map(mes => {
                         const c = costoLineaPivot[linea]?.[mes] || 0
-                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
+                        const cubierto = mesesCubiertosAbrev.has(mes)
+                        return <td key={mes} className={`py-2 px-3 text-right tabular-nums ${cubierto ? 'bg-gray-100 text-gray-400' : c === 0 ? 'text-gray-300' : 'text-gray-700'}`}>{c === 0 ? '—' : Math.round(c).toLocaleString('es-CL')}</td>
                       })}
                       <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-50 tabular-nums">{Math.round(rowTotal).toLocaleString('es-CL')}</td>
                     </tr>
@@ -1227,7 +1270,7 @@ export default function VistaHorasProyectadas() {
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td className="py-2 px-4 text-gray-800">TOTAL ({costoLineasFiltradas.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{costoPorMesLineaFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesLineaFiltrado[mes]).toLocaleString('es-CL')}</td>
+                    <td key={mes} className={`py-2 px-3 text-right tabular-nums text-gray-800 ${mesesCubiertosAbrev.has(mes) ? 'bg-gray-200' : ''}`}>{costoPorMesLineaFiltrado[mes] === 0 ? '—' : Math.round(costoPorMesLineaFiltrado[mes]).toLocaleString('es-CL')}</td>
                   ))}
                   <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{Math.round(totalCostoLineaFiltrado).toLocaleString('es-CL')}</td>
                 </tr>
@@ -1287,7 +1330,7 @@ export default function VistaHorasProyectadas() {
                     onFiltro={setFiltroDetalle} dropdownAbierto={dropdownFiltroDetalle === 'linea'} onToggleDropdown={setDropdownFiltroDetalle}
                   />
                   {MESES_CORTOS.map((mc, i) => (
-                    <th key={mc} className="py-2 px-3 text-right font-semibold text-gray-800 whitespace-nowrap bg-[#FFF5F0]" title={MESES_NOMBRES[i]}>{mc}</th>
+                    <th key={mc} className={mesHeaderCls(MESES_ABREV[i])} title={MESES_NOMBRES[i]}>{mc}</th>
                   ))}
                   <th className="py-2 px-4 text-right font-semibold text-gray-800 whitespace-nowrap bg-orange-50">Total</th>
                 </tr>
@@ -1303,10 +1346,11 @@ export default function VistaHorasProyectadas() {
                       <td className="py-2 px-4 text-gray-500 whitespace-nowrap">{linea || <span className="text-gray-300">—</span>}</td>
                       {MESES_ABREV.map(mes => {
                         const h = row[mes] || 0
+                        const cubierto = mesesCubiertosAbrev.has(mes)
                         const isEditing = celdaEditando?.colaborador === row.colaborador && celdaEditando?.proyecto === row.proyecto && celdaEditando?.mes === mes
                         if (isEditing) {
                           return (
-                            <td key={mes} className="py-1 px-2 text-right">
+                            <td key={mes} className={`py-1 px-2 text-right ${cubierto ? 'bg-gray-100' : ''}`}>
                               <input
                                 type="number"
                                 min="0"
@@ -1327,7 +1371,7 @@ export default function VistaHorasProyectadas() {
                         return (
                           <td
                             key={mes}
-                            className={`py-2 px-3 text-right tabular-nums cursor-pointer hover:bg-orange-100 ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}
+                            className={`py-2 px-3 text-right tabular-nums cursor-pointer hover:bg-orange-100 ${cubierto ? 'bg-gray-100 text-gray-400' : h === 0 ? 'text-gray-300' : 'text-gray-700'}`}
                             title="Clic para editar"
                             onClick={() => { setCeldaEditando({ colaborador: row.colaborador, proyecto: row.proyecto, mes }); setCeldaValor(h === 0 ? '' : String(h)) }}
                           >
@@ -1342,7 +1386,7 @@ export default function VistaHorasProyectadas() {
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={3} className="py-2 px-4 text-gray-800">TOTAL ({detalleFilasFiltradas.length})</td>
                   {MESES_ABREV.map(mes => (
-                    <td key={mes} className="py-2 px-3 text-right tabular-nums text-gray-800">{detalleTotalPorMes[mes] === 0 ? '—' : detalleTotalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
+                    <td key={mes} className={`py-2 px-3 text-right tabular-nums text-gray-800 ${mesesCubiertosAbrev.has(mes) ? 'bg-gray-200' : ''}`}>{detalleTotalPorMes[mes] === 0 ? '—' : detalleTotalPorMes[mes].toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                   ))}
                   <td className="py-2 px-4 text-right font-bold text-gray-800 bg-orange-100 tabular-nums">{detalleTotalGeneral.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</td>
                 </tr>
