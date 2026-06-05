@@ -52,6 +52,8 @@ usarÃ¡n sonarqube para auditar el cÃ³digo de este proyecto, debes verificar 
 
 - SonarQube es una prioridad permanente: antes de cerrar una tarea, verificar impacto en seguridad, bugs, mantenibilidad y cobertura.
 - Documento de trabajo obligatorio: `audit_log/PLAN_AUDITORIA_SONARQUBE.md` (leer al inicio de cada sesión técnica).
+- Regla permanente para futuros cambios: toda modificación debe pensarse para pasar auditoría SonarQube desde el inicio, evitando deuda nueva en seguridad, bugs, mantenibilidad, duplicación y cobertura de código nuevo.
+- Antes de cerrar cualquier tarea, revisar que no se introduzcan `console.log` de debug, hotspots de seguridad, complejidad innecesaria, warnings/lint nuevos, ni cambios sin pruebas cuando afecten lógica crítica.
 
 
 puedes agregar algo al agents.md para que a futuro, cada cambio que pida, esté pensado para pasar una auditoria de sonarqube
