@@ -129,7 +129,7 @@ function App() {
     const { data } = await supabase.from('perfiles').select('*').eq('id', userId).single()
     setPerfil(data)
     if (data?.modulos?.length > 0) {
-      const vistaDefault = { costeo: 'costeo', estimacion: 'dashboard', seguimiento: 'seguimiento-financiero', hh: 'ingreso-hh', oc: 'solicitud-oc', tablas: 'proyectos-base' }
+      const vistaDefault = { costeo: 'costeo-nuevo', estimacion: 'dashboard', seguimiento: 'seguimiento-financiero', hh: 'ingreso-hh', oc: 'solicitud-oc', tablas: 'proyectos-base' }
       const primera = vistaDefault[data.modulos[0]]
       if (primera) setVista(primera)
     }
@@ -633,7 +633,7 @@ function App() {
         <div className="p-4 space-y-2">
 
           <div className="text-center pb-1">
-            <span className="text-xs text-gray-400 font-mono">v1.5.0</span>
+            <span className="text-xs text-gray-400 font-mono">v1.5.1</span>
           </div>
 
           {/* 1. Estimación de cierre (con submenú) */}
