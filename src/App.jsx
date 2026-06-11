@@ -30,7 +30,7 @@ import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
 import VistaHorasProyectadas from './components/VistaHorasProyectadas'
 import VistaColaboradoresCostos from './components/VistaColaboradoresCostos'
 import VistaFinancistas from './components/VistaFinancistas'
-import VistaIngresoRealAcumulado from './components/VistaIngresoRealAcumulado'
+import VistaRealAcumulado from './components/VistaRealAcumulado'
 import VistaHHAcumuladoReal from './components/VistaHHAcumuladoReal'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
@@ -67,6 +67,11 @@ function App() {
   const [sugerencias, setSugerencias] = useState([])
   const [votos, setVotos] = useState([])
   const [filtroEstadoSugerencias, setFiltroEstadoSugerencias] = useState('')
+
+  function canSee(modulo) {
+    if (!perfil?.modulos || perfil.modulos.length === 0) return true
+    return perfil.modulos.includes(modulo)
+  }
 
   // Intencional: se inicializa una sola vez al montar App.
   useEffect(() => {
@@ -623,7 +628,7 @@ function App() {
         <div className="p-4 space-y-2">
 
           {/* 1. Estimación de cierre (con submenú) */}
-          <div>
+          {canSee('estimacion') && <div>
             <button
               onClick={() => setSubmenuEstimacion(!submenuEstimacion)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
@@ -654,14 +659,14 @@ function App() {
                 </button>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* 2. Tablas (con submenú) */}
-          <div>
+          {canSee('tablas') && <div>
             <button
               onClick={() => setSubmenuTablas(!submenuTablas)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
-              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FFF5F0' : 'transparent' }}
+              style={{ color: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'gasto-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FF5100' : '#374151', backgroundColor: ['lineas', 'centros-costo', 'proyectos-base', 'colaboradores', 'colaboradores-costos', 'horas-proyectadas', 'financistas', 'ingreso-real-acumulado', 'gasto-real-acumulado', 'hh-acumulado-real'].includes(vista) ? '#FFF5F0' : 'transparent' }}
             >
               <span>🗂 Tablas</span>
               <svg className={`w-5 h-5 transition-transform ${submenuTablas ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -728,11 +733,11 @@ function App() {
                   🏦 Financistas
                 </button>
                 <button
-                  onClick={() => { setVista('ingreso-real-acumulado'); setMenuAbierto(false) }}
+                  onClick={() => { setVista('real-acumulado'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
-                  style={{ color: vista === 'ingreso-real-acumulado' ? '#FF5100' : '#374151', backgroundColor: vista === 'ingreso-real-acumulado' ? '#FFF5F0' : 'transparent' }}
+                  style={{ color: vista === 'real-acumulado' ? '#FF5100' : '#374151', backgroundColor: vista === 'real-acumulado' ? '#FFF5F0' : 'transparent' }}
                 >
-                  💰 Ingreso Real Acumulado
+                  💰 Ingreso y Gasto Real
                 </button>
                 <button
                   onClick={() => { setVista('hh-acumulado-real'); setMenuAbierto(false) }}
@@ -743,10 +748,10 @@ function App() {
                 </button>
               </div>
             )}
-          </div>
+          </div>}
 
           {/* 2.5 Seguimiento Financiero */}
-          <div>
+          {canSee('seguimiento') && <div>
             <button
               onClick={() => { setVista('seguimiento-financiero'); setMenuAbierto(false) }}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
@@ -754,10 +759,10 @@ function App() {
             >
               💹 Seguimiento Financiero
             </button>
-          </div>
+          </div>}
 
           {/* 3. OC (con submenú) */}
-          <div>
+          {canSee('oc') && <div>
             <button
               onClick={() => setSubmenuOC(!submenuOC)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
@@ -790,10 +795,10 @@ function App() {
                 )}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* 4. HH (con submenú) */}
-          <div>
+          {canSee('hh') && <div>
             <button
               onClick={() => setSubmenuHH(!submenuHH)}
               className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100 flex items-center justify-between"
@@ -825,16 +830,16 @@ function App() {
                 )}
               </div>
             )}
-          </div>
+          </div>}
 
           {/* 5. Solicitud egreso */}
-          <button
+          {canSee('solicitud-egreso') && <button
             onClick={() => { setVista('solicitud-egreso'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
             style={{ color: vista === 'solicitud-egreso' ? '#FF5100' : '#374151', backgroundColor: vista === 'solicitud-egreso' ? '#FFF5F0' : 'transparent' }}
           >
             💸 Solicitud egreso
-          </button>
+          </button>}
 
           {/* 5. Sistema de Costeo (con submenu) */}
           <div>
@@ -881,13 +886,13 @@ function App() {
           )}
 
           {/* 7. Sugerencias */}
-          <button
+          {canSee('sugerencias') && <button
             onClick={() => { setVista('sugerencias'); setMenuAbierto(false) }}
             className="w-full text-left px-4 py-3 rounded-lg font-medium transition-all hover:bg-gray-100"
             style={{ color: vista === 'sugerencias' ? '#FF5100' : '#374151', backgroundColor: vista === 'sugerencias' ? '#FFF5F0' : 'transparent' }}
           >
             💡 Sugerencias
-          </button>
+          </button>}
 
           <hr className="my-2" />
 
@@ -946,8 +951,8 @@ function App() {
               <VistaFinancistas perfil={perfil} />
             )}
 
-            {vista === 'ingreso-real-acumulado' && (
-              <VistaIngresoRealAcumulado />
+            {vista === 'real-acumulado' && (
+              <VistaRealAcumulado />
             )}
 
             {vista === 'hh-acumulado-real' && (

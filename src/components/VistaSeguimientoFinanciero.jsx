@@ -145,9 +145,11 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [dropdownPipeline, setDropdownPipeline] = useState(null)
   const [ordenPipelineCol, setOrdenPipelineCol] = useState(null)
   const [ordenPipelineDir, setOrdenPipelineDir] = useState('asc')
-  const [hhPorLinea, setHhPorLinea] = useState({})         // normalizeLinea(ceco) → costo total HP
   const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizeKey(nombre) → costo total HP
+  const [costoPorProyectoReal, setCostoPorProyectoReal] = useState({}) // normalizeKey(nombre) → solo monto_hh_real
   const [allProyectos, setAllProyectos] = useState([])     // todos los proyectos sin filtro de nulos
+  const [ingresoRealMap, setIngresoRealMap] = useState({}) // normalizeKey(nombre) → monto ingreso real
+  const [gastoRealMap, setGastoRealMap] = useState({})     // normalizeKey(nombre) → monto gasto real
 
   useEffect(() => {
     cargarLineas()
@@ -155,6 +157,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     cargarPresupuestoLineas()
     cargarHeatmapNoEfectivos()
     cargarHHProyectadas()
+    cargarRealMaps()
   }, [])
 
   useEffect(() => {
@@ -291,24 +294,19 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   }
 
   async function cargarHHProyectadas() {
-    const { data: proyData } = await supabase.from('proyectos').select('nombre, ceco')
-    const cecoMap = {}
-    for (const p of (proyData || [])) cecoMap[normalizeKey(p.nombre)] = p.ceco || ''
-
     // Costos mensuales: { normalizeKey(colaborador) → { mes → costo_mes } }
     const costoMap = {}
-    let costos = [], cfrom = 0
+    let cfrom = 0
     while (true) {
       const { data } = await supabase.from('colaboradores_costos').select('colaborador, mes, costo_mes').range(cfrom, cfrom + 999)
       if (!data?.length) break
-      costos = [...costos, ...data]
+      for (const c of data) {
+        const key = normalizeKey(c.colaborador)
+        if (!costoMap[key]) costoMap[key] = {}
+        costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
+      }
       if (data.length < 1000) break
       cfrom += 1000
-    }
-    for (const c of costos) {
-      const key = normalizeKey(c.colaborador)
-      if (!costoMap[key]) costoMap[key] = {}
-      costoMap[key][c.mes] = parseFloat(c.costo_mes) || 0
     }
 
     const PAGE = 1000
@@ -324,20 +322,27 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       from += PAGE
     }
 
-    const acumLinea = {}
+    // Meses con data real bloquean TODO lo proyectado de ese mes
+    const { data: reales } = await supabase
+      .from('hh_acumulado_real')
+      .select('nombre_proyecto, mes, monto_hh_real')
+    const mesesCubiertos = new Set()
     const acumProyecto = {}
+    for (const r of reales || []) {
+      const pKey = normalizeKey(r.nombre_proyecto)
+      if (!pKey) continue
+      if (r.mes) mesesCubiertos.add(r.mes)
+      acumProyecto[pKey] = (acumProyecto[pKey] || 0) + (parseFloat(r.monto_hh_real) || 0)
+    }
+    const acumProyectoReal = { ...acumProyecto }
     for (const f of todas) {
-      const ceco = cecoMap[normalizeKey(f.proyecto)] || ''
-      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)]?.[f.mes] || 0)
-      if (ceco) {
-        const key = normalizeLinea(ceco)
-        acumLinea[key] = (acumLinea[key] || 0) + costo
-      }
+      if (mesesCubiertos.has(f.mes)) continue
       const pKey = normalizeKey(f.proyecto)
+      const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizeKey(f.colaborador)]?.[f.mes] || 0)
       if (pKey) acumProyecto[pKey] = (acumProyecto[pKey] || 0) + costo
     }
-    setHhPorLinea(acumLinea)
     setCostoPorProyecto(acumProyecto)
+    setCostoPorProyectoReal(acumProyectoReal)
   }
 
   async function cargarPipeline() {
@@ -380,6 +385,25 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     setOportunidadesRaw(base)
     setPipeline(filtradas)
     setLoadingPipeline(false)
+  }
+
+  async function cargarRealMaps() {
+    const [{ data: ing }, { data: gasto }] = await Promise.all([
+      supabase.from('ingreso_real_acumulado').select('nombre, ingreso'),
+      supabase.from('gasto_real_acumulado').select('nombre, gasto'),
+    ])
+    const iMap = {}
+    for (const r of ing || []) {
+      const k = normalizeKey(r.nombre)
+      if (k) iMap[k] = (iMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+    }
+    const gMap = {}
+    for (const r of gasto || []) {
+      const k = normalizeKey(r.nombre)
+      if (k) gMap[k] = (gMap[k] || 0) + (parseFloat(r.gasto) || 0)
+    }
+    setIngresoRealMap(iMap)
+    setGastoRealMap(gMap)
   }
 
   async function cargarPresupuestoLineas() {
@@ -596,17 +620,58 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     return nuevaData
   }
 
+  const hhRealPorLinea = useMemo(() => {
+    const result = {}
+    for (const p of allProyectos) {
+      if (!p.ceco) continue
+      const hh = costoPorProyectoReal[normalizeKey(p.nombre)] || 0
+      if (!hh) continue
+      const lineaKey = normalizeLinea(p.ceco)
+      result[lineaKey] = (result[lineaKey] || 0) + hh
+    }
+    return result
+  }, [allProyectos, costoPorProyectoReal])
+
+  const ingresoRealPorLinea = useMemo(() => {
+    const result = {}
+    for (const p of allProyectos) {
+      if (!p.ceco) continue
+      const ing = ingresoRealMap[normalizeKey(p.nombre)] || 0
+      if (!ing) continue
+      const lineaKey = normalizeLinea(p.ceco)
+      result[lineaKey] = (result[lineaKey] || 0) + ing
+    }
+    return result
+  }, [allProyectos, ingresoRealMap])
+
+  const gastoRealPorLinea = useMemo(() => {
+    const result = {}
+    for (const p of allProyectos) {
+      if (!p.ceco) continue
+      const gasto = gastoRealMap[normalizeKey(p.nombre)] || 0
+      if (!gasto) continue
+      const lineaKey = normalizeLinea(p.ceco)
+      result[lineaKey] = (result[lineaKey] || 0) + gasto
+    }
+    return result
+  }, [allProyectos, gastoRealMap])
+
   const rows = useMemo(() => {
     return lineasUnicas.map((linea) => {
       const key = normalizeLinea(linea.linea)
       const payload = dataByLinea[key] || buildEmptyMetrics()
       return {
         linea: linea.linea,
-        real: payload.real,
+        real: {
+          ...payload.real,
+          ingresos: ingresoRealPorLinea[key] ?? null,
+          hh: hhRealPorLinea[key] ?? null,
+          gasto: gastoRealPorLinea[key] ?? null,
+        },
         ppto: payload.ppto
       }
     })
-  }, [lineasUnicas, dataByLinea])
+  }, [lineasUnicas, dataByLinea, hhRealPorLinea, ingresoRealPorLinea, gastoRealPorLinea])
 
   const totales = useMemo(() => {
     const total = buildEmptyMetrics()
@@ -768,34 +833,58 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     )
   }, [pipelineOrdenado, costoPorProyecto])
 
+  // HH por línea = suma de costoPorProyecto de todos los proyectos de esa línea
+  // Mismo dato que muestra la tabla de proyectos, agregado por ceco
+  const hhPorLinea = useMemo(() => {
+    const result = {}
+    for (const p of allProyectos) {
+      if (!p.ceco) continue
+      const hh = costoPorProyecto[normalizeKey(p.nombre)] || 0
+      if (!hh) continue
+      const lineaKey = normalizeLinea(p.ceco)
+      result[lineaKey] = (result[lineaKey] || 0) + hh
+    }
+    return result
+  }, [allProyectos, costoPorProyecto])
+
   const sensibilidadPorLinea = useMemo(() => {
     const lineasDisponibles = new Set(lineasUnicas.map((l) => normalizeLinea(l.linea)))
     const acumulado = {}
-    oportunidadesRaw.forEach((o) => {
-      const estado = normalizarEstadoProyecto(o.proyectos?.estado) || ''
-      if (!ESTADOS_SENSIBILIDAD.has(estado)) return
-      const linea = o.proyectos?.ceco || ''
+
+    // Paso 1: ingReal + gastoReal de TODOS los proyectos (sin filtro de estado)
+    allProyectos.forEach((p) => {
+      const linea = p.ceco || ''
       const key = normalizeLinea(linea)
       if (!key || !lineasDisponibles.has(key)) return
-      const ingresos = parseFloat(o.ingresos) || 0
-      const gastos = parseFloat(o.gastos) || 0
-      if (!acumulado[key]) {
-        acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
-      }
-      // Meta y Cancelado: no suman ingresos ni GGOO
-      if (estado !== 'Meta' && estado !== 'Cancelado') {
-        acumulado[key].ingresos += ingresos
-        acumulado[key].gasto += gastos
-      }
+      const pKey = normalizeKey(p.nombre || '')
+      const ingReal = ingresoRealMap[pKey] || 0
+      const gastoReal = gastoRealMap[pKey] || 0
+      if (!ingReal && !gastoReal) return
+      if (!acumulado[key]) acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+      acumulado[key].ingresos += ingReal
+      acumulado[key].gasto += gastoReal
     })
-    // HH viene de horas_proyectadas agrupado por línea
+
+    // Paso 2: porIngresar + porGastar solo de Efectivo y Adjudicado
+    allProyectos.forEach((p) => {
+      const estado = normalizarEstadoProyecto(p.estado) || ''
+      if (estado !== 'Efectivo' && estado !== 'Adjudicado') return
+      const linea = p.ceco || ''
+      const key = normalizeLinea(linea)
+      if (!key || !lineasDisponibles.has(key)) return
+      if (!acumulado[key]) acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
+      acumulado[key].ingresos += parseFloat(p.ingresos) || 0
+      acumulado[key].gasto += parseFloat(p.gastos) || 0
+    })
+
+    // HH de todos los estados agrupado por línea
     for (const key of Object.keys(acumulado)) {
       const hh = hhPorLinea[key] || 0
       acumulado[key].hh = hh
       acumulado[key].margen = acumulado[key].ingresos - hh - acumulado[key].gasto
     }
     return acumulado
-  }, [oportunidadesRaw, lineasUnicas, hhPorLinea])
+  }, [allProyectos, lineasUnicas, hhPorLinea, ingresoRealMap, gastoRealMap])
 
   const sensibilidadRows = useMemo(() => {
     return lineasUnicas.map((linea) => {
@@ -863,8 +952,9 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       if (!ESTADOS_TODOS_SIN_CANCELADO.has(estado)) return
       const linea = p.ceco || ''
       const key = normalizeLinea(linea)
-      const ingresos = parseFloat(p.ingresos) || 0
-      const gastos = parseFloat(p.gastos) || 0
+      const pKey = normalizeKey(p.nombre || '')
+      const ingresos = (ingresoRealMap[pKey] || 0) + (parseFloat(p.ingresos) || 0)
+      const gastos = (gastoRealMap[pKey] || 0) + (parseFloat(p.gastos) || 0)
       if (!acumulado[key]) {
         acumulado[key] = { linea, ingresos: 0, hh: 0, gasto: 0, margen: 0 }
       }
@@ -877,7 +967,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       acumulado[key].margen = acumulado[key].ingresos - hh - acumulado[key].gasto
     }
     return acumulado
-  }, [allProyectos, hhPorLinea])
+  }, [allProyectos, hhPorLinea, ingresoRealMap, gastoRealMap])
 
   const todosRows = useMemo(() => {
     return lineasUnicas.map((linea) => {
@@ -955,7 +1045,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const key = normalizeLinea(lineaRaw)
       const ingresos = parseFloat(p.ingresos) || 0
       const gastos = parseFloat(p.gastos) || 0
-      if (ingresos - gastos === 0) return
+      if (!ingresos && !gastos) return
       if (!porLinea[key]) porLinea[key] = { linea: lineaRaw, proyectos: [] }
       porLinea[key].proyectos.push({
         nombre: p.nombre || '—',
@@ -975,7 +1065,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
         }), { ingresos: 0, gastos: 0, margen: 0 }),
       }))
       .filter((g) => g.proyectos.length > 0)
-  }, [allProyectos])
+  }, [allProyectos, ingresoRealMap, gastoRealMap])
 
   async function exportarReportePDF() {
     if (!reporteRef.current) return

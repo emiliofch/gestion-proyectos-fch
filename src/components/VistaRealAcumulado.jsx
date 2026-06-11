@@ -32,8 +32,7 @@ function formatPesos(value) {
 function fmtM(value) {
   if (value === null || value === undefined) return '-'
   const m = Number(value) / 1_000_000
-  const prefix = m > 0 ? '' : m < 0 ? '' : ''
-  return (value > 0 ? '' : value < 0 ? '' : '') + '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
+  return '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 
 function fmtDelta(value) {
@@ -42,12 +41,11 @@ function fmtDelta(value) {
   return sign + '$' + m.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 
-export default function VistaIngresoRealAcumulado() {
-  const [rows, setRows] = useState([])
+export default function VistaRealAcumulado() {
+  const [rowsIng, setRowsIng] = useState([])
+  const [rowsGasto, setRowsGasto] = useState([])
   const [loading, setLoading] = useState(true)
   const [proyectos, setProyectos] = useState([])
-  const [editandoId, setEditandoId] = useState(null)
-  const [editandoValor, setEditandoValor] = useState('')
   const [busqueda, setBusqueda] = useState('')
   const [filtros, setFiltros] = useState({})
   const [dropdownFiltro, setDropdownFiltro] = useState(null)
@@ -74,22 +72,53 @@ export default function VistaIngresoRealAcumulado() {
 
   async function cargar() {
     setLoading(true)
-    const { data, error } = await supabase.from('ingreso_real_acumulado').select('*').order('created_at')
-    if (error) toast.error('Error al cargar: ' + error.message)
-    else setRows(data || [])
+    const [{ data: ing, error: errIng }, { data: gasto, error: errGasto }] = await Promise.all([
+      supabase.from('ingreso_real_acumulado').select('*').order('created_at'),
+      supabase.from('gasto_real_acumulado').select('*').order('created_at'),
+    ])
+    if (errIng) toast.error('Error al cargar ingresos: ' + errIng.message)
+    if (errGasto) toast.error('Error al cargar gastos: ' + errGasto.message)
+    setRowsIng(ing || [])
+    setRowsGasto(gasto || [])
     setLoading(false)
   }
 
+  const rowsMerged = useMemo(() => {
+    const ingMap = {}
+    const ingNombreMap = {}
+    for (const r of rowsIng) {
+      const k = normalizeKey(r.nombre)
+      if (!k) continue
+      ingMap[k] = (ingMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      ingNombreMap[k] = r.nombre
+    }
+    const gastoMap = {}
+    const gastoNombreMap = {}
+    for (const r of rowsGasto) {
+      const k = normalizeKey(r.nombre)
+      if (!k) continue
+      gastoMap[k] = (gastoMap[k] || 0) + (parseFloat(r.gasto) || 0)
+      gastoNombreMap[k] = r.nombre
+    }
+    const allKeys = new Set([...Object.keys(ingMap), ...Object.keys(gastoMap)])
+    return [...allKeys].map(k => ({
+      key: k,
+      nombre: ingNombreMap[k] || gastoNombreMap[k] || k,
+      ingreso: ingMap[k] || 0,
+      gasto: gastoMap[k] || 0,
+    }))
+  }, [rowsIng, rowsGasto])
+
   const rowsConProyectos = useMemo(() => {
-    return rows.map((row) => {
+    return rowsMerged.map(row => {
       const keyRow = normalizeKey(row.nombre)
-      const enProyectos = proyectos.some((p) => {
+      const enProyectos = proyectos.some(p => {
         const keyP = normalizeKey(p.nombre)
         return keyRow.includes(keyP) || keyP.includes(keyRow)
       })
       return { ...row, enProyectos }
     })
-  }, [rows, proyectos])
+  }, [rowsMerged, proyectos])
 
   function setFiltro(col, valor) { setFiltros(prev => ({ ...prev, [col]: valor })) }
 
@@ -108,8 +137,8 @@ export default function VistaIngresoRealAcumulado() {
     })
     if (ordenCol) {
       result = [...result].sort((a, b) => {
-        if (ordenCol === 'ingreso') {
-          const vA = a.ingreso ?? 0, vB = b.ingreso ?? 0
+        if (ordenCol === 'ingreso' || ordenCol === 'gasto') {
+          const vA = a[ordenCol] ?? 0, vB = b[ordenCol] ?? 0
           return ordenDir === 'asc' ? vA - vB : vB - vA
         }
         const vA = String(a[ordenCol] || '').toLowerCase()
@@ -125,77 +154,73 @@ export default function VistaIngresoRealAcumulado() {
     return [...new Set(rowsConProyectos.map(r => r[col]).filter(v => v !== null && v !== undefined && v !== ''))].sort((a, b) => String(a).localeCompare(String(b), 'es'))
   }
 
-  function iniciarEdicion(id, valorActual) {
-    setEditandoId(id)
-    setEditandoValor(valorActual)
-  }
-
-  async function guardarEdicion() {
-    const nuevoNombre = editandoValor.trim()
-    const id = editandoId
-    setEditandoId(null)
-    setEditandoValor('')
-    if (!nuevoNombre) return
-    const { error } = await supabase.from('ingreso_real_acumulado').update({ nombre: nuevoNombre }).eq('id', id)
-    if (error) { toast.error('Error al guardar: ' + error.message); return }
-    setRows(prev => prev.map(r => r.id === id ? { ...r, nombre: nuevoNombre } : r))
-  }
-
-  function cancelarEdicion() {
-    setEditandoId(null)
-    setEditandoValor('')
-  }
-
-  function onKeyDownEdicion(e) {
-    if (e.key === 'Enter') guardarEdicion()
-    if (e.key === 'Escape') cancelarEdicion()
-  }
-
   async function prepararImportacion(parsed) {
-    const { data: oldData } = await supabase.from('ingreso_real_acumulado').select('nombre, ingreso')
-    const oldMap = {}
-    for (const r of oldData || []) {
+    const [{ data: oldIngData }, { data: oldGastoData }] = await Promise.all([
+      supabase.from('ingreso_real_acumulado').select('nombre, ingreso'),
+      supabase.from('gasto_real_acumulado').select('nombre, gasto'),
+    ])
+
+    const oldIngMap = {}
+    for (const r of oldIngData || []) {
       const k = normalizeKey(r.nombre)
-      if (k) oldMap[k] = (oldMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      if (k) oldIngMap[k] = (oldIngMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+    }
+    const oldGastoMap = {}
+    for (const r of oldGastoData || []) {
+      const k = normalizeKey(r.nombre)
+      if (k) oldGastoMap[k] = (oldGastoMap[k] || 0) + (parseFloat(r.gasto) || 0)
     }
 
-    const newMap = {}
+    const newIngMap = {}
+    const newGastoMap = {}
     for (const r of parsed) {
       const k = normalizeKey(r.nombre)
-      if (k) newMap[k] = (newMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      if (!k) continue
+      newIngMap[k] = (newIngMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      newGastoMap[k] = (newGastoMap[k] || 0) + (parseFloat(r.gasto) || 0)
     }
 
-    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, ingresos')
+    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, ingresos, gastos')
     const proyMap = {}
     for (const p of proyData || []) {
       const k = normalizeKey(p.nombre)
       if (k) proyMap[k] = p
     }
 
-    const allKeys = new Set([...Object.keys(oldMap), ...Object.keys(newMap)])
+    const allKeys = new Set([
+      ...Object.keys(oldIngMap), ...Object.keys(newIngMap),
+      ...Object.keys(oldGastoMap), ...Object.keys(newGastoMap),
+    ])
     const ajustes = []
     for (const k of allKeys) {
-      const oldReal = oldMap[k] || 0
-      const newReal = newMap[k] || 0
-      const delta = newReal - oldReal
-      if (delta === 0) continue
+      const oldIngVal = oldIngMap[k] || 0
+      const newIngVal = newIngMap[k] || 0
+      const deltaIng = newIngVal - oldIngVal
+      const oldGastoVal = oldGastoMap[k] || 0
+      const newGastoVal = newGastoMap[k] || 0
+      const deltaGasto = newGastoVal - oldGastoVal
+      if (deltaIng === 0 && deltaGasto === 0) continue
 
       const proy = proyMap[k]
       const oldPorIngresar = proy ? (parseFloat(proy.ingresos) || 0) : null
-      const newPorIngresar = proy ? oldPorIngresar - delta : null
-      const nombreDisplay = parsed.find(r => normalizeKey(r.nombre) === k)?.nombre
-        || (oldData || []).find(r => normalizeKey(r.nombre) === k)?.nombre
-        || k
+      const newPorIngresar = proy ? oldPorIngresar - deltaIng : null
+      const oldPorGastar = proy ? (parseFloat(proy.gastos) || 0) : null
+      const newPorGastar = proy ? oldPorGastar - deltaGasto : null
+
+      const nombreDisplay =
+        parsed.find(r => normalizeKey(r.nombre) === k)?.nombre ||
+        (oldIngData || []).find(r => normalizeKey(r.nombre) === k)?.nombre ||
+        (oldGastoData || []).find(r => normalizeKey(r.nombre) === k)?.nombre ||
+        k
 
       ajustes.push({
         nombre: nombreDisplay,
         proyectoNombre: proy?.nombre || null,
         proyectoId: proy?.id || null,
-        oldReal,
-        newReal,
-        delta,
-        oldPorIngresar,
-        newPorIngresar,
+        oldIngVal, newIngVal, deltaIng,
+        oldGastoVal, newGastoVal, deltaGasto,
+        oldPorIngresar, newPorIngresar,
+        oldPorGastar, newPorGastar,
         sinMatch: !proy,
       })
     }
@@ -207,19 +232,39 @@ export default function VistaIngresoRealAcumulado() {
     const { parsed, ajustes } = pendienteImportacion
     setAplicando(true)
 
-    const { error: delError } = await supabase.from('ingreso_real_acumulado').delete().neq('id', '00000000-0000-0000-0000-000000000000')
-    if (delError) { toast.error('Error al limpiar tabla: ' + delError.message); setAplicando(false); return }
+    const [{ error: delIngError }, { error: delGastoError }] = await Promise.all([
+      supabase.from('ingreso_real_acumulado').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+      supabase.from('gasto_real_acumulado').delete().neq('id', '00000000-0000-0000-0000-000000000000'),
+    ])
+    if (delIngError) { toast.error('Error limpiando ingresos: ' + delIngError.message); setAplicando(false); return }
+    if (delGastoError) { toast.error('Error limpiando gastos: ' + delGastoError.message); setAplicando(false); return }
+
+    const ingRows = parsed
+      .filter(r => (parseFloat(r.ingreso) || 0) !== 0)
+      .map(r => ({ nombre: r.nombre, ingreso: parseFloat(r.ingreso) || 0 }))
+    const gastoRows = parsed
+      .filter(r => (parseFloat(r.gasto) || 0) !== 0)
+      .map(r => ({ nombre: r.nombre, gasto: parseFloat(r.gasto) || 0 }))
 
     const CHUNK = 200
-    for (let i = 0; i < parsed.length; i += CHUNK) {
-      const { error } = await supabase.from('ingreso_real_acumulado').insert(parsed.slice(i, i + CHUNK))
-      if (error) { toast.error('Error al insertar: ' + error.message); setAplicando(false); return }
+    for (let i = 0; i < ingRows.length; i += CHUNK) {
+      const { error } = await supabase.from('ingreso_real_acumulado').insert(ingRows.slice(i, i + CHUNK))
+      if (error) { toast.error('Error insertando ingresos: ' + error.message); setAplicando(false); return }
+    }
+    for (let i = 0; i < gastoRows.length; i += CHUNK) {
+      const { error } = await supabase.from('gasto_real_acumulado').insert(gastoRows.slice(i, i + CHUNK))
+      if (error) { toast.error('Error insertando gastos: ' + error.message); setAplicando(false); return }
     }
 
     const conMatch = ajustes.filter(a => !a.sinMatch)
     for (const a of conMatch) {
-      const { error } = await supabase.from('proyectos').update({ ingresos: a.newPorIngresar }).eq('id', a.proyectoId)
-      if (error) toast.error(`Error ajustando ${a.proyectoNombre}: ${error.message}`)
+      const updates = {}
+      if (a.deltaIng !== 0) updates.ingresos = a.newPorIngresar
+      if (a.deltaGasto !== 0) updates.gastos = a.newPorGastar
+      if (Object.keys(updates).length > 0) {
+        const { error } = await supabase.from('proyectos').update(updates).eq('id', a.proyectoId)
+        if (error) toast.error(`Error ajustando ${a.proyectoNombre}: ${error.message}`)
+      }
     }
 
     setPendienteImportacion(null)
@@ -246,12 +291,18 @@ export default function VistaIngresoRealAcumulado() {
           Object.keys(rawRow).forEach(k => { norm[normalizeKey(k)] = rawRow[k] })
           return {
             nombre: String(
-              rawRow['nombreProyecto'] ?? rawRow['NombreProyecto'] ??
+              rawRow['nombreProyecto'] ?? rawRow['NombreProyecto'] ?? rawRow['Proyecto'] ?? rawRow['proyecto'] ??
               norm['nombreproyecto'] ?? norm['nombre_proyecto'] ?? norm['proyecto'] ?? norm['nombre'] ?? ''
             ).trim(),
             ingreso: parseNumber(
               rawRow['IngresoRealAcumulado'] ?? rawRow['ingresoRealAcumulado'] ??
+              rawRow['Ingreso'] ?? rawRow['ingreso'] ??
               norm['ingresorrealacumulado'] ?? norm['ingreso_real_acumulado'] ?? norm['ingreso_real'] ?? norm['ingreso'] ?? null
+            ) ?? 0,
+            gasto: parseNumber(
+              rawRow['GastoOPReal'] ?? rawRow['gastoOPReal'] ?? rawRow['GastoOpReal'] ??
+              rawRow['Gasto'] ?? rawRow['gasto'] ??
+              norm['gastoop_real'] ?? norm['gastoopreal'] ?? norm['gasto_op_real'] ?? norm['gasto_real'] ?? norm['gasto'] ?? null
             ) ?? 0,
           }
         }).filter(r => r.nombre)
@@ -267,97 +318,65 @@ export default function VistaIngresoRealAcumulado() {
 
   function exportar() {
     const wsData = [
-      ['Nombre Proyecto', 'Ingreso Real Acumulado', 'En Proyectos?'],
-      ...filasFiltradas.map(r => [r.nombre, r.ingreso, r.enProyectos ? 'Sí' : 'No']),
-      ['TOTAL', filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0), ''],
+      ['nombreProyecto', 'IngresoRealAcumulado', 'GastoOPReal', 'En Proyectos?'],
+      ...filasFiltradas.map(r => [r.nombre, r.ingreso, r.gasto, r.enProyectos ? 'Sí' : 'No']),
+      ['TOTAL', filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0), filasFiltradas.reduce((a, r) => a + (r.gasto || 0), 0), ''],
     ]
     const ws = XLSX.utils.aoa_to_sheet(wsData)
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Ingreso Real Acumulado')
-    XLSX.writeFile(wb, 'ingreso_real_acumulado.xlsx')
+    XLSX.utils.book_append_sheet(wb, ws, 'Real Acumulado')
+    XLSX.writeFile(wb, 'real_acumulado.xlsx')
   }
 
   const totalIngreso = filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0)
+  const totalGasto = filasFiltradas.reduce((a, r) => a + (r.gasto || 0), 0)
   const filasEnPagina = filasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
 
-  const hayNegativos = pendienteImportacion?.ajustes.some(a => !a.sinMatch && a.newPorIngresar < 0)
   const haySinMatch = pendienteImportacion?.ajustes.some(a => a.sinMatch)
 
   return (
     <div>
-      {/* Modal confirmación */}
       {pendienteImportacion && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => !aplicando && setPendienteImportacion(null)}>
-          <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl mx-4 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-800">Confirmar ajuste de "Por Ingresar"</h3>
+              <h3 className="text-lg font-bold text-gray-800">Confirmar ajuste de "Por Ingresar" y "Por Gastar"</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Al confirmar, el campo <strong>Por Ingresar</strong> de cada proyecto se ajustará automáticamente para mantener el <strong>Total Ingresos constante</strong>.
+                Al confirmar, los campos <strong>Por Ingresar</strong> y <strong>Por Gastar</strong> de cada proyecto se ajustarán para mantener los totales constantes.
               </p>
             </div>
 
             <div className="overflow-y-auto flex-1 p-5">
-              {pendienteImportacion.ajustes.length === 0 ? (
+              {!haySinMatch ? (
                 <div className="text-center py-10 text-gray-500">
-                  <p className="font-medium">Sin cambios en "Por Ingresar"</p>
-                  <p className="text-sm mt-1">Ningún proyecto cambia su ingreso real. Solo se reemplazará la tabla.</p>
+                  <p className="font-medium text-green-700">Todos los proyectos tienen match</p>
+                  <p className="text-sm mt-1">Se ajustarán "Por Ingresar" y "Por Gastar" automáticamente en {pendienteImportacion.ajustes.filter(a => !a.sinMatch).length} proyectos.</p>
                 </div>
               ) : (
                 <>
-                  <table className="w-full text-xs border-collapse">
-                    <thead>
-                      <tr className="border-b-2 border-gray-300 bg-gray-50">
-                        <th className="px-3 py-2 text-left text-gray-600 font-semibold">Proyecto</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real anterior</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real nuevo</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Δ</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar actual</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar nuevo</th>
-                        <th className="px-3 py-2 text-center text-gray-600 font-semibold w-20"></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {pendienteImportacion.ajustes.map((a, i) => (
-                        <tr key={i} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
-                          <td className="px-3 py-2 text-gray-800 max-w-[220px]">
-                            <span className="block truncate" title={a.proyectoNombre || a.nombre}>
-                              {a.proyectoNombre || a.nombre}
-                            </span>
-                          </td>
-                          <td className="px-3 py-2 text-right text-gray-500">{fmtM(a.oldReal)}</td>
-                          <td className="px-3 py-2 text-right text-gray-800 font-medium">{fmtM(a.newReal)}</td>
-                          <td className={`px-3 py-2 text-right font-semibold ${a.delta > 0 ? 'text-green-700' : 'text-red-600'}`}>
-                            {fmtDelta(a.delta)}
-                          </td>
-                          <td className="px-3 py-2 text-right text-gray-500">
-                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.oldPorIngresar)}
-                          </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${!a.sinMatch && a.newPorIngresar < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.newPorIngresar)}
-                          </td>
-                          <td className="px-3 py-2 text-center">
-                            {a.sinMatch
-                              ? <span className="text-orange-500 font-medium">Sin match</span>
-                              : a.newPorIngresar < 0
-                                ? <span className="text-red-500">⚠ negativo</span>
-                                : <span className="text-green-600">✓</span>
-                            }
-                          </td>
+                  <p className="text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded p-2 mb-4">
+                    ⚠ Los siguientes registros no tienen proyecto coincidente en la tabla de proyectos. No ajustarán "Por Ingresar" ni "Por Gastar".
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs border-collapse">
+                      <thead>
+                        <tr className="border-b-2 border-gray-300 bg-gray-50">
+                          <th className="px-3 py-2 text-left text-gray-600 font-semibold">Nombre en el archivo</th>
+                          <th className="px-3 py-2 text-right text-gray-600 font-semibold">Ingreso Real</th>
+                          <th className="px-3 py-2 text-right text-gray-600 font-semibold">Gasto Real</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-
-                  {hayNegativos && (
-                    <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                      ⚠ Algunos proyectos quedarán con "Por Ingresar" negativo: el ingreso real ya superó el estimado. Puedes confirmar igual o corregir manualmente después.
-                    </p>
-                  )}
-                  {haySinMatch && (
-                    <p className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded p-2">
-                      ⚠ Algunos registros no tienen proyecto coincidente en la tabla de proyectos y no ajustarán "Por Ingresar".
-                    </p>
-                  )}
+                      </thead>
+                      <tbody>
+                        {pendienteImportacion.ajustes.filter(a => a.sinMatch).map((a, i) => (
+                          <tr key={i} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                            <td className="px-3 py-2 text-gray-800">{a.nombre}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{fmtM(a.newIngVal)}</td>
+                            <td className="px-3 py-2 text-right text-gray-700">{fmtM(a.newGastoVal)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
                 </>
               )}
             </div>
@@ -391,11 +410,11 @@ export default function VistaIngresoRealAcumulado() {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Ingreso Real Acumulado</h2>
+        <h2 className="text-2xl font-bold text-gray-800">Ingreso y Gasto Real Acumulado</h2>
         <div className="flex gap-2 flex-wrap items-center">
           <input
             type="text"
-            placeholder="Buscar..."
+            placeholder="Buscar proyecto..."
             value={busqueda}
             onChange={e => setBusqueda(e.target.value)}
             className="px-4 py-2 rounded-lg bg-gray-100 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
@@ -411,15 +430,15 @@ export default function VistaIngresoRealAcumulado() {
       </div>
 
       <p className="text-xs text-gray-500 mb-4">
-        Acepta CSV o Excel con columnas <code>nombreProyecto</code> e <code>IngresoRealAcumulado</code>. Cada importación reemplaza todos los datos anteriores y ajusta automáticamente "Por Ingresar" en la tabla de proyectos.
+        Acepta CSV o Excel con columnas <code>nombreProyecto</code>, <code>IngresoRealAcumulado</code> y <code>GastoOPReal</code>. Cada importación reemplaza todos los datos anteriores y ajusta "Por Ingresar" y "Por Gastar" en la tabla de proyectos.
       </p>
 
       {loading ? (
         <div className="text-center py-12 text-gray-500">Cargando...</div>
-      ) : rows.length === 0 ? (
+      ) : rowsMerged.length === 0 ? (
         <div className="text-center py-16 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
           <p className="text-lg mb-1">Sin datos</p>
-          <p className="text-sm">Importa un archivo Excel para comenzar.</p>
+          <p className="text-sm">Importa un archivo Excel o CSV para comenzar.</p>
         </div>
       ) : (
         <>
@@ -428,14 +447,18 @@ export default function VistaIngresoRealAcumulado() {
               <thead>
                 <tr className="border-b-2 border-gray-300">
                   <ResizableTh className="py-3 px-3 text-gray-500 font-semibold text-center bg-[#FFF5F0]" style={{ width: '48px' }}>#</ResizableTh>
-                  <FilterableTh col="nombre" label="Nombre Proyecto" align="left"
+                  <FilterableTh col="nombre" label="Proyecto" align="left"
                     opciones={opcionesPor('nombre')} filtro={filtros.nombre || []}
                     onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'nombre'} onToggleDropdown={setDropdownFiltro}
                     sortable ordenActiva={ordenCol === 'nombre'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                  <FilterableTh col="ingreso" label="Ingreso Real Acumulado" align="right"
+                  <FilterableTh col="ingreso" label="Ingreso Real" align="right"
                     opciones={opcionesPor('ingreso')} filtro={filtros.ingreso || []}
                     onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ingreso'} onToggleDropdown={setDropdownFiltro}
                     sortable ordenActiva={ordenCol === 'ingreso'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="gasto" label="Gasto Real" align="right"
+                    opciones={opcionesPor('gasto')} filtro={filtros.gasto || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'gasto'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'gasto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                   <FilterableTh col="enProyectos" label="en proyectos?" align="center"
                     opciones={opcionesPor('enProyectos')} filtro={filtros.enProyectos || []}
                     onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enProyectos'} onToggleDropdown={setDropdownFiltro} />
@@ -443,29 +466,13 @@ export default function VistaIngresoRealAcumulado() {
               </thead>
               <tbody>
                 {filasEnPagina.length === 0 ? (
-                  <tr><td colSpan={4} className="py-12 text-center text-gray-400">Sin resultados.</td></tr>
+                  <tr><td colSpan={5} className="py-12 text-center text-gray-400">Sin resultados.</td></tr>
                 ) : filasEnPagina.map((row, i) => (
-                  <tr key={row.id} className={`border-b border-gray-100 hover:bg-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
+                  <tr key={row.key} className={`border-b border-gray-100 hover:bg-gray-50 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'}`}>
                     <td className="border border-gray-300 px-2 py-2 text-center text-gray-500">{pagina * FILAS_POR_PAGINA + i + 1}</td>
-                    <td
-                      className="border border-gray-300 px-3 py-2 text-gray-800 cursor-pointer"
-                      onClick={() => iniciarEdicion(row.id, row.nombre)}
-                    >
-                      {editandoId === row.id ? (
-                        <input
-                          autoFocus
-                          className="w-full px-2 py-0.5 border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-300 text-sm"
-                          value={editandoValor}
-                          onChange={e => setEditandoValor(e.target.value)}
-                          onBlur={guardarEdicion}
-                          onKeyDown={onKeyDownEdicion}
-                          onClick={e => e.stopPropagation()}
-                        />
-                      ) : (
-                        <span className="hover:underline hover:text-blue-600 transition-colors">{row.nombre}</span>
-                      )}
-                    </td>
+                    <td className="border border-gray-300 px-3 py-2 text-gray-800">{row.nombre}</td>
                     <td className="border border-gray-300 px-3 py-2 text-right font-medium text-gray-800">{formatPesos(row.ingreso)}</td>
+                    <td className="border border-gray-300 px-3 py-2 text-right font-medium text-gray-800">{formatPesos(row.gasto)}</td>
                     <td className="border border-gray-300 px-3 py-2 text-center">
                       {row.enProyectos
                         ? <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700">✓ Sí</span>
@@ -476,6 +483,7 @@ export default function VistaIngresoRealAcumulado() {
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="px-3 py-3 text-sm text-gray-800">TOTAL ({filasFiltradas.length})</td>
                   <td className="px-3 py-3 text-right text-sm text-gray-800">{formatPesos(totalIngreso)}</td>
+                  <td className="px-3 py-3 text-right text-sm text-gray-800">{formatPesos(totalGasto)}</td>
                   <td className="px-3 py-3" />
                 </tr>
               </tbody>

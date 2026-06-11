@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from '../supabaseClient'
 import { toast } from 'react-toastify'
 import * as XLSX from 'xlsx'
@@ -8,6 +8,7 @@ import { ESTADOS_PROYECTO, clasesBadgeEstadoProyecto, normalizarEstadoProyecto }
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 
 const TIPOS_PROYECTO = ['Público', 'Privado']
+const FILTRO_VACIO = 'Vacías'
 const ESTADOS_ADJUDICACION_EDITABLE = ['Efectivo', 'No Efectivo']
 const COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES = ['tipo', 'financista', 'region', 'industria', 'rendible', 'ceco', 'hp']
 const REGIONES_CHILE = [
@@ -86,6 +87,8 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [costoPorProyecto, setCostoPorProyecto] = useState({}) // normalizado(nombre) → costo total HH
   const [proyEnHP, setProyEnHP] = useState(new Set())         // normalizado(nombre) en horas_proyectadas
   const [proyEnIngresoReal, setProyEnIngresoReal] = useState(new Set()) // normalizado(nombre) en ingreso_real_acumulado
+  const [ingresoRealMap, setIngresoRealMap] = useState({})    // normalizado(nombre) → monto ingreso real
+  const [gastoRealMap, setGastoRealMap] = useState({})        // normalizado(nombre) → monto gasto real
 
   // Edición financiera (Ingresos / GGOO)
   const [modalEdicionFin, setModalEdicionFin] = useState(null) // { proyecto, campo }
@@ -97,6 +100,7 @@ export default function VistaProyectosBase({ user, perfil }) {
   const [motivoAccionEstado, setMotivoAccionEstado] = useState('')
 
   const [procesandoFin, setProcesandoFin] = useState(false)
+  const [agruparCabecera, setAgruparCabecera] = useState(false)
   const esVistaOportunidades = modoVista === 'oportunidades'
 
   useEffect(() => {
@@ -107,6 +111,7 @@ export default function VistaProyectosBase({ user, perfil }) {
     cargarProyectos()
     cargarCostosHorasProyectadas()
     cargarIngresoReal()
+    cargarGastoReal()
   }, [])
 
   useEffect(() => {
@@ -190,14 +195,6 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   async function cargarCostosHorasProyectadas() {
     const PAGE = 1000
-    const MESES_ES = ['ene','feb','mar','abr','may','jun','jul','ago','sep','oct','nov','dic']
-
-    // Convierte "2026-04-01" → "abr-26" para comparar con hh_acumulado_real
-    function mesAClave(mesStr) {
-      if (!mesStr) return ''
-      const d = new Date(mesStr.length === 7 ? mesStr + '-01' : mesStr)
-      return MESES_ES[d.getUTCMonth()] + '-' + String(d.getUTCFullYear()).slice(2)
-    }
 
     // Costos mensuales: { normalizar(colaborador) → { mes → costo_mes } }
     const costoMap = {}
@@ -226,32 +223,30 @@ export default function VistaProyectosBase({ user, perfil }) {
       from += PAGE
     }
 
-    // Cargar datos reales: { "proyecto_key|mes" → monto_real }
-    // y set de pares cubiertos para no sumar el proyectado en esos períodos
+    // Meses con data real: cualquier mes en hh_acumulado_real bloquea TODO lo proyectado
+    // de ese mes, sin importar el nombre del proyecto
     const { data: reales } = await supabase.from('hh_acumulado_real').select('nombre_proyecto, mes, monto_hh_real')
-    const costosReales = {}   // pKey → suma monto real
-    const cubiertos = new Set() // "pKey|mes" pares con data real
+    const costosReales = {}      // pKey → suma monto real
+    const mesesCubiertos = new Set() // meses que tienen data real (ej: "ene-26")
     for (const r of reales || []) {
       const pKey = normalizar(r.nombre_proyecto)
       if (!pKey) continue
-      const mesKey = `${pKey}|${r.mes}`
-      cubiertos.add(mesKey)
+      if (r.mes) mesesCubiertos.add(r.mes)
       costosReales[pKey] = (costosReales[pKey] || 0) + (parseFloat(r.monto_hh_real) || 0)
     }
 
-    // Proyectado solo para pares (proyecto, mes) no cubiertos por real
+    // Proyectado solo para meses no cubiertos (regla por mes, no por proyecto)
     const costos = {}
     const enHP = new Set()
     for (const f of todas) {
       const pKey = normalizar(f.proyecto)
       if (pKey) enHP.add(pKey)
-      const mesKey = `${pKey}|${mesAClave(f.mes)}`
-      if (cubiertos.has(mesKey)) continue // ya lo cubre el real
+      if (mesesCubiertos.has(f.mes)) continue // ese mes tiene real, no sumar proyectado
       const costo = (parseFloat(f.horas) || 0) * (costoMap[normalizar(f.colaborador)]?.[f.mes] || 0)
       costos[pKey] = (costos[pKey] || 0) + costo
     }
 
-    // Final: proyectado (no cubierto) + real
+    // Final: proyectado (meses no cubiertos) + real
     for (const [pKey, monto] of Object.entries(costosReales)) {
       costos[pKey] = (costos[pKey] || 0) + monto
     }
@@ -261,9 +256,28 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function cargarIngresoReal() {
-    const { data } = await supabase.from('ingreso_real_acumulado').select('nombre')
-    const enIR = new Set((data || []).map(r => normalizar(r.nombre)).filter(Boolean))
-    setProyEnIngresoReal(enIR)
+    const { data } = await supabase.from('ingreso_real_acumulado').select('nombre, ingreso')
+    const set = new Set()
+    const map = {}
+    for (const r of data || []) {
+      const k = normalizar(r.nombre)
+      if (!k) continue
+      set.add(k)
+      map[k] = (map[k] || 0) + (parseFloat(r.ingreso) || 0)
+    }
+    setProyEnIngresoReal(set)
+    setIngresoRealMap(map)
+  }
+
+  async function cargarGastoReal() {
+    const { data } = await supabase.from('gasto_real_acumulado').select('nombre, gasto')
+    const map = {}
+    for (const r of data || []) {
+      const k = normalizar(r.nombre)
+      if (!k) continue
+      map[k] = (map[k] || 0) + (parseFloat(r.gasto) || 0)
+    }
+    setGastoRealMap(map)
   }
 
   async function cargarProyectos() {
@@ -309,8 +323,8 @@ export default function VistaProyectosBase({ user, perfil }) {
         const data = XLSX.utils.sheet_to_json(worksheet)
 
         let insertados = 0
+        let actualizados = 0
         let errores = 0
-        let duplicados = []
 
         for (let i = 0; i < data.length; i++) {
           const row = data[i]
@@ -334,13 +348,22 @@ export default function VistaProyectosBase({ user, perfil }) {
           if (r === 'si' || r === 'sí' || r === 'yes' || r === 'true' || r === '1') rendible = true
           else if (r === 'no' || r === 'false' || r === '0') rendible = false
 
-          // Buscar jefe_id por nombre si viene en el Excel
           let jefe_id = null
           if (jefeNombre.trim()) {
             const match = colaboradores.find(
               c => c.colaborador.toLowerCase() === jefeNombre.trim().toLowerCase()
             )
             jefe_id = match?.id || null
+          }
+
+          const payload = {
+            nombre:      nombre.trim(),
+            ceco:        ceco.trim(),
+            estado,
+            tipo:        tipo.trim()        || null,
+            rendible,
+            ceco_codigo: ceco_codigo.trim() || null,
+            jefe_id
           }
 
           const { data: existente } = await supabase
@@ -350,45 +373,37 @@ export default function VistaProyectosBase({ user, perfil }) {
             .limit(1)
 
           if (existente && existente.length > 0) {
-            duplicados.push(nombre)
-            continue
-          }
-
-          const { data: nuevoProyecto, error: errorInsert } = await supabase
-            .from('proyectos')
-            .insert({
-              nombre:      nombre.trim(),
-              ceco:        ceco.trim(),
-              estado,
-              tipo:        tipo.trim()        || null,
-              rendible,
-              ceco_codigo: ceco_codigo.trim() || null,
-              jefe_id
-            })
-            .select()
-            .single()
-
-          if (errorInsert) {
-            console.error('Error insert:', errorInsert)
-            errores++
+            const { error: errorUpdate } = await supabase
+              .from('proyectos')
+              .update(payload)
+              .eq('id', existente[0].id)
+            if (errorUpdate) { console.error('Error update:', errorUpdate); errores++ }
+            else actualizados++
           } else {
-            insertados++
-            await supabase.from('cambios').insert({
-              proyecto_id:     nuevoProyecto.id,
-              campo:           'PROYECTO CREADO',
-              valor_anterior:  '',
-              valor_nuevo:     nombre.trim(),
-              usuario:         user?.email || 'sistema',
-              motivo:          'Proyecto importado desde Excel',
-              tipo_cambio:     'proyecto',
-              proyecto_nombre: nombre.trim()
-            })
+            const { data: nuevoProyecto, error: errorInsert } = await supabase
+              .from('proyectos')
+              .insert(payload)
+              .select()
+              .single()
+            if (errorInsert) { console.error('Error insert:', errorInsert); errores++ }
+            else {
+              insertados++
+              await supabase.from('cambios').insert({
+                proyecto_id:     nuevoProyecto.id,
+                campo:           'PROYECTO CREADO',
+                valor_anterior:  '',
+                valor_nuevo:     nombre.trim(),
+                usuario:         user?.email || 'sistema',
+                motivo:          'Proyecto importado desde Excel',
+                tipo_cambio:     'proyecto',
+                proyecto_nombre: nombre.trim()
+              })
+            }
           }
         }
 
-        if (duplicados.length > 0) toast.warning(`${duplicados.length} proyectos ya existían`)
         if (errores > 0) toast.warning(`${errores} filas ignoradas (faltan campos requeridos)`)
-        toast.success(`Importación: ${insertados} proyectos creados`)
+        toast.success(`Importación: ${insertados} creados, ${actualizados} actualizados`)
         cargarProyectos()
       } catch (error) {
         console.error('Error:', error)
@@ -403,19 +418,25 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   function exportarExcel() {
     const filas = proyectosFiltrados.map((p, i) => {
-      const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
-      const ing    = parseFloat(p.ingresos) || 0
-      const gastos = parseFloat(p.gastos)   || 0
-      const margen = ing - hh - gastos
+      const hh          = costoPorProyecto[normalizar(p.nombre)] || 0
+      const ing         = parseFloat(p.ingresos) || 0
+      const gastos      = parseFloat(p.gastos)   || 0
+      const ingReal     = ingresoRealMap[normalizar(p.nombre)] || 0
+      const gastoReal   = gastoRealMap[normalizar(p.nombre)] || 0
+      const margen      = (ingReal + ing) - hh - (gastoReal + gastos)
       return {
-        '#':        i + 1,
-        LINEA:      p.ceco || '',
-        PROYECTO:   p.nombre,
-        JEFE:       p.colaboradores?.colaborador || '',
-        INGRESOS:   ing,
-        HH:         Math.round(hh),
-        GGOO:       gastos,
-        MARGEN:     Math.round(margen),
+        '#':            i + 1,
+        LINEA:          p.ceco || '',
+        PROYECTO:       p.nombre,
+        JEFE:           p.colaboradores?.colaborador || '',
+        INGRESO_REAL:   Math.round(ingReal),
+        POR_INGRESAR:   Math.round(ing),
+        TOTAL_INGRESOS: Math.round(ingReal + ing),
+        HH:             Math.round(hh),
+        GGOO_REAL:      Math.round(gastoReal),
+        POR_GASTAR:     Math.round(gastos),
+        TOTAL_GGOO:     Math.round(gastoReal + gastos),
+        MARGEN:         Math.round(margen),
         ESTADO:      normalizarEstadoProyecto(p.estado) || '',
         TIPO:        p.tipo || '',
         FINANCISTA:  p.financistas?.nombre || '',
@@ -442,18 +463,24 @@ export default function VistaProyectosBase({ user, perfil }) {
     ]
 
     function toFila(p, i) {
-      const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
-      const ing    = parseFloat(p.ingresos) || 0
-      const gastos = parseFloat(p.gastos)   || 0
+      const hh        = costoPorProyecto[normalizar(p.nombre)] || 0
+      const ing       = parseFloat(p.ingresos) || 0
+      const gastos    = parseFloat(p.gastos)   || 0
+      const ingReal   = ingresoRealMap[normalizar(p.nombre)] || 0
+      const gastoReal = gastoRealMap[normalizar(p.nombre)] || 0
       return {
-        '#':        i + 1,
-        LINEA:      p.ceco || '',
-        PROYECTO:   p.nombre,
-        JEFE:       p.colaboradores?.colaborador || '',
-        INGRESOS:   ing,
-        HH:         Math.round(hh),
-        GGOO:       gastos,
-        MARGEN:     Math.round(ing - hh - gastos),
+        '#':            i + 1,
+        LINEA:          p.ceco || '',
+        PROYECTO:       p.nombre,
+        JEFE:           p.colaboradores?.colaborador || '',
+        INGRESO_REAL:   Math.round(ingReal),
+        POR_INGRESAR:   Math.round(ing),
+        TOTAL_INGRESOS: Math.round(ingReal + ing),
+        HH:             Math.round(hh),
+        GGOO_REAL:      Math.round(gastoReal),
+        POR_GASTAR:     Math.round(gastos),
+        TOTAL_GGOO:     Math.round(gastoReal + gastos),
+        MARGEN:         Math.round((ingReal + ing) - hh - (gastoReal + gastos)),
         ESTADO:     normalizarEstadoProyecto(p.estado) || '',
         TIPO:       p.tipo || '',
         FINANCISTA: p.financistas?.nombre || '',
@@ -467,13 +494,17 @@ export default function VistaProyectosBase({ user, perfil }) {
     }
 
     function toTotal(lista) {
-      const totIng    = lista.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
-      const totHH     = lista.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
-      const totGastos = lista.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
+      const totIngReal  = lista.reduce((s, p) => s + (ingresoRealMap[normalizar(p.nombre)] || 0), 0)
+      const totIng      = lista.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
+      const totHH       = lista.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
+      const totGastoReal= lista.reduce((s, p) => s + (gastoRealMap[normalizar(p.nombre)] || 0), 0)
+      const totGastos   = lista.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
       return {
         '#': '', LINEA: '', PROYECTO: `TOTAL (${lista.length})`, JEFE: '',
-        INGRESOS: totIng, HH: Math.round(totHH), GGOO: totGastos,
-        MARGEN: Math.round(totIng - totHH - totGastos),
+        INGRESO_REAL: Math.round(totIngReal), POR_INGRESAR: Math.round(totIng),
+        TOTAL_INGRESOS: Math.round(totIngReal + totIng), HH: Math.round(totHH),
+        GGOO_REAL: Math.round(totGastoReal), POR_GASTAR: Math.round(totGastos),
+        TOTAL_GGOO: Math.round(totGastoReal + totGastos), MARGEN: Math.round((totIngReal + totIng) - totHH - (totGastoReal + totGastos)),
         ESTADO: '', TIPO: '', FINANCISTA: '', REGION: '', INDUSTRIA: '',
         RENDIBLE: '', CECO: '', FECHA_ADJ: '', EN_HP: '',
       }
@@ -876,12 +907,18 @@ export default function VistaProyectosBase({ user, perfil }) {
     const hh = costoPorProyecto[normalizar(p.nombre)] || 0
     const ing = parseFloat(p.ingresos) || 0
     const gastos = parseFloat(p.gastos) || 0
-    const margen = ing - hh - gastos
-    const tieneFinanciero = ing > 0 || hh > 0 || gastos > 0
-    const fmtIng = ing > 0 ? fmt(ing) : ''
-    const fmtHH = hh > 0 ? fmt(hh) : ''
-    const fmtGastos = gastos > 0 ? fmt(gastos) : ''
-    const fmtMargen = tieneFinanciero ? fmt(margen) : ''
+    const ingReal = ingresoRealMap[normalizar(p.nombre)] || 0
+    const gastoReal = gastoRealMap[normalizar(p.nombre)] || 0
+    const margen = (ingReal + ing) - hh - (gastoReal + gastos)
+    const tieneFinanciero = ingReal > 0 || ing > 0 || hh > 0 || gastoReal > 0 || gastos > 0
+    const fmtIngReal = ingReal > 0 ? fmt(ingReal) : FILTRO_VACIO
+    const fmtIng = ing > 0 ? fmt(ing) : FILTRO_VACIO
+    const fmtTotalIngresos = (ingReal + ing) > 0 ? fmt(ingReal + ing) : FILTRO_VACIO
+    const fmtHH = hh > 0 ? fmt(hh) : FILTRO_VACIO
+    const fmtGgooReal = gastoReal > 0 ? fmt(gastoReal) : FILTRO_VACIO
+    const fmtGastos = gastos > 0 ? fmt(gastos) : FILTRO_VACIO
+    const fmtTotalGgoo = (gastoReal + gastos) > 0 ? fmt(gastoReal + gastos) : FILTRO_VACIO
+    const fmtMargen = tieneFinanciero ? fmt(margen) : FILTRO_VACIO
     const hpTxt = proyEnHP.has(normalizar(p.nombre)) ? 'Sí' : 'No'
     const matchLinea = omitirCol === 'linea' || !filtros.linea?.length || filtros.linea.includes(p.ceco)
     const matchProyecto = omitirCol === 'proyecto' || !filtros.proyecto?.length || filtros.proyecto.includes(p.nombre)
@@ -894,20 +931,28 @@ export default function VistaProyectosBase({ user, perfil }) {
     const matchIndustria = omitirCol === 'industria' || !filtros.industria?.length || filtros.industria.includes(p.industria)
     const matchRendible = omitirCol === 'rendible' || !filtros.rendible?.length || filtros.rendible.includes(rendibleTxt)
     const matchCeco = omitirCol === 'ceco' || !filtros.ceco?.length || filtros.ceco.includes(p.ceco_codigo)
+    const matchIngReal = omitirCol === 'ingReal' || !filtros.ingReal?.length || filtros.ingReal.includes(fmtIngReal)
     const matchIngresos = omitirCol === 'ingresos' || !filtros.ingresos?.length || filtros.ingresos.includes(fmtIng)
+    const matchTotalIngresos = omitirCol === 'totalIngresos' || !filtros.totalIngresos?.length || filtros.totalIngresos.includes(fmtTotalIngresos)
     const matchHH = omitirCol === 'hh' || !filtros.hh?.length || filtros.hh.includes(fmtHH)
+    const matchGgooReal = omitirCol === 'ggooReal' || !filtros.ggooReal?.length || filtros.ggooReal.includes(fmtGgooReal)
     const matchGastos = omitirCol === 'gastos' || !filtros.gastos?.length || filtros.gastos.includes(fmtGastos)
+    const matchTotalGgoo = omitirCol === 'totalGgoo' || !filtros.totalGgoo?.length || filtros.totalGgoo.includes(fmtTotalGgoo)
     const matchMargen = omitirCol === 'margen' || !filtros.margen?.length || filtros.margen.includes(fmtMargen)
     const matchHP = omitirCol === 'hp' || !filtros.hp?.length || filtros.hp.includes(hpTxt)
     const matchFechaAdj = omitirCol === 'fechaAdj' || !filtros.fechaAdj?.length || filtros.fechaAdj.includes(p.fecha_adjudicacion || '')
-    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchFinancista && matchRegion && matchIndustria && matchRendible && matchCeco && matchIngresos && matchHH && matchGastos && matchMargen && matchHP && matchFechaAdj
+    return matchLinea && matchProyecto && matchJefe && matchEstado && matchTipo && matchFinancista && matchRegion && matchIndustria && matchRendible && matchCeco && matchIngReal && matchIngresos && matchTotalIngresos && matchHH && matchGgooReal && matchGastos && matchTotalGgoo && matchMargen && matchHP && matchFechaAdj
   }
 
   function opcionesPorColumna(col, obtenerValor) {
     const visibles = proyectosBusqueda.filter((p) => coincideFiltros(p, col))
     const base = visibles.map(obtenerValor).filter(Boolean)
     const seleccionadas = Array.isArray(filtros[col]) ? filtros[col] : []
-    return [...new Set([...base, ...seleccionadas])].sort((a, b) => String(a).localeCompare(String(b), 'es'))
+    return [...new Set([...base, ...seleccionadas])].sort((a, b) => {
+      if (a === FILTRO_VACIO) return 1
+      if (b === FILTRO_VACIO) return -1
+      return String(a).localeCompare(String(b), 'es')
+    })
   }
 
   const opcionesLinea = opcionesPorColumna('linea', (p) => p.ceco)
@@ -920,14 +965,20 @@ export default function VistaProyectosBase({ user, perfil }) {
     (p) => (p.rendible === true ? 'Sí' : p.rendible === false ? 'No' : ''),
   )
   const opcionesCeco = opcionesPorColumna('ceco', p => p.ceco_codigo)
-  const opcionesIngresos = opcionesPorColumna('ingresos', p => (parseFloat(p.ingresos) || 0) > 0 ? fmt(parseFloat(p.ingresos)) : null)
-  const opcionesHH = opcionesPorColumna('hh', p => { const h = costoPorProyecto[normalizar(p.nombre)] || 0; return h > 0 ? fmt(h) : null })
-  const opcionesGastos = opcionesPorColumna('gastos', p => (parseFloat(p.gastos) || 0) > 0 ? fmt(parseFloat(p.gastos)) : null)
+  const opcionesIngReal = opcionesPorColumna('ingReal', p => { const v = ingresoRealMap[normalizar(p.nombre)] || 0; return v > 0 ? fmt(v) : FILTRO_VACIO })
+  const opcionesIngresos = opcionesPorColumna('ingresos', p => (parseFloat(p.ingresos) || 0) > 0 ? fmt(parseFloat(p.ingresos)) : FILTRO_VACIO)
+  const opcionesTotalIngresos = opcionesPorColumna('totalIngresos', p => { const v = (ingresoRealMap[normalizar(p.nombre)] || 0) + (parseFloat(p.ingresos) || 0); return v > 0 ? fmt(v) : FILTRO_VACIO })
+  const opcionesHH = opcionesPorColumna('hh', p => { const h = costoPorProyecto[normalizar(p.nombre)] || 0; return h > 0 ? fmt(h) : FILTRO_VACIO })
+  const opcionesGgooReal = opcionesPorColumna('ggooReal', p => { const v = gastoRealMap[normalizar(p.nombre)] || 0; return v > 0 ? fmt(v) : FILTRO_VACIO })
+  const opcionesGastos = opcionesPorColumna('gastos', p => (parseFloat(p.gastos) || 0) > 0 ? fmt(parseFloat(p.gastos)) : FILTRO_VACIO)
+  const opcionesTotalGgoo = opcionesPorColumna('totalGgoo', p => { const v = (gastoRealMap[normalizar(p.nombre)] || 0) + (parseFloat(p.gastos) || 0); return v > 0 ? fmt(v) : FILTRO_VACIO })
   const opcionesMargen = opcionesPorColumna('margen', p => {
     const h = costoPorProyecto[normalizar(p.nombre)] || 0
     const ing = parseFloat(p.ingresos) || 0
     const gastos = parseFloat(p.gastos) || 0
-    return (ing > 0 || h > 0 || gastos > 0) ? fmt(ing - h - gastos) : null
+    const ingReal = ingresoRealMap[normalizar(p.nombre)] || 0
+    const gastoReal = gastoRealMap[normalizar(p.nombre)] || 0
+    return (ingReal > 0 || ing > 0 || h > 0 || gastoReal > 0 || gastos > 0) ? fmt((ingReal + ing) - h - (gastoReal + gastos)) : FILTRO_VACIO
   })
   const opcionesFechaAdj = opcionesPorColumna('fechaAdj', p => p.fecha_adjudicacion || null)
 
@@ -946,14 +997,22 @@ export default function VistaProyectosBase({ user, perfil }) {
     if (ordenCol === 'ceco') { vA = a.ceco_codigo || ''; vB = b.ceco_codigo || '' }
     if (ordenCol === 'hp') { vA = proyEnHP.has(normalizar(a.nombre)) ? 1 : 0; vB = proyEnHP.has(normalizar(b.nombre)) ? 1 : 0 }
     if (ordenCol === 'fechaAdj') { vA = a.fecha_adjudicacion || ''; vB = b.fecha_adjudicacion || '' }
+    if (ordenCol === 'ingReal') { vA = ingresoRealMap[normalizar(a.nombre)] || 0; vB = ingresoRealMap[normalizar(b.nombre)] || 0 }
     if (ordenCol === 'ingresos') { vA = parseFloat(a.ingresos) || 0; vB = parseFloat(b.ingresos) || 0 }
-    if (ordenCol === 'gastos')   { vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0 }
+    if (ordenCol === 'totalIngresos') { vA = (ingresoRealMap[normalizar(a.nombre)] || 0) + (parseFloat(a.ingresos) || 0); vB = (ingresoRealMap[normalizar(b.nombre)] || 0) + (parseFloat(b.ingresos) || 0) }
     if (ordenCol === 'hh') { vA = costoPorProyecto[normalizar(a.nombre)] || 0; vB = costoPorProyecto[normalizar(b.nombre)] || 0 }
+    if (ordenCol === 'ggooReal') { vA = gastoRealMap[normalizar(a.nombre)] || 0; vB = gastoRealMap[normalizar(b.nombre)] || 0 }
+    if (ordenCol === 'gastos')   { vA = parseFloat(a.gastos)   || 0; vB = parseFloat(b.gastos)   || 0 }
+    if (ordenCol === 'totalGgoo') { vA = (gastoRealMap[normalizar(a.nombre)] || 0) + (parseFloat(a.gastos) || 0); vB = (gastoRealMap[normalizar(b.nombre)] || 0) + (parseFloat(b.gastos) || 0) }
     if (ordenCol === 'margen') {
       const hhA = costoPorProyecto[normalizar(a.nombre)] || 0
       const hhB = costoPorProyecto[normalizar(b.nombre)] || 0
-      vA = (parseFloat(a.ingresos) || 0) - hhA - (parseFloat(a.gastos) || 0)
-      vB = (parseFloat(b.ingresos) || 0) - hhB - (parseFloat(b.gastos) || 0)
+      const ingRealA = ingresoRealMap[normalizar(a.nombre)] || 0
+      const ingRealB = ingresoRealMap[normalizar(b.nombre)] || 0
+      const gastoRealA = gastoRealMap[normalizar(a.nombre)] || 0
+      const gastoRealB = gastoRealMap[normalizar(b.nombre)] || 0
+      vA = (ingRealA + (parseFloat(a.ingresos) || 0)) - hhA - (gastoRealA + (parseFloat(a.gastos) || 0))
+      vB = (ingRealB + (parseFloat(b.ingresos) || 0)) - hhB - (gastoRealB + (parseFloat(b.gastos) || 0))
     }
     if (typeof vA === 'string') return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
     return ordenDir === 'asc' ? vA - vB : vB - vA
@@ -961,6 +1020,28 @@ export default function VistaProyectosBase({ user, perfil }) {
 
   const proyectosPagina = proyectosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
   const columnasOcultasCount = esVistaOportunidades ? COLUMNAS_OCULTAS_VISTA_OPORTUNIDADES.length : 0
+
+  function extraerCabecera(nombre) {
+    const m = String(nombre || '').match(/^(\d{4})/)
+    return m ? m[1] : '—'
+  }
+
+  const gruposCabecera = useMemo(() => {
+    if (!agruparCabecera) return []
+    const map = {}
+    for (const p of proyectosFiltrados) {
+      const cab = extraerCabecera(p.nombre)
+      if (!map[cab]) map[cab] = { cabecera: cab, proyectos: [], hh: 0, ingReal: 0, ing: 0, gastoReal: 0, gastos: 0 }
+      const g = map[cab]
+      g.proyectos.push(p)
+      g.hh        += costoPorProyecto[normalizar(p.nombre)] || 0
+      g.ingReal   += ingresoRealMap[normalizar(p.nombre)]   || 0
+      g.ing       += parseFloat(p.ingresos) || 0
+      g.gastoReal += gastoRealMap[normalizar(p.nombre)]     || 0
+      g.gastos    += parseFloat(p.gastos)   || 0
+    }
+    return Object.values(map).sort((a, b) => a.cabecera.localeCompare(b.cabecera, 'es'))
+  }, [agruparCabecera, proyectosFiltrados, costoPorProyecto, ingresoRealMap, gastoRealMap])
 
   // Campo select reutilizable para jefe
   function SelectJefe({ value, onChange }) {
@@ -1077,6 +1158,17 @@ export default function VistaProyectosBase({ user, perfil }) {
             ?
           </button>
           <button
+            type="button"
+            onClick={() => { setAgruparCabecera(v => !v); setPagina(0) }}
+            className="px-4 py-2 rounded-lg font-medium transition-all border"
+            style={agruparCabecera
+              ? { backgroundColor: '#7C3AED', color: '#fff', borderColor: '#7C3AED' }
+              : { backgroundColor: '#F3F4F6', color: '#374151', borderColor: '#D1D5DB' }}
+            title="Agrupar filas por los primeros 4 dígitos del nombre de proyecto"
+          >
+            Agrupar por cabecera
+          </button>
+          <button
             onClick={exportarExcel}
             disabled={proyectosFiltrados.length === 0}
             className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90 disabled:opacity-50"
@@ -1162,12 +1254,95 @@ export default function VistaProyectosBase({ user, perfil }) {
         </p>
       </div>
 
+      {/* Tabla agrupada por cabecera */}
+      {agruparCabecera && !loading && (
+        <>
+          <div className="overflow-x-auto border border-gray-200 rounded-lg mb-2">
+            <table className="w-full border-collapse text-sm">
+              <thead>
+                <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#F5F3FF' }}>
+                  <th className="py-3 px-3 text-gray-500 font-semibold text-center w-10">#</th>
+                  <th className="py-3 px-4 text-left text-gray-700 font-semibold">Cabecera</th>
+                  <th className="py-3 px-3 text-center text-gray-500 font-semibold">Proyectos</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#f0fdf4' }}>Ingreso Real</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#f0fdf4' }}>Por Ingresar</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#dcfce7' }}>Total Ingresos</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#fefce8' }}>HH</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#fff1f2' }}>GGOO Real</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#fff1f2' }}>Por Gastar</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#ffe4e6' }}>Total GGOO</th>
+                  <th className="py-3 px-3 text-right text-gray-700 font-semibold text-sm" style={{ backgroundColor: '#faf5ff' }}>Margen</th>
+                </tr>
+              </thead>
+              <tbody>
+                {gruposCabecera.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((g, i) => {
+                  const totalIngresos = g.ingReal + g.ing
+                  const totalGgoo = g.gastoReal + g.gastos
+                  const margen = totalIngresos - g.hh - totalGgoo
+                  return (
+                    <tr key={g.cabecera} className={`border-b border-gray-100 ${i % 2 === 0 ? 'bg-white' : 'bg-gray-50'} hover:bg-purple-50 transition-all`}>
+                      <td className="py-2 px-3 text-center text-gray-400 text-sm">{pagina * FILAS_POR_PAGINA + i + 1}</td>
+                      <td className="py-2 px-4 font-mono font-semibold text-gray-800">{g.cabecera}</td>
+                      <td className="py-2 px-3 text-center text-gray-500 text-sm">{g.proyectos.length}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: i % 2 === 0 ? '#f0fdf4' : '#e9fce9' }}>{g.ingReal > 0 ? fmt(g.ingReal) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: i % 2 === 0 ? '#f0fdf4' : '#e9fce9' }}>{g.ing > 0 ? fmt(g.ing) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold text-gray-800" style={{ backgroundColor: i % 2 === 0 ? '#dcfce7' : '#d4f7df' }}>{totalIngresos > 0 ? fmt(totalIngresos) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: i % 2 === 0 ? '#fefce8' : '#fdf9d9' }}>{g.hh > 0 ? fmt(g.hh) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: i % 2 === 0 ? '#fff1f2' : '#fce8ea' }}>{g.gastoReal > 0 ? fmt(g.gastoReal) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: i % 2 === 0 ? '#fff1f2' : '#fce8ea' }}>{g.gastos > 0 ? fmt(g.gastos) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold text-gray-800" style={{ backgroundColor: i % 2 === 0 ? '#ffe4e6' : '#fcd9dc' }}>{totalGgoo > 0 ? fmt(totalGgoo) : <span className="text-gray-300">—</span>}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold" style={{ backgroundColor: i % 2 === 0 ? '#faf5ff' : '#f3eeff' }}>
+                        {(totalIngresos > 0 || g.hh > 0 || totalGgoo > 0)
+                          ? <span className={margen >= 0 ? 'text-green-700' : 'text-red-600'}>{fmt(margen)}</span>
+                          : <span className="text-gray-300">—</span>}
+                      </td>
+                    </tr>
+                  )
+                })}
+                {gruposCabecera.length > 0 && (() => {
+                  const totIngReal = gruposCabecera.reduce((s, g) => s + g.ingReal, 0)
+                  const totIng = gruposCabecera.reduce((s, g) => s + g.ing, 0)
+                  const totHH = gruposCabecera.reduce((s, g) => s + g.hh, 0)
+                  const totGastoReal = gruposCabecera.reduce((s, g) => s + g.gastoReal, 0)
+                  const totGastos = gruposCabecera.reduce((s, g) => s + g.gastos, 0)
+                  const totTI = totIngReal + totIng
+                  const totTG = totGastoReal + totGastos
+                  const totMargen = totTI - totHH - totTG
+                  return (
+                    <tr className="border-t-2 border-gray-400 bg-gray-100 font-semibold">
+                      <td colSpan={3} className="py-2 px-4 text-sm text-gray-600">Total ({gruposCabecera.length} grupos / {proyectosFiltrados.length} proyectos)</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#d1fae5' }}>{fmt(totIngReal)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: '#d1fae5' }}>{fmt(totIng)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm font-bold" style={{ backgroundColor: '#a7f3d0' }}>{fmt(totTI)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: '#fef9c3' }}>{fmt(totHH)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#fce7f3' }}>{fmt(totGastoReal)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: '#fce7f3' }}>{fmt(totGastos)}</td>
+                      <td className="py-2 px-3 text-right tabular-nums text-sm font-bold" style={{ backgroundColor: '#fbcfe8' }}>{fmt(totTG)}</td>
+                      <td className={`py-2 px-3 text-right tabular-nums text-sm font-bold ${totMargen >= 0 ? 'text-green-700' : 'text-red-600'}`} style={{ backgroundColor: '#ede9fe' }}>{fmt(totMargen)}</td>
+                    </tr>
+                  )
+                })()}
+              </tbody>
+            </table>
+          </div>
+          {gruposCabecera.length > FILAS_POR_PAGINA && (
+            <div className="flex justify-between items-center py-2 text-sm text-gray-600">
+              <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, gruposCabecera.length)} de {gruposCabecera.length} grupos</span>
+              <div className="flex gap-2">
+                <button onClick={() => setPagina(p => Math.max(0, p - 1))} disabled={pagina === 0} className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+                <button onClick={() => setPagina(p => p + 1)} disabled={(pagina + 1) * FILAS_POR_PAGINA >= gruposCabecera.length} className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
       {/* Tabla */}
       {loading ? (
         <div className="text-center py-12">
           <p className="text-gray-500">Cargando proyectos...</p>
         </div>
-      ) : (
+      ) : agruparCabecera ? null : (
         <div className="overflow-x-auto border border-gray-200 rounded-lg">
           <table className="w-full">
             <thead>
@@ -1176,19 +1351,35 @@ export default function VistaProyectosBase({ user, perfil }) {
                 <FilterableTh col="linea" label="Línea" opciones={opcionesLinea} filtro={filtros.linea || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'linea'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'linea'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="proyecto" label="Proyecto" opciones={opcionesProyecto} filtro={filtros.proyecto || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'proyecto'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'proyecto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                 <FilterableTh col="jefe" label="Jefe" opciones={opcionesJefe} filtro={filtros.jefe || ''} onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'jefe'} onToggleDropdown={setDropdownFiltro} sortable ordenActiva={ordenCol === 'jefe'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="ingresos" label="Ingresos" align="right" style={{ width: '110px' }}
+                <FilterableTh col="ingReal" label="Ingreso Real" align="right" style={{ width: '100px' }} bgColor="#f0fdf4"
+                  opciones={opcionesIngReal} filtro={filtros.ingReal || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ingReal'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'ingReal'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="ingresos" label="Por Ingresar" align="right" style={{ width: '110px' }} bgColor="#f0fdf4"
                   opciones={opcionesIngresos} filtro={filtros.ingresos || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ingresos'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'ingresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="hh" label="HH" align="right" style={{ width: '100px' }}
+                <FilterableTh col="totalIngresos" label="Total Ingresos" align="right" style={{ width: '110px' }} bgColor="#dcfce7"
+                  opciones={opcionesTotalIngresos} filtro={filtros.totalIngresos || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'totalIngresos'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'totalIngresos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="hh" label="HH" align="right" style={{ width: '100px' }} bgColor="#fefce8"
                   opciones={opcionesHH} filtro={filtros.hh || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'hh'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'hh'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="gastos" label="GGOO" align="right" style={{ width: '100px' }}
+                <FilterableTh col="ggooReal" label="GGOO Real" align="right" style={{ width: '100px' }} bgColor="#fff1f2"
+                  opciones={opcionesGgooReal} filtro={filtros.ggooReal || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ggooReal'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'ggooReal'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="gastos" label="Por Gastar" align="right" style={{ width: '100px' }} bgColor="#fff1f2"
                   opciones={opcionesGastos} filtro={filtros.gastos || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'gastos'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'gastos'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }}
+                <FilterableTh col="totalGgoo" label="Total GGOO" align="right" style={{ width: '100px' }} bgColor="#ffe4e6"
+                  opciones={opcionesTotalGgoo} filtro={filtros.totalGgoo || []}
+                  onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'totalGgoo'} onToggleDropdown={setDropdownFiltro}
+                  sortable ordenActiva={ordenCol === 'totalGgoo'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                <FilterableTh col="margen" label="Margen" align="right" style={{ width: '110px' }} bgColor="#faf5ff"
                   opciones={opcionesMargen} filtro={filtros.margen || []}
                   onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'margen'} onToggleDropdown={setDropdownFiltro}
                   sortable ordenActiva={ordenCol === 'margen'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
@@ -1220,10 +1411,12 @@ export default function VistaProyectosBase({ user, perfil }) {
             <tbody>
               {proyectosPagina.map((p, index) => {
                 const globalIndex = pagina * FILAS_POR_PAGINA + index + 1
-                const hh     = costoPorProyecto[normalizar(p.nombre)] || 0
-                const ing    = parseFloat(p.ingresos) || 0
-                const gastos = parseFloat(p.gastos)   || 0
-                const margen = ing - hh - gastos
+                const hh          = costoPorProyecto[normalizar(p.nombre)] || 0
+                const ing         = parseFloat(p.ingresos) || 0
+                const gastos      = parseFloat(p.gastos)   || 0
+                const ingReal     = ingresoRealMap[normalizar(p.nombre)] || 0
+                const gastoReal   = gastoRealMap[normalizar(p.nombre)] || 0
+                const margen      = (ingReal + ing) - hh - (gastoReal + gastos)
                 const enHP   = proyEnHP.has(normalizar(p.nombre))
                 const enIR   = proyEnIngresoReal.has(normalizar(p.nombre))
                 return (
@@ -1243,31 +1436,45 @@ export default function VistaProyectosBase({ user, perfil }) {
                         ))}
                       </select>
                     </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#f0fdf4' }}>
+                      {ingReal > 0 ? fmt(ingReal) : <span className="text-gray-300">—</span>}
+                    </td>
                     <td
-                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer hover:bg-orange-50 group"
+                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer group"
+                      style={{ backgroundColor: '#f0fdf4' }}
                       onClick={() => abrirModalEdicionFin(p, 'ingresos')}
-                      title="Click para editar Ingresos"
+                      title="Click para editar Por Ingresar"
                     >
                       {ing > 0
                         ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(ing)}</span>
                         : <span className="text-gray-300 group-hover:text-orange-400">—</span>
                       }
                     </td>
-                    <td className="py-2 px-3 text-right tabular-nums text-sm">
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold text-gray-800" style={{ backgroundColor: '#dcfce7' }}>
+                      {(ingReal + ing) > 0 ? fmt(ingReal + ing) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm" style={{ backgroundColor: '#fefce8' }}>
                       {hh > 0 ? <span className="font-medium text-gray-800">{fmt(hh)}</span> : <span className="text-gray-300">—</span>}
                     </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#fff1f2' }}>
+                      {gastoReal > 0 ? fmt(gastoReal) : <span className="text-gray-300">—</span>}
+                    </td>
                     <td
-                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer hover:bg-orange-50 group"
+                      className="py-2 px-3 text-right tabular-nums text-sm cursor-pointer group"
+                      style={{ backgroundColor: '#fff1f2' }}
                       onClick={() => abrirModalEdicionFin(p, 'gastos')}
-                      title="Click para editar GGOO"
+                      title="Click para editar Por Gastar"
                     >
                       {gastos > 0
                         ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(gastos)}</span>
                         : <span className="text-gray-300 group-hover:text-orange-400">—</span>
                       }
                     </td>
-                    <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold">
-                      {(ing > 0 || hh > 0 || gastos > 0)
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold text-gray-800" style={{ backgroundColor: '#ffe4e6' }}>
+                      {(gastoReal + gastos) > 0 ? fmt(gastoReal + gastos) : <span className="text-gray-300">—</span>}
+                    </td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-semibold" style={{ backgroundColor: '#faf5ff' }}>
+                      {(ingReal > 0 || ing > 0 || hh > 0 || gastoReal > 0 || gastos > 0)
                         ? <span className={margen >= 0 ? 'text-green-700' : 'text-red-600'}>{fmt(margen)}</span>
                         : <span className="text-gray-300">—</span>
                       }
@@ -1341,25 +1548,31 @@ export default function VistaProyectosBase({ user, perfil }) {
               })}
               {proyectosFiltrados.length === 0 && (
                 <tr>
-                  <td colSpan={18 - columnasOcultasCount} className="py-12 text-center text-gray-400">
+                  <td colSpan={22 - columnasOcultasCount} className="py-12 text-center text-gray-400">
                     {busqueda ? 'No hay proyectos que coincidan con la búsqueda' : 'No hay proyectos cargados'}
                   </td>
                 </tr>
               )}
             </tbody>
             {proyectosFiltrados.length > 0 && (() => {
-              const totIng    = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
-              const totHH     = proyectosFiltrados.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
-              const totGastos = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
-              const totMargen = totIng - totHH - totGastos
+              const totIngReal  = proyectosFiltrados.reduce((s, p) => s + (ingresoRealMap[normalizar(p.nombre)] || 0), 0)
+              const totIng      = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.ingresos) || 0), 0)
+              const totHH       = proyectosFiltrados.reduce((s, p) => s + (costoPorProyecto[normalizar(p.nombre)] || 0), 0)
+              const totGastoReal= proyectosFiltrados.reduce((s, p) => s + (gastoRealMap[normalizar(p.nombre)] || 0), 0)
+              const totGastos   = proyectosFiltrados.reduce((s, p) => s + (parseFloat(p.gastos) || 0), 0)
+              const totMargen   = (totIngReal + totIng) - totHH - (totGastoReal + totGastos)
               return (
                 <tfoot style={{ position: 'sticky', bottom: 0, zIndex: 5 }}>
                   <tr className="border-t-2 border-gray-400 bg-gray-100 font-semibold">
                     <td className="py-2 px-4 text-gray-600 text-sm" colSpan={4}>Total ({proyectosFiltrados.length})</td>
-                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totIng)}</td>
-                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totHH)}</td>
-                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800">{fmt(totGastos)}</td>
-                    <td className={`py-2 px-3 text-right tabular-nums text-sm ${totMargen >= 0 ? 'text-green-700' : 'text-red-600'}`}>{fmt(totMargen)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#d1fae5' }}>{fmt(totIngReal)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800" style={{ backgroundColor: '#d1fae5' }}>{fmt(totIng)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-bold text-gray-800" style={{ backgroundColor: '#a7f3d0' }}>{fmt(totIngReal + totIng)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800" style={{ backgroundColor: '#fef9c3' }}>{fmt(totHH)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-blue-700" style={{ backgroundColor: '#fce7f3' }}>{fmt(totGastoReal)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm text-gray-800" style={{ backgroundColor: '#fce7f3' }}>{fmt(totGastos)}</td>
+                    <td className="py-2 px-3 text-right tabular-nums text-sm font-bold text-gray-800" style={{ backgroundColor: '#fbcfe8' }}>{fmt(totGastoReal + totGastos)}</td>
+                    <td className={`py-2 px-3 text-right tabular-nums text-sm font-bold ${totMargen >= 0 ? 'text-green-700' : 'text-red-600'}`} style={{ backgroundColor: '#ede9fe' }}>{fmt(totMargen)}</td>
                     <td colSpan={10 - columnasOcultasCount} />
                   </tr>
                 </tfoot>
@@ -1369,8 +1582,8 @@ export default function VistaProyectosBase({ user, perfil }) {
         </div>
       )}
 
-      {/* Paginación */}
-      {!loading && proyectosFiltrados.length > FILAS_POR_PAGINA && (
+      {/* Paginación tabla normal */}
+      {!loading && !agruparCabecera && proyectosFiltrados.length > FILAS_POR_PAGINA && (
         <div className="flex justify-between items-center py-2 text-sm text-gray-600">
           <span>{pagina * FILAS_POR_PAGINA + 1}–{Math.min((pagina + 1) * FILAS_POR_PAGINA, proyectosFiltrados.length)} de {proyectosFiltrados.length}</span>
           <div className="flex gap-2">

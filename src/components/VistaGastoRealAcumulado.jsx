@@ -32,8 +32,7 @@ function formatPesos(value) {
 function fmtM(value) {
   if (value === null || value === undefined) return '-'
   const m = Number(value) / 1_000_000
-  const prefix = m > 0 ? '' : m < 0 ? '' : ''
-  return (value > 0 ? '' : value < 0 ? '' : '') + '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
+  return '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 
 function fmtDelta(value) {
@@ -42,7 +41,7 @@ function fmtDelta(value) {
   return sign + '$' + m.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 
-export default function VistaIngresoRealAcumulado() {
+export default function VistaGastoRealAcumulado() {
   const [rows, setRows] = useState([])
   const [loading, setLoading] = useState(true)
   const [proyectos, setProyectos] = useState([])
@@ -74,7 +73,7 @@ export default function VistaIngresoRealAcumulado() {
 
   async function cargar() {
     setLoading(true)
-    const { data, error } = await supabase.from('ingreso_real_acumulado').select('*').order('created_at')
+    const { data, error } = await supabase.from('gasto_real_acumulado').select('*').order('created_at')
     if (error) toast.error('Error al cargar: ' + error.message)
     else setRows(data || [])
     setLoading(false)
@@ -108,8 +107,8 @@ export default function VistaIngresoRealAcumulado() {
     })
     if (ordenCol) {
       result = [...result].sort((a, b) => {
-        if (ordenCol === 'ingreso') {
-          const vA = a.ingreso ?? 0, vB = b.ingreso ?? 0
+        if (ordenCol === 'gasto') {
+          const vA = a.gasto ?? 0, vB = b.gasto ?? 0
           return ordenDir === 'asc' ? vA - vB : vB - vA
         }
         const vA = String(a[ordenCol] || '').toLowerCase()
@@ -136,7 +135,7 @@ export default function VistaIngresoRealAcumulado() {
     setEditandoId(null)
     setEditandoValor('')
     if (!nuevoNombre) return
-    const { error } = await supabase.from('ingreso_real_acumulado').update({ nombre: nuevoNombre }).eq('id', id)
+    const { error } = await supabase.from('gasto_real_acumulado').update({ nombre: nuevoNombre }).eq('id', id)
     if (error) { toast.error('Error al guardar: ' + error.message); return }
     setRows(prev => prev.map(r => r.id === id ? { ...r, nombre: nuevoNombre } : r))
   }
@@ -152,20 +151,20 @@ export default function VistaIngresoRealAcumulado() {
   }
 
   async function prepararImportacion(parsed) {
-    const { data: oldData } = await supabase.from('ingreso_real_acumulado').select('nombre, ingreso')
+    const { data: oldData } = await supabase.from('gasto_real_acumulado').select('nombre, gasto')
     const oldMap = {}
     for (const r of oldData || []) {
       const k = normalizeKey(r.nombre)
-      if (k) oldMap[k] = (oldMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      if (k) oldMap[k] = (oldMap[k] || 0) + (parseFloat(r.gasto) || 0)
     }
 
     const newMap = {}
     for (const r of parsed) {
       const k = normalizeKey(r.nombre)
-      if (k) newMap[k] = (newMap[k] || 0) + (parseFloat(r.ingreso) || 0)
+      if (k) newMap[k] = (newMap[k] || 0) + (parseFloat(r.gasto) || 0)
     }
 
-    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, ingresos')
+    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, gastos')
     const proyMap = {}
     for (const p of proyData || []) {
       const k = normalizeKey(p.nombre)
@@ -181,8 +180,8 @@ export default function VistaIngresoRealAcumulado() {
       if (delta === 0) continue
 
       const proy = proyMap[k]
-      const oldPorIngresar = proy ? (parseFloat(proy.ingresos) || 0) : null
-      const newPorIngresar = proy ? oldPorIngresar - delta : null
+      const oldPorGastar = proy ? (parseFloat(proy.gastos) || 0) : null
+      const newPorGastar = proy ? oldPorGastar - delta : null
       const nombreDisplay = parsed.find(r => normalizeKey(r.nombre) === k)?.nombre
         || (oldData || []).find(r => normalizeKey(r.nombre) === k)?.nombre
         || k
@@ -194,8 +193,8 @@ export default function VistaIngresoRealAcumulado() {
         oldReal,
         newReal,
         delta,
-        oldPorIngresar,
-        newPorIngresar,
+        oldPorGastar,
+        newPorGastar,
         sinMatch: !proy,
       })
     }
@@ -207,18 +206,18 @@ export default function VistaIngresoRealAcumulado() {
     const { parsed, ajustes } = pendienteImportacion
     setAplicando(true)
 
-    const { error: delError } = await supabase.from('ingreso_real_acumulado').delete().neq('id', '00000000-0000-0000-0000-000000000000')
+    const { error: delError } = await supabase.from('gasto_real_acumulado').delete().neq('id', '00000000-0000-0000-0000-000000000000')
     if (delError) { toast.error('Error al limpiar tabla: ' + delError.message); setAplicando(false); return }
 
     const CHUNK = 200
     for (let i = 0; i < parsed.length; i += CHUNK) {
-      const { error } = await supabase.from('ingreso_real_acumulado').insert(parsed.slice(i, i + CHUNK))
+      const { error } = await supabase.from('gasto_real_acumulado').insert(parsed.slice(i, i + CHUNK))
       if (error) { toast.error('Error al insertar: ' + error.message); setAplicando(false); return }
     }
 
     const conMatch = ajustes.filter(a => !a.sinMatch)
     for (const a of conMatch) {
-      const { error } = await supabase.from('proyectos').update({ ingresos: a.newPorIngresar }).eq('id', a.proyectoId)
+      const { error } = await supabase.from('proyectos').update({ gastos: a.newPorGastar }).eq('id', a.proyectoId)
       if (error) toast.error(`Error ajustando ${a.proyectoNombre}: ${error.message}`)
     }
 
@@ -249,9 +248,10 @@ export default function VistaIngresoRealAcumulado() {
               rawRow['nombreProyecto'] ?? rawRow['NombreProyecto'] ??
               norm['nombreproyecto'] ?? norm['nombre_proyecto'] ?? norm['proyecto'] ?? norm['nombre'] ?? ''
             ).trim(),
-            ingreso: parseNumber(
-              rawRow['IngresoRealAcumulado'] ?? rawRow['ingresoRealAcumulado'] ??
-              norm['ingresorrealacumulado'] ?? norm['ingreso_real_acumulado'] ?? norm['ingreso_real'] ?? norm['ingreso'] ?? null
+            gasto: parseNumber(
+              rawRow['GastoOPReal'] ??
+              rawRow['GastoRealAcumulado'] ?? rawRow['gastoRealAcumulado'] ??
+              norm['gastooopreal'] ?? norm['gastoopreal'] ?? norm['gastorealacumulado'] ?? norm['gasto_real'] ?? norm['gasto'] ?? null
             ) ?? 0,
           }
         }).filter(r => r.nombre)
@@ -267,20 +267,20 @@ export default function VistaIngresoRealAcumulado() {
 
   function exportar() {
     const wsData = [
-      ['Nombre Proyecto', 'Ingreso Real Acumulado', 'En Proyectos?'],
-      ...filasFiltradas.map(r => [r.nombre, r.ingreso, r.enProyectos ? 'Sí' : 'No']),
-      ['TOTAL', filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0), ''],
+      ['Nombre Proyecto', 'Gasto Real Acumulado', 'En Proyectos?'],
+      ...filasFiltradas.map(r => [r.nombre, r.gasto, r.enProyectos ? 'Sí' : 'No']),
+      ['TOTAL', filasFiltradas.reduce((a, r) => a + (r.gasto || 0), 0), ''],
     ]
     const ws = XLSX.utils.aoa_to_sheet(wsData)
     const wb = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(wb, ws, 'Ingreso Real Acumulado')
-    XLSX.writeFile(wb, 'ingreso_real_acumulado.xlsx')
+    XLSX.utils.book_append_sheet(wb, ws, 'Gasto Real Acumulado')
+    XLSX.writeFile(wb, 'gasto_real_acumulado.xlsx')
   }
 
-  const totalIngreso = filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0)
+  const totalGasto = filasFiltradas.reduce((a, r) => a + (r.gasto || 0), 0)
   const filasEnPagina = filasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
 
-  const hayNegativos = pendienteImportacion?.ajustes.some(a => !a.sinMatch && a.newPorIngresar < 0)
+  const hayNegativos = pendienteImportacion?.ajustes.some(a => !a.sinMatch && a.newPorGastar < 0)
   const haySinMatch = pendienteImportacion?.ajustes.some(a => a.sinMatch)
 
   return (
@@ -290,17 +290,17 @@ export default function VistaIngresoRealAcumulado() {
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50" onClick={() => !aplicando && setPendienteImportacion(null)}>
           <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl mx-4 max-h-[90vh] flex flex-col" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b border-gray-200">
-              <h3 className="text-lg font-bold text-gray-800">Confirmar ajuste de "Por Ingresar"</h3>
+              <h3 className="text-lg font-bold text-gray-800">Confirmar ajuste de "Por Gastar"</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Al confirmar, el campo <strong>Por Ingresar</strong> de cada proyecto se ajustará automáticamente para mantener el <strong>Total Ingresos constante</strong>.
+                Al confirmar, el campo <strong>Por Gastar</strong> de cada proyecto se ajustará automáticamente para mantener el <strong>Total GGOO constante</strong>.
               </p>
             </div>
 
             <div className="overflow-y-auto flex-1 p-5">
               {pendienteImportacion.ajustes.length === 0 ? (
                 <div className="text-center py-10 text-gray-500">
-                  <p className="font-medium">Sin cambios en "Por Ingresar"</p>
-                  <p className="text-sm mt-1">Ningún proyecto cambia su ingreso real. Solo se reemplazará la tabla.</p>
+                  <p className="font-medium">Sin cambios en "Por Gastar"</p>
+                  <p className="text-sm mt-1">Ningún proyecto cambia su gasto real. Solo se reemplazará la tabla.</p>
                 </div>
               ) : (
                 <>
@@ -311,8 +311,8 @@ export default function VistaIngresoRealAcumulado() {
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real anterior</th>
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real nuevo</th>
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Δ</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar actual</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar nuevo</th>
+                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Gastar actual</th>
+                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Gastar nuevo</th>
                         <th className="px-3 py-2 text-center text-gray-600 font-semibold w-20"></th>
                       </tr>
                     </thead>
@@ -326,19 +326,19 @@ export default function VistaIngresoRealAcumulado() {
                           </td>
                           <td className="px-3 py-2 text-right text-gray-500">{fmtM(a.oldReal)}</td>
                           <td className="px-3 py-2 text-right text-gray-800 font-medium">{fmtM(a.newReal)}</td>
-                          <td className={`px-3 py-2 text-right font-semibold ${a.delta > 0 ? 'text-green-700' : 'text-red-600'}`}>
+                          <td className={`px-3 py-2 text-right font-semibold ${a.delta > 0 ? 'text-red-600' : 'text-green-700'}`}>
                             {fmtDelta(a.delta)}
                           </td>
                           <td className="px-3 py-2 text-right text-gray-500">
-                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.oldPorIngresar)}
+                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.oldPorGastar)}
                           </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${!a.sinMatch && a.newPorIngresar < 0 ? 'text-red-600' : 'text-gray-800'}`}>
-                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.newPorIngresar)}
+                          <td className={`px-3 py-2 text-right font-semibold ${!a.sinMatch && a.newPorGastar < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.newPorGastar)}
                           </td>
                           <td className="px-3 py-2 text-center">
                             {a.sinMatch
                               ? <span className="text-orange-500 font-medium">Sin match</span>
-                              : a.newPorIngresar < 0
+                              : a.newPorGastar < 0
                                 ? <span className="text-red-500">⚠ negativo</span>
                                 : <span className="text-green-600">✓</span>
                             }
@@ -350,12 +350,12 @@ export default function VistaIngresoRealAcumulado() {
 
                   {hayNegativos && (
                     <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                      ⚠ Algunos proyectos quedarán con "Por Ingresar" negativo: el ingreso real ya superó el estimado. Puedes confirmar igual o corregir manualmente después.
+                      ⚠ Algunos proyectos quedarán con "Por Gastar" negativo: el gasto real ya superó el estimado. Puedes confirmar igual o corregir manualmente después.
                     </p>
                   )}
                   {haySinMatch && (
                     <p className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 rounded p-2">
-                      ⚠ Algunos registros no tienen proyecto coincidente en la tabla de proyectos y no ajustarán "Por Ingresar".
+                      ⚠ Algunos registros no tienen proyecto coincidente en la tabla de proyectos y no ajustarán "Por Gastar".
                     </p>
                   )}
                 </>
@@ -391,7 +391,7 @@ export default function VistaIngresoRealAcumulado() {
       )}
 
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
-        <h2 className="text-2xl font-bold text-gray-800">Ingreso Real Acumulado</h2>
+        <h2 className="text-2xl font-bold text-gray-800">Gasto Real Acumulado</h2>
         <div className="flex gap-2 flex-wrap items-center">
           <input
             type="text"
@@ -411,7 +411,7 @@ export default function VistaIngresoRealAcumulado() {
       </div>
 
       <p className="text-xs text-gray-500 mb-4">
-        Acepta CSV o Excel con columnas <code>nombreProyecto</code> e <code>IngresoRealAcumulado</code>. Cada importación reemplaza todos los datos anteriores y ajusta automáticamente "Por Ingresar" en la tabla de proyectos.
+        Acepta CSV o Excel. El CSV debe tener columnas <code>nombreProyecto</code> y <code>GastoOPReal</code>. Cada importación reemplaza todos los datos anteriores y ajusta automáticamente "Por Gastar" en la tabla de proyectos.
       </p>
 
       {loading ? (
@@ -432,10 +432,10 @@ export default function VistaIngresoRealAcumulado() {
                     opciones={opcionesPor('nombre')} filtro={filtros.nombre || []}
                     onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'nombre'} onToggleDropdown={setDropdownFiltro}
                     sortable ordenActiva={ordenCol === 'nombre'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
-                  <FilterableTh col="ingreso" label="Ingreso Real Acumulado" align="right"
-                    opciones={opcionesPor('ingreso')} filtro={filtros.ingreso || []}
-                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'ingreso'} onToggleDropdown={setDropdownFiltro}
-                    sortable ordenActiva={ordenCol === 'ingreso'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
+                  <FilterableTh col="gasto" label="Gasto Real Acumulado" align="right"
+                    opciones={opcionesPor('gasto')} filtro={filtros.gasto || []}
+                    onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'gasto'} onToggleDropdown={setDropdownFiltro}
+                    sortable ordenActiva={ordenCol === 'gasto'} ordenDir={ordenDir} onOrdenar={toggleOrden} />
                   <FilterableTh col="enProyectos" label="en proyectos?" align="center"
                     opciones={opcionesPor('enProyectos')} filtro={filtros.enProyectos || []}
                     onFiltro={setFiltro} dropdownAbierto={dropdownFiltro === 'enProyectos'} onToggleDropdown={setDropdownFiltro} />
@@ -465,7 +465,7 @@ export default function VistaIngresoRealAcumulado() {
                         <span className="hover:underline hover:text-blue-600 transition-colors">{row.nombre}</span>
                       )}
                     </td>
-                    <td className="border border-gray-300 px-3 py-2 text-right font-medium text-gray-800">{formatPesos(row.ingreso)}</td>
+                    <td className="border border-gray-300 px-3 py-2 text-right font-medium text-gray-800">{formatPesos(row.gasto)}</td>
                     <td className="border border-gray-300 px-3 py-2 text-center">
                       {row.enProyectos
                         ? <span className="inline-block px-2 py-0.5 rounded text-xs font-semibold bg-green-100 text-green-700">✓ Sí</span>
@@ -475,7 +475,7 @@ export default function VistaIngresoRealAcumulado() {
                 ))}
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
                   <td colSpan={2} className="px-3 py-3 text-sm text-gray-800">TOTAL ({filasFiltradas.length})</td>
-                  <td className="px-3 py-3 text-right text-sm text-gray-800">{formatPesos(totalIngreso)}</td>
+                  <td className="px-3 py-3 text-right text-sm text-gray-800">{formatPesos(totalGasto)}</td>
                   <td className="px-3 py-3" />
                 </tr>
               </tbody>

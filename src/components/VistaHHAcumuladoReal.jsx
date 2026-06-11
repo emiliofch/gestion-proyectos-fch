@@ -39,6 +39,16 @@ function parseMes(val) {
   return String(val ?? '').trim()
 }
 
+function parseMesAnioMes(val) {
+  const n = Number(val)
+  if (Number.isFinite(n) && n >= 190001 && n <= 209912) {
+    const m = n % 100
+    const y = Math.floor(n / 100)
+    if (m >= 1 && m <= 12) return MESES_ES[m - 1] + '-' + String(y).slice(2)
+  }
+  return parseMes(val)
+}
+
 function mesANum(m) {
   if (!m) return 0
   const [abrev, anio] = m.split('-')
@@ -288,7 +298,10 @@ export default function VistaHHAcumuladoReal() {
               rawRow['MontoHHReal'] ?? rawRow[' MontoHHReal '] ?? rawRow['montoHHReal'] ??
               norm['montohhreal'] ?? norm['montohreal'] ?? norm['monto_hh_real'] ?? norm['montohh'] ?? null
             ) ?? 0,
-            mes: parseMes(rawRow['mes'] ?? rawRow['Mes'] ?? norm['mes'] ?? ''),
+            mes: parseMesAnioMes(
+              rawRow['añoMes'] ?? rawRow['anioMes'] ?? rawRow['AnoMes'] ?? norm['anomes'] ??
+              rawRow['mes'] ?? rawRow['Mes'] ?? norm['mes'] ?? ''
+            ),
           }
         }).filter(r => r.nombre || r.nombre_proyecto)
 

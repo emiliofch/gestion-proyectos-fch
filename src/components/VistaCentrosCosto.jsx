@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
 import FilterableTh from './FilterableTh'
+import ResizableTh from './ResizableTh'
 
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
@@ -33,6 +34,10 @@ export default function VistaCentrosCosto({ perfil }) {
   const [ordenDir, setOrdenDir] = useState('asc')
   const [pagina, setPagina] = useState(0)
   const FILAS_POR_PAGINA = 10
+  const [modalAgregar, setModalAgregar] = useState(false)
+  const [nuevoCeco, setNuevoCeco] = useState('')
+  const [editandoId, setEditandoId] = useState(null)
+  const [editandoValor, setEditandoValor] = useState('')
 
   useEffect(() => {
     cargarCentros()
@@ -159,6 +164,33 @@ export default function VistaCentrosCosto({ perfil }) {
     setFiltros((prev) => ({ ...prev, [col]: valor }))
   }
 
+  async function agregarCeco() {
+    const valor = nuevoCeco.trim()
+    if (!valor) { toast.error('El nombre del CECO no puede estar vacío'); return }
+    const { data: existe } = await supabase.from('centros_costo').select('id').eq('ceco', valor).maybeSingle()
+    if (existe) { toast.warning('Ya existe un CECO con ese nombre'); return }
+    const { error } = await supabase.from('centros_costo').insert({ ceco: valor })
+    if (error) { toast.error('Error al agregar: ' + error.message); return }
+    toast.success('CECO agregado')
+    setNuevoCeco('')
+    setModalAgregar(false)
+    await cargarCentros()
+  }
+
+  async function guardarEdicion() {
+    const valor = editandoValor.trim()
+    const id = editandoId
+    setEditandoId(null)
+    setEditandoValor('')
+    if (!valor) return
+    const { data: existe } = await supabase.from('centros_costo').select('id').eq('ceco', valor).neq('id', id).maybeSingle()
+    if (existe) { toast.warning('Ya existe un CECO con ese nombre'); return }
+    const { error } = await supabase.from('centros_costo').update({ ceco: valor }).eq('id', id)
+    if (error) { toast.error('Error al editar: ' + error.message); return }
+    setCentros(prev => prev.map(c => c.id === id ? { ...c, ceco: valor } : c))
+    toast.success('CECO actualizado')
+  }
+
   function toggleOrden(col) {
     if (ordenCol === col) {
       setOrdenDir((d) => d === 'asc' ? 'desc' : 'asc')
@@ -169,6 +201,7 @@ export default function VistaCentrosCosto({ perfil }) {
   }
 
   return (
+    <>
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
       <div className="flex justify-between items-center mb-6 flex-wrap gap-4">
         <h2 className="text-2xl font-bold text-gray-800">Centros de Costo</h2>
@@ -187,6 +220,13 @@ export default function VistaCentrosCosto({ perfil }) {
             style={{ backgroundColor: '#6366F1' }}
           >
             Exportar Excel
+          </button>
+          <button
+            onClick={() => { setNuevoCeco(''); setModalAgregar(true) }}
+            className="px-4 py-2 rounded-lg text-white font-medium transition-all hover:opacity-90"
+            style={{ backgroundColor: '#FF5100' }}
+          >
+            + Agregar
           </button>
           <label
             className={`px-4 py-2 rounded-lg text-white font-medium transition-all cursor-pointer hover:opacity-90 ${procesando ? 'opacity-50 cursor-not-allowed' : ''}`}
@@ -235,24 +275,50 @@ export default function VistaCentrosCosto({ perfil }) {
                   ordenDir={ordenDir}
                   onOrdenar={toggleOrden}
                 />
+                <ResizableTh className="bg-[#FFF5F0]" style={{ width: '48px' }} />
               </tr>
             </thead>
             <tbody>
               {centrosFiltrados.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA).map((c) => (
                 <tr key={c.id} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
-                  <td className="py-3 px-4 text-gray-800">{c.ceco}</td>
+                  <td className="py-2 px-4 text-gray-800">
+                    {editandoId === c.id ? (
+                      <input
+                        autoFocus
+                        value={editandoValor}
+                        onChange={e => setEditandoValor(e.target.value)}
+                        onBlur={guardarEdicion}
+                        onKeyDown={e => { if (e.key === 'Enter') guardarEdicion(); if (e.key === 'Escape') { setEditandoId(null); setEditandoValor('') } }}
+                        className="w-full px-2 py-1 border border-blue-400 rounded focus:outline-none focus:ring-2 focus:ring-blue-300 text-sm"
+                      />
+                    ) : (
+                      c.ceco
+                    )}
+                  </td>
+                  <td className="py-2 px-2 text-center">
+                    <button
+                      onClick={() => { setEditandoId(c.id); setEditandoValor(c.ceco) }}
+                      className="text-gray-300 hover:text-blue-500 transition-all"
+                      title="Editar"
+                    >
+                      <svg className="w-4 h-4 inline-block" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5" />
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+                      </svg>
+                    </button>
+                  </td>
                 </tr>
               ))}
               {centrosFiltrados.length === 0 && (
                 <tr>
-                  <td className="py-10 px-4 text-center text-gray-500">
+                  <td colSpan={2} className="py-10 px-4 text-center text-gray-500">
                     No hay centros de costo cargados.
                   </td>
                 </tr>
               )}
               {centrosFiltrados.length > 0 && (
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td className="py-3 px-4 text-gray-800 text-sm">TOTAL: {centrosFiltrados.length} de {centros.length}</td>
+                  <td colSpan={2} className="py-3 px-4 text-gray-800 text-sm">TOTAL: {centrosFiltrados.length} de {centros.length}</td>
                 </tr>
               )}
             </tbody>
@@ -271,5 +337,36 @@ export default function VistaCentrosCosto({ perfil }) {
         </div>
       )}
     </div>
+
+    {modalAgregar && (
+
+      <div className="fixed inset-0 bg-black bg-opacity-40 flex items-center justify-center z-50">
+        <div className="bg-white rounded-xl shadow-xl p-6 w-full max-w-sm">
+          <h3 className="text-lg font-bold text-gray-800 mb-4">Agregar Centro de Costo</h3>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Nombre CECO <span className="text-red-500">*</span></label>
+          <input
+            autoFocus
+            type="text"
+            value={nuevoCeco}
+            onChange={e => setNuevoCeco(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') agregarCeco(); if (e.key === 'Escape') setModalAgregar(false) }}
+            placeholder="Ej: Proyectos Corporativos"
+            className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 mb-4"
+          />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setModalAgregar(false)}
+              className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm hover:bg-gray-50">
+              Cancelar
+            </button>
+            <button onClick={agregarCeco}
+              className="px-4 py-2 rounded-lg text-white text-sm font-medium hover:opacity-90"
+              style={{ backgroundColor: '#FF5100' }}>
+              Agregar
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+    </>
   )
 }

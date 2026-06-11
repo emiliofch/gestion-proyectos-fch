@@ -38,6 +38,7 @@ export default function FilterableTh({
   label,
   align = 'left',
   style,
+  bgColor,
   opciones,
   filtro,
   onFiltro,
@@ -49,10 +50,15 @@ export default function FilterableTh({
   onOrdenar,
 }) {
   const btnRef = useRef(null)
+  const todosRef = useRef(null)
   const [dropPos, setDropPos] = useState({ top: 0, left: 0 })
   const seleccionados = Array.isArray(filtro) ? filtro : (filtro ? [filtro] : [])
   const [seleccionTemporal, setSeleccionTemporal] = useState(seleccionados)
   const [busquedaInterna, setBusquedaInterna] = useState('')
+
+  const hasOptions = opciones && opciones.length > 0
+  const total = opciones?.length || 0
+  const activoFiltro = seleccionados.length > 0
 
   useEffect(() => {
     if (dropdownAbierto) {
@@ -60,6 +66,12 @@ export default function FilterableTh({
       setBusquedaInterna('')
     }
   }, [dropdownAbierto, filtro])
+
+  useEffect(() => {
+    if (todosRef.current) {
+      todosRef.current.indeterminate = seleccionTemporal.length > 0 && seleccionTemporal.length < total
+    }
+  }, [seleccionTemporal, total])
 
   function handleToggle(e) {
     e.stopPropagation()
@@ -69,10 +81,6 @@ export default function FilterableTh({
     }
     onToggleDropdown(dropdownAbierto ? null : col)
   }
-
-  const hasOptions = opciones && opciones.length > 0
-  const total = opciones?.length || 0
-  const activoFiltro = seleccionados.length > 0
 
   const opcionesFiltradas = busquedaInterna
     ? opciones.filter(op => String(op).toLowerCase().includes(busquedaInterna.toLowerCase()))
@@ -92,14 +100,15 @@ export default function FilterableTh({
   }
 
   function aceptarFiltro() {
-    onFiltro(col, seleccionTemporal)
+    const result = seleccionTemporal.length === total ? [] : seleccionTemporal
+    onFiltro(col, result)
     onToggleDropdown(null)
   }
 
   return (
     <ResizableTh
-      className={`py-3 px-4 text-gray-800 font-semibold select-none transition-colors text-${align} ${activoFiltro ? 'bg-orange-100' : 'bg-[#FFF5F0]'}`}
-      style={style}
+      className={`py-3 px-4 text-gray-800 font-semibold select-none transition-colors text-${align} ${activoFiltro ? 'bg-orange-100' : ''}`}
+      style={{ ...(style || {}), ...(!activoFiltro && bgColor ? { backgroundColor: bgColor } : !activoFiltro ? { backgroundColor: '#FFF5F0' } : {}) }}
     >
       <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : align === 'center' ? 'justify-center' : 'justify-between'}`}>
         <span
@@ -141,11 +150,18 @@ export default function FilterableTh({
                   {!busquedaInterna && (
                     <label className="flex items-center gap-2 px-3 py-2 text-sm border-b border-gray-100 bg-gray-50 cursor-pointer hover:bg-orange-50">
                       <input
+                        ref={todosRef}
                         type="checkbox"
-                        checked={seleccionTemporal.length === 0}
-                        onChange={() => setSeleccionTemporal([])}
+                        checked={seleccionTemporal.length === total && total > 0}
+                        onChange={() => {
+                          if (seleccionTemporal.length === total) setSeleccionTemporal([])
+                          else setSeleccionTemporal([...opciones])
+                        }}
                       />
-                      <span className={seleccionTemporal.length === 0 ? 'font-semibold text-orange-600' : 'text-gray-700'}>(Todos)</span>
+                      <span className={
+                        (seleccionTemporal.length === total && total > 0) || seleccionTemporal.length === 0
+                          ? 'font-semibold text-orange-600' : 'text-gray-700'
+                      }>Todos</span>
                     </label>
                   )}
                   {opcionesFiltradas.length === 0 && (
