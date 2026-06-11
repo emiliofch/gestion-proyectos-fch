@@ -128,6 +128,11 @@ function App() {
   async function cargarPerfil(userId) {
     const { data } = await supabase.from('perfiles').select('*').eq('id', userId).single()
     setPerfil(data)
+    if (data?.modulos?.length > 0) {
+      const vistaDefault = { costeo: 'costeo', estimacion: 'dashboard', seguimiento: 'seguimiento-financiero', hh: 'ingreso-hh', oc: 'solicitud-oc', tablas: 'proyectos-base' }
+      const primera = vistaDefault[data.modulos[0]]
+      if (primera) setVista(primera)
+    }
   }
 
   async function cargarFavoritos() {
