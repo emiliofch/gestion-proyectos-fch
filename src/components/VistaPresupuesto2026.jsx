@@ -2,8 +2,10 @@ import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { toast } from 'react-toastify'
 import FilterableTh from './FilterableTh'
+import { supabase } from '../supabaseClient'
 
-const PRESUPUESTO_PATH = '/ppto2026.xlsx'
+const STORAGE_BUCKET = 'archivos-privados'
+const PRESUPUESTO_FILE = 'ppto2026.xlsx'
 const MESES_ABR = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
 const HEADER_KEYS = {
@@ -100,14 +102,14 @@ export default function VistaPresupuesto2026() {
   async function cargarPresupuesto() {
     setLoading(true)
     try {
-      const response = await fetch(PRESUPUESTO_PATH)
-      if (!response.ok) {
-        toast.error('No se encontro el archivo ppto2026.xlsx en /public')
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
+      if (error) {
+        toast.error('No se encontro el archivo ppto2026.xlsx en Storage')
         setRows([])
         return
       }
 
-      const arrayBuffer = await response.arrayBuffer()
+      const arrayBuffer = await data.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
@@ -235,7 +237,7 @@ export default function VistaPresupuesto2026() {
 
       <div className="mb-3 p-3 rounded-lg bg-blue-50 border border-blue-200">
         <p className="text-sm text-gray-700">
-          Fuente: archivo <strong>ppto2026.xlsx</strong> en la carpeta <strong>public</strong>.
+          Fuente: archivo <strong>ppto2026.xlsx</strong> en Supabase Storage (bucket <strong>archivos-privados</strong>).
         </p>
       </div>
 

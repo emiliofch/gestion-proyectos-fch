@@ -13,9 +13,9 @@ const FILAS_POR_PAGINA = 10
 const NOTAS_TIPO_OPERACIONAL = 'operacional'
 const NOTAS_TIPO_SENSIBILIDAD = 'sensibilidad'
 const NOTAS_TIPO_HEATMAP = 'heatmap'
-const PRESUPUESTO_PATH = '/ppto2026.xlsx'
-const PPTO_FECHA_PATH = '/ppto_a_la_fecha.xlsx'
-const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
+const STORAGE_BUCKET = 'archivos-privados'
+const PRESUPUESTO_FILE = 'ppto2026.xlsx'
+const PPTO_FECHA_FILE = 'ppto_a_la_fecha.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
 const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado', 'Meta'])
 const ESTADOS_HEATMAP = new Set(['No Efectivo', 'Meta'])
@@ -476,9 +476,9 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
   async function cargarPresupuestoLineas() {
     try {
-      const response = await fetch(PRESUPUESTO_PATH)
-      if (!response.ok) return
-      const arrayBuffer = await response.arrayBuffer()
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
+      if (error) return
+      const arrayBuffer = await data.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
@@ -508,15 +508,15 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
       setPresupuestoLineas(acumulado)
     } catch (error) {
-      toast.error('Error leyendo ppto2026.xlsx: ' + error.message)
+      toast.error('Error leyendo ppto2026.xlsx: ' + (error?.message ?? error))
     }
   }
 
   async function cargarPptoFecha() {
     try {
-      const response = await fetch(PPTO_FECHA_PATH)
-      if (!response.ok) return
-      const arrayBuffer = await response.arrayBuffer()
+      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PPTO_FECHA_FILE)
+      if (error) return
+      const arrayBuffer = await data.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
       const data = XLSX.utils.sheet_to_json(worksheet)
