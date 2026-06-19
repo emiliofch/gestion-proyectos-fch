@@ -11,14 +11,6 @@ function normalize(t) {
   return (t || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/\s+/g, ' ').trim()
 }
 
-function mesToNum(mes) {
-  if (!mes) return 0
-  const [abrev, año] = mes.split('-')
-  const añoNum = parseInt(año || 0)
-  const añoFull = añoNum < 100 ? añoNum + 2000 : añoNum
-  return añoFull * 100 + (MESES_ABREV.indexOf((abrev || '').toLowerCase()) + 1)
-}
-
 function buildTimestamp() {
   return new Date().toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-')
 }

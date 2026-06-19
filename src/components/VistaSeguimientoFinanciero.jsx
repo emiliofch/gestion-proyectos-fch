@@ -159,7 +159,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [notasSensCargadas, setNotasSensCargadas] = useState(false)
   const [notasHeatmapCargadas, setNotasHeatmapCargadas] = useState(false)
   const [pipeline, setPipeline] = useState([])
-  const [oportunidadesRaw, setOportunidadesRaw] = useState([])
+  const [, setOportunidadesRaw] = useState([])
   const [loadingPipeline, setLoadingPipeline] = useState(false)
   const [presupuestoLineas, setPresupuestoLineas] = useState({})
   const [heatmapRows, setHeatmapRows] = useState([])
@@ -476,9 +476,9 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
   async function cargarPresupuestoLineas() {
     try {
-      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
+      const { data: blob, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
       if (error) return
-      const arrayBuffer = await data.arrayBuffer()
+      const arrayBuffer = await blob.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]
@@ -514,9 +514,9 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
   async function cargarPptoFecha() {
     try {
-      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PPTO_FECHA_FILE)
+      const { data: blob2, error } = await supabase.storage.from(STORAGE_BUCKET).download(PPTO_FECHA_FILE)
       if (error) return
-      const arrayBuffer = await data.arrayBuffer()
+      const arrayBuffer = await blob2.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const worksheet = workbook.Sheets[workbook.SheetNames[0]]
       const data = XLSX.utils.sheet_to_json(worksheet)
@@ -663,35 +663,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     } else {
       setOrdenPipelineCol(col)
       setOrdenPipelineDir('asc')
-    }
-  }
-
-  function readNormalizedRow(row) {
-    const normalized = {}
-    Object.keys(row || {}).forEach((key) => {
-      normalized[normalizeKey(key)] = row[key]
-    })
-    return normalized
-  }
-
-  function buildRowPayload(rawRow) {
-    const row = readNormalizedRow(rawRow)
-    const linea = getValueFromRow(row, HEADER_KEYS.linea)
-
-    return {
-      linea: linea ? String(linea).trim() : '',
-      real: {
-        ingresos: parseNumber(getValueFromRow(row, HEADER_KEYS.real.ingresos)),
-        hh: parseNumber(getValueFromRow(row, HEADER_KEYS.real.hh)),
-        gasto: parseNumber(getValueFromRow(row, HEADER_KEYS.real.gasto)),
-        margen: parseNumber(getValueFromRow(row, HEADER_KEYS.real.margen))
-      },
-      ppto: {
-        ingresos: parseNumber(getValueFromRow(row, HEADER_KEYS.ppto.ingresos)),
-        hh: parseNumber(getValueFromRow(row, HEADER_KEYS.ppto.hh)),
-        gasto: parseNumber(getValueFromRow(row, HEADER_KEYS.ppto.gasto)),
-        margen: parseNumber(getValueFromRow(row, HEADER_KEYS.ppto.margen))
-      }
     }
   }
 
@@ -1237,7 +1208,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const pageWidth = doc.internal.pageSize.getWidth()
       const pageHeight = doc.internal.pageSize.getHeight()
       const printableWidth = pageWidth - margin * 2
-      const printableHeight = pageHeight - margin * 2 - headerH
+      void (pageHeight - margin * 2 - headerH)
 
       const addHeader = () => {
         doc.setFont('helvetica', 'bold')
@@ -2226,17 +2197,6 @@ function obtenerFechaAdjudicacion(oportunidad) {
   return ''
 }
 
-function ordenarMesAdjudicacion(a, b) {
-  const [mA, yA] = String(a).split('-')
-  const [mB, yB] = String(b).split('-')
-  const iA = MESES_ORDEN.indexOf((mA || '').toLowerCase())
-  const iB = MESES_ORDEN.indexOf((mB || '').toLowerCase())
-  const yearA = parseInt(yA, 10)
-  const yearB = parseInt(yB, 10)
-  if (Number.isFinite(yearA) && Number.isFinite(yearB) && yearA !== yearB) return yearA - yearB
-  if (iA !== iB) return iA - iB
-  return String(a).localeCompare(String(b))
-}
 
 
 

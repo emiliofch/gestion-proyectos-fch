@@ -86,63 +86,6 @@ export default function VistaColaboradoresCostos() {
     setColaboradoresRut(rutMap)
   }
 
-  async function poblarDesdeColaboradores() {
-    const ok = confirm(
-      `Esto insertará registros para ${MESES_POBLAR[0]} a ${MESES_POBLAR.at(-1)} usando el costo actual de cada colaborador.\n` +
-      `Solo se crearán los registros que aún no existen.\n\n¿Continuar?`
-    )
-    if (!ok) return
-
-    // 1. Cargar colaboradores con su costo
-    const { data: colabs, error: errColabs } = await supabase
-      .from('colaboradores')
-      .select('colaborador, costo_empresa')
-    if (errColabs || !colabs?.length) { toast.error('Error al cargar colaboradores'); return }
-
-    // 2. Obtener registros ya existentes para esos meses
-    const { data: existentes } = await supabase
-      .from('colaboradores_costos')
-      .select('colaborador, mes')
-      .in('mes', MESES_POBLAR)
-    const yaExiste = new Set((existentes || []).map(r => `${normalize(r.colaborador)}|${r.mes}`))
-
-    // 3. Construir batch solo con registros faltantes
-    const batch = []
-    for (const colab of colabs) {
-      const nombre = (colab.colaborador || '').trim()
-      const costo  = parseFloat(colab.costo_empresa) || 0
-      if (!nombre) continue
-      for (const mes of MESES_POBLAR) {
-        if (!yaExiste.has(`${normalize(nombre)}|${mes}`)) {
-          batch.push({ colaborador: nombre, mes, costo_mes: costo })
-        }
-      }
-    }
-
-    if (batch.length === 0) { toast.info('No hay registros nuevos que insertar (todos ya existen)'); return }
-
-    setProgreso(0)
-    cancelarRef.current = false
-    let insertados = 0
-    const CHUNK = 500
-    for (let i = 0; i < batch.length; i += CHUNK) {
-      if (cancelarRef.current) {
-        toast.warning(`Cancelado. ${insertados} registros insertados.`)
-        setProgreso(null)
-        cargarDatos()
-        return
-      }
-      const chunk = batch.slice(i, i + CHUNK)
-      const { error } = await supabase.from('colaboradores_costos').insert(chunk)
-      if (!error) insertados += chunk.length
-      setProgreso(Math.round(Math.min((i + CHUNK) / batch.length, 1) * 100))
-    }
-    setProgreso('ok')
-    setTimeout(() => setProgreso(null), 3000)
-    toast.success(`${insertados} registros creados (abr-25 → dic-25)`)
-    cargarDatos()
-  }
-
   async function guardarCelda(id, col, valor) {
     const val = col === 'costo_mes' ? (parseFloat(valor) || 0) : valor.trim()
     const { error } = await supabase.from('colaboradores_costos').update({ [col]: val }).eq('id', id)

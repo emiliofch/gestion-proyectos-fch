@@ -102,14 +102,14 @@ export default function VistaPresupuesto2026() {
   async function cargarPresupuesto() {
     setLoading(true)
     try {
-      const { data, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
+      const { data: blob, error } = await supabase.storage.from(STORAGE_BUCKET).download(PRESUPUESTO_FILE)
       if (error) {
         toast.error('No se encontro el archivo ppto2026.xlsx en Storage')
         setRows([])
         return
       }
 
-      const arrayBuffer = await data.arrayBuffer()
+      const arrayBuffer = await blob.arrayBuffer()
       const workbook = XLSX.read(arrayBuffer, { type: 'array' })
       const sheetName = workbook.SheetNames[0]
       const worksheet = workbook.Sheets[sheetName]

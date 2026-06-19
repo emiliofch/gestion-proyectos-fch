@@ -35,12 +35,6 @@ function fmtM(value) {
   return '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 
-function fmtDelta(value) {
-  const m = Number(value) / 1_000_000
-  const sign = m > 0 ? '+' : ''
-  return sign + '$' + m.toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
-}
-
 export default function VistaRealAcumulado() {
   const [rowsIng, setRowsIng] = useState([])
   const [rowsGasto, setRowsGasto] = useState([])

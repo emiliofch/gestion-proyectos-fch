@@ -32,7 +32,6 @@ function formatPesos(value) {
 function fmtM(value) {
   if (value === null || value === undefined) return '-'
   const m = Number(value) / 1_000_000
-  const prefix = m > 0 ? '' : m < 0 ? '' : ''
   return (value > 0 ? '' : value < 0 ? '' : '') + '$' + Math.abs(m).toLocaleString('es-CL', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + 'M'
 }
 

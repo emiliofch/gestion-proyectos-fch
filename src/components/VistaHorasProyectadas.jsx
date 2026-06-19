@@ -34,30 +34,6 @@ const ABREV_MES = {
 }
 
 // Normaliza "ene-26" → "enero-2026", "enero-2026" → "enero-2026", serial → "enero-2026"
-function normalizarMesImport(raw) {
-  if (raw === null || raw === undefined) return ''
-  const str = raw.toString().trim().toLowerCase()
-  if (!str) return ''
-
-  // Serial numérico de Excel (ej: 46023)
-  const serial = parseFloat(str)
-  if (!isNaN(serial) && serial > 1000) {
-    const fecha = new Date((serial - 25569) * 86400000)
-    return `${MESES_NOMBRES[fecha.getUTCMonth()]}-${fecha.getUTCFullYear()}`
-  }
-
-  // Formato "ene-26" o "ene-2026"
-  const match = str.match(/^([a-záéíóúü]+)-(\d{2,4})$/)
-  if (match) {
-    const [, parte, año] = match
-    const nombreCompleto = ABREV_MES[parte] || MESES_NOMBRES.find(m => m.startsWith(parte)) || parte
-    const añoCompleto = año.length === 2 ? `20${año}` : año
-    return `${nombreCompleto}-${añoCompleto}`
-  }
-
-  return str
-}
-
 function mesActual() {
   const now = new Date()
   return `${MESES_ABREV[now.getMonth()]}-${String(now.getFullYear()).slice(-2)}`

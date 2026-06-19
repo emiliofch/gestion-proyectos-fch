@@ -61,7 +61,7 @@ export default function VistaColaboradores({ perfil }) {
       }
       const nombres = new Set(todas.map(r => normalizeKey(String(r.colaborador ?? ''))).filter(Boolean))
       setEnHorasProy(nombres)
-    } catch (_) {}
+    } catch { /* ignorar */ }
   }
 
   async function cargarHorasReales() {
@@ -77,7 +77,7 @@ export default function VistaColaboradores({ perfil }) {
       }
       const nombres = new Set(todas.map(r => normalizeKey(String(r.nombre ?? ''))).filter(Boolean))
       setEnHorasReales(nombres)
-    } catch (_) {}
+    } catch { /* ignorar */ }
   }
 
   async function cargarColaboradores() {

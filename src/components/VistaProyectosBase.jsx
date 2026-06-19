@@ -4,7 +4,7 @@ import { toast } from 'react-toastify'
 import * as XLSX from 'xlsx'
 import ResizableTh from './ResizableTh'
 import FilterableTh from './FilterableTh'
-import { ESTADOS_PROYECTO, clasesBadgeEstadoProyecto, normalizarEstadoProyecto } from '../constants/estadosProyecto'
+import { ESTADOS_PROYECTO, normalizarEstadoProyecto } from '../constants/estadosProyecto'
 import { normalizarMesAdjudicacion } from '../constants/fechaAdjudicacion'
 
 const TIPOS_PROYECTO = ['Público', 'Privado']
@@ -533,7 +533,7 @@ export default function VistaProyectosBase({ user, perfil }) {
 
     const nombresHojas = new Set(['Todos'])
     for (const jefe of Object.keys(porJefe).sort((a, b) => a.localeCompare(b, 'es'))) {
-      let nombre = jefe.replace(/[\\\/\*\?\:\[\]]/g, '').slice(0, 31)
+      let nombre = jefe.replace(/[\\/*?:[\]]/g, '').slice(0, 31)
       let sufijo = 2
       while (nombresHojas.has(nombre)) { nombre = nombre.slice(0, 28) + `_${sufijo++}` }
       nombresHojas.add(nombre)
