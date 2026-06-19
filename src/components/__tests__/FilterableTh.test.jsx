@@ -58,7 +58,7 @@ describe('FilterableTh', () => {
     await user.click(screen.getByText('Efectivo'))
     expect(onFiltro).not.toHaveBeenCalled()
 
-    await user.click(screen.getByText('(Todos)'))
+    await user.click(screen.getByText('Todos'))
     expect(onFiltro).not.toHaveBeenCalled()
 
     await user.click(screen.getByRole('button', { name: 'Aceptar' }))

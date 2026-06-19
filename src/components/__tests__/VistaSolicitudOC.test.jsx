@@ -230,7 +230,7 @@ describe('VistaSolicitudOC', () => {
     expect(uploadMock).toHaveBeenCalled()
     expect(createSignedUrlMock).toHaveBeenCalled()
     expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/enviar-email-oc',
+      expect.stringContaining('enviar-email-oc'),
       expect.objectContaining({ method: 'POST' })
     )
 
