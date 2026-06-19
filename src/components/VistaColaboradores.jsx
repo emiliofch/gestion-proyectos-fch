@@ -27,16 +27,18 @@ export default function VistaColaboradores({ perfil }) {
   const [ordenCol, setOrdenCol] = useState('colaborador')
   const [ordenDir, setOrdenDir] = useState('asc')
   const [modalEditar, setModalEditar] = useState(null)
-  const [formEdit, setFormEdit] = useState({ colaborador: '', rut: '', costo_empresa: '' })
+  const [formEdit, setFormEdit] = useState({ colaborador: '', rut: '' })
   const [modalCrear, setModalCrear] = useState(false)
-  const [formCrear, setFormCrear] = useState({ colaborador: '', rut: '', costo_empresa: '' })
+  const [formCrear, setFormCrear] = useState({ colaborador: '', rut: '' })
   const [enHorasProy, setEnHorasProy] = useState(new Set())
+  const [enHorasReales, setEnHorasReales] = useState(new Set())
   const [pagina, setPagina] = useState(0)
   const FILAS_POR_PAGINA = 10
 
   useEffect(() => {
     cargarColaboradores()
     cargarHorasProyectadas()
+    cargarHorasReales()
   }, [])
 
   useEffect(() => {
@@ -59,6 +61,22 @@ export default function VistaColaboradores({ perfil }) {
       }
       const nombres = new Set(todas.map(r => normalizeKey(String(r.colaborador ?? ''))).filter(Boolean))
       setEnHorasProy(nombres)
+    } catch (_) {}
+  }
+
+  async function cargarHorasReales() {
+    try {
+      const PAGE = 1000
+      let todas = [], from = 0
+      while (true) {
+        const { data } = await supabase.from('hh_acumulado_real').select('nombre').range(from, from + PAGE - 1)
+        if (!data?.length) break
+        todas = [...todas, ...data]
+        if (data.length < PAGE) break
+        from += PAGE
+      }
+      const nombres = new Set(todas.map(r => normalizeKey(String(r.nombre ?? ''))).filter(Boolean))
+      setEnHorasReales(nombres)
     } catch (_) {}
   }
 
@@ -86,7 +104,6 @@ export default function VistaColaboradores({ perfil }) {
     const registro = {
       colaborador: formCrear.colaborador.trim(),
       rut: formCrear.rut.trim() || null,
-      costo_empresa: formCrear.costo_empresa !== '' ? parseFloat(String(formCrear.costo_empresa).replace(',', '.')) || null : null,
     }
 
     const { error } = await supabase.from('colaboradores').insert(registro)
@@ -95,7 +112,7 @@ export default function VistaColaboradores({ perfil }) {
     } else {
       toast.success('Colaborador creado')
       setModalCrear(false)
-      setFormCrear({ colaborador: '', rut: '', costo_empresa: '' })
+      setFormCrear({ colaborador: '', rut: '' })
       cargarColaboradores()
     }
   }
@@ -123,7 +140,6 @@ export default function VistaColaboradores({ perfil }) {
         const headers = filas[0].map(h => String(h).trim().toUpperCase())
         const idxColaborador = headers.indexOf('COLABORADOR')
         const idxRut = headers.indexOf('RUT')
-        const idxCosto = headers.indexOf('COSTO EMPRESA')
 
         if (idxColaborador === -1 || idxRut === -1) {
           toast.error('El Excel debe tener las columnas: COLABORADOR, RUT')
@@ -138,17 +154,13 @@ export default function VistaColaboradores({ perfil }) {
           const fila = filas[i]
           const colaborador = String(fila[idxColaborador] ?? '').trim()
           const rut = String(fila[idxRut] ?? '').trim()
-          const costoRaw = idxCosto >= 0 ? fila[idxCosto] : undefined
-          const costo_empresa = costoRaw !== undefined && costoRaw !== '' && costoRaw !== null
-            ? parseFloat(String(costoRaw).replace(',', '.')) || null
-            : null
 
           if (!colaborador) {
             errores.push(`Fila ${i + 1}: COLABORADOR vacío`)
             continue
           }
 
-          registros.push({ colaborador, rut, costo_empresa })
+          registros.push({ colaborador, rut })
         }
 
         let insertados = 0
@@ -178,7 +190,6 @@ export default function VistaColaboradores({ perfil }) {
     const datos = filtrados.map(c => ({
       COLABORADOR: c.colaborador,
       RUT: c.rut || '',
-      'COSTO EMPRESA': c.costo_empresa ?? '',
     }))
     const wb = XLSX.utils.book_new()
     const ws = XLSX.utils.json_to_sheet(datos)
@@ -187,7 +198,7 @@ export default function VistaColaboradores({ perfil }) {
   }
 
   function abrirEditar(c) {
-    setFormEdit({ colaborador: c.colaborador, rut: c.rut || '', costo_empresa: c.costo_empresa ?? '' })
+    setFormEdit({ colaborador: c.colaborador, rut: c.rut || '' })
     setModalEditar(c)
   }
 
@@ -202,7 +213,6 @@ export default function VistaColaboradores({ perfil }) {
       .update({
         colaborador: formEdit.colaborador.trim(),
         rut: formEdit.rut.trim() || null,
-        costo_empresa: formEdit.costo_empresa !== '' ? parseFloat(String(formEdit.costo_empresa).replace(',', '.')) || null : null,
       })
       .eq('id', modalEditar.id)
 
@@ -266,9 +276,9 @@ export default function VistaColaboradores({ perfil }) {
       const val = enHorasProy.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No'
       if (!filtros.enHorasProy.includes(val)) return false
     }
-    if (omitirCol !== 'costoEmpresa' && filtros.costoEmpresa?.length) {
-      const val = c.costo_empresa !== null && c.costo_empresa !== undefined ? String(Math.round(c.costo_empresa)) : '-'
-      if (!filtros.costoEmpresa.includes(val)) return false
+    if (omitirCol !== 'enHorasReales' && filtros.enHorasReales?.length) {
+      const val = enHorasReales.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No'
+      if (!filtros.enHorasReales.includes(val)) return false
     }
     return true
   }
@@ -286,23 +296,16 @@ export default function VistaColaboradores({ perfil }) {
     colaboradoresBusqueda.filter(c => coincideFiltros(c, 'enHorasProy'))
       .map(c => enHorasProy.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No')
   )].sort()
-  const opcionesCostoEmpresa = opcionesPorColumna('costoEmpresa', (c) =>
-    c.costo_empresa !== null && c.costo_empresa !== undefined ? String(Math.round(c.costo_empresa)) : null
-  )
+  const opcionesEnHorasReales = [...new Set(
+    colaboradoresBusqueda.filter(c => coincideFiltros(c, 'enHorasReales'))
+      .map(c => enHorasReales.has(normalizeKey(c.colaborador)) ? 'Sí' : 'No')
+  )].sort()
 
   const filtrados = colaboradoresBusqueda.filter((c) => coincideFiltros(c)).sort((a, b) => {
     if (ordenCol === 'rut') { const vA = a.rut || ''; const vB = b.rut || ''; return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es') }
-    if (ordenCol === 'costoEmpresa') { const vA = parseFloat(a.costo_empresa) || 0; const vB = parseFloat(b.costo_empresa) || 0; return ordenDir === 'asc' ? vA - vB : vB - vA }
     const vA = a.colaborador || ''; const vB = b.colaborador || ''
     return ordenDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
   })
-
-  const totalCosto = filtrados.reduce((s, c) => s + (parseFloat(c.costo_empresa) || 0), 0)
-
-  function formatCosto(val) {
-    if (val === null || val === undefined || val === '') return '-'
-    return Number(val).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-  }
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 12rem)' }}>
@@ -319,7 +322,7 @@ export default function VistaColaboradores({ perfil }) {
           />
 
           <button
-            onClick={() => { setFormCrear({ colaborador: '', rut: '', costo_empresa: '' }); setModalCrear(true) }}
+            onClick={() => { setFormCrear({ colaborador: '', rut: '' }); setModalCrear(true) }}
             className="px-4 py-2 rounded-lg text-white text-sm font-medium transition-all hover:opacity-90"
             style={{ backgroundColor: '#3B82F6' }}
           >
@@ -368,9 +371,7 @@ export default function VistaColaboradores({ perfil }) {
         <span className="font-mono bg-white border border-blue-200 rounded px-2 py-0.5 text-blue-800 font-bold">COLABORADOR</span>
         <span className="text-gray-400">|</span>
         <span className="font-mono bg-white border border-blue-200 rounded px-2 py-0.5 text-blue-800 font-bold">RUT</span>
-        <span className="text-gray-400">|</span>
-        <span className="font-mono bg-white border border-blue-200 rounded px-2 py-0.5 text-blue-800 font-bold">COSTO EMPRESA</span>
-        <span className="text-gray-500 text-xs">(COLABORADOR es obligatorio · RUT y COSTO EMPRESA son opcionales)</span>
+        <span className="text-gray-500 text-xs">(COLABORADOR es obligatorio · RUT es opcional)</span>
       </div>
 
       {/* Conteo */}
@@ -432,19 +433,15 @@ export default function VistaColaboradores({ perfil }) {
                   onToggleDropdown={setDropdownFiltro}
                 />
                 <FilterableTh
-                  col="costoEmpresa"
-                  label="Costo Empresa"
-                  align="right"
-                  style={{ width: '160px' }}
-                  opciones={opcionesCostoEmpresa}
-                  filtro={filtros.costoEmpresa || []}
+                  col="enHorasReales"
+                  label="En Horas Reales"
+                  align="center"
+                  style={{ width: '140px' }}
+                  opciones={opcionesEnHorasReales}
+                  filtro={filtros.enHorasReales || ''}
                   onFiltro={setFiltro}
-                  dropdownAbierto={dropdownFiltro === 'costoEmpresa'}
+                  dropdownAbierto={dropdownFiltro === 'enHorasReales'}
                   onToggleDropdown={setDropdownFiltro}
-                  sortable
-                  ordenActiva={ordenCol === 'costoEmpresa'}
-                  ordenDir={ordenDir}
-                  onOrdenar={toggleOrden}
                 />
                 {esAdmin && (
                   <ResizableTh className="text-left py-3 px-4 text-gray-800 font-semibold" style={{ width: '140px' }}>Acciones</ResizableTh>
@@ -465,7 +462,12 @@ export default function VistaColaboradores({ perfil }) {
                       : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">✗ No</span>
                     }
                   </td>
-                  <td className="py-3 px-4 text-gray-600 text-right">{formatCosto(c.costo_empresa)}</td>
+                  <td className="py-3 px-2 text-center">
+                    {enHorasReales.has(normalizeKey(c.colaborador))
+                      ? <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">✓ Sí</span>
+                      : <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-100 text-red-800">✗ No</span>
+                    }
+                  </td>
                   {esAdmin && (
                     <td className="py-3 px-4">
                       <div className="flex gap-2">
@@ -489,8 +491,7 @@ export default function VistaColaboradores({ perfil }) {
               )})}
               {filtrados.length > 0 && (
                 <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
-                  <td colSpan={4} className="py-3 px-4 text-gray-800 text-sm">TOTAL: {filtrados.length} de {colaboradores.length}</td>
-                  <td className="py-3 px-4 text-right text-gray-800 text-sm">{totalCosto > 0 ? Math.round(totalCosto).toLocaleString('es-CL') : '-'}</td>
+                  <td colSpan={5} className="py-3 px-4 text-gray-800 text-sm">TOTAL: {filtrados.length} de {colaboradores.length}</td>
                   {esAdmin && <td />}
                 </tr>
               )}
@@ -539,18 +540,6 @@ export default function VistaColaboradores({ perfil }) {
               />
             </div>
 
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Costo Empresa <span className="text-gray-400 font-normal">(opcional)</span></label>
-              <input
-                type="number"
-                step="any"
-                value={formCrear.costo_empresa}
-                onChange={e => setFormCrear({ ...formCrear, costo_empresa: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Ej: 1500000"
-              />
-            </div>
-
             <div className="flex gap-3 justify-end">
               <button
                 onClick={() => setModalCrear(false)}
@@ -595,18 +584,6 @@ export default function VistaColaboradores({ perfil }) {
                 onChange={e => setFormEdit({ ...formEdit, rut: e.target.value })}
                 className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
                 placeholder="Ej: 12.345.678-9"
-              />
-            </div>
-
-            <div className="mb-6">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Costo Empresa</label>
-              <input
-                type="number"
-                step="any"
-                value={formEdit.costo_empresa}
-                onChange={e => setFormEdit({ ...formEdit, costo_empresa: e.target.value })}
-                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-orange-500"
-                placeholder="Ej: 1500000"
               />
             </div>
 

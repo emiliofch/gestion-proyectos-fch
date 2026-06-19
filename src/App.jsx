@@ -28,10 +28,12 @@ import VistaIngresoHHAdmin from './components/VistaIngresoHHAdmin'
 import VistaSeguimientoFinanciero from './components/VistaSeguimientoFinanciero'
 import VistaPresupuesto2026 from './components/VistaPresupuesto2026'
 import VistaHorasProyectadas from './components/VistaHorasProyectadas'
+import VistaConsolidado from './components/VistaConsolidado'
 import VistaColaboradoresCostos from './components/VistaColaboradoresCostos'
 import VistaFinancistas from './components/VistaFinancistas'
 import VistaRealAcumulado from './components/VistaRealAcumulado'
 import VistaHHAcumuladoReal from './components/VistaHHAcumuladoReal'
+import VistaPptoAcumulado from './components/VistaPptoAcumulado'
 
 const COLORS = ['#FF5100', '#10B981', '#3B82F6', '#EF4444', '#F59E0B', '#8B5CF6']
 const LOGO_URL = 'https://bisccrlqcixkaguspntw.supabase.co/storage/v1/object/public/public-assets/FCh50-Eslogan_blanco.png'
@@ -633,7 +635,7 @@ function App() {
         <div className="p-4 space-y-2">
 
           <div className="text-center pb-1">
-            <span className="text-xs text-gray-400 font-mono">v1.5.1</span>
+            <span className="text-xs text-gray-400 font-mono">v1.6.0</span>
           </div>
 
           {/* 1. Estimación de cierre (con submenú) */}
@@ -728,6 +730,13 @@ function App() {
                   🕐 Horas Proyectadas
                 </button>
                 <button
+                  onClick={() => { setVista('consolidado'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'consolidado' ? '#FF5100' : '#374151', backgroundColor: vista === 'consolidado' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📊 Consolidado HH
+                </button>
+                <button
                   onClick={() => { setVista('colaboradores-costos'); setMenuAbierto(false) }}
                   className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
                   style={{ color: vista === 'colaboradores-costos' ? '#FF5100' : '#374151', backgroundColor: vista === 'colaboradores-costos' ? '#FFF5F0' : 'transparent' }}
@@ -754,6 +763,13 @@ function App() {
                   style={{ color: vista === 'hh-acumulado-real' ? '#FF5100' : '#374151', backgroundColor: vista === 'hh-acumulado-real' ? '#FFF5F0' : 'transparent' }}
                 >
                   ⏱️ HH Acumulado Real
+                </button>
+                <button
+                  onClick={() => { setVista('ppto-acumulado'); setMenuAbierto(false) }}
+                  className="w-full text-left px-4 py-2 rounded-lg text-sm font-medium transition-all hover:bg-gray-100"
+                  style={{ color: vista === 'ppto-acumulado' ? '#FF5100' : '#374151', backgroundColor: vista === 'ppto-acumulado' ? '#FFF5F0' : 'transparent' }}
+                >
+                  📋 Presupuesto Acumulado
                 </button>
               </div>
             )}
@@ -952,6 +968,10 @@ function App() {
               <VistaHorasProyectadas />
             )}
 
+            {vista === 'consolidado' && (
+              <VistaConsolidado />
+            )}
+
             {vista === 'colaboradores-costos' && (
               <VistaColaboradoresCostos perfil={perfil} />
             )}
@@ -966,6 +986,10 @@ function App() {
 
             {vista === 'hh-acumulado-real' && (
               <VistaHHAcumuladoReal />
+            )}
+
+            {vista === 'ppto-acumulado' && (
+              <VistaPptoAcumulado />
             )}
 
 

@@ -9,10 +9,12 @@ import FilterableTh from './FilterableTh'
 import ResizableTh from './ResizableTh'
 import { CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 
+const FILAS_POR_PAGINA = 10
 const NOTAS_TIPO_OPERACIONAL = 'operacional'
 const NOTAS_TIPO_SENSIBILIDAD = 'sensibilidad'
-const DEFAULT_EXCEL_PATH = '/seguimiento_operacional.xlsx'
+const NOTAS_TIPO_HEATMAP = 'heatmap'
 const PRESUPUESTO_PATH = '/ppto2026.xlsx'
+const PPTO_FECHA_PATH = '/ppto_a_la_fecha.xlsx'
 const HH_PROYECTADAS_PATH = '/hh_proyectadas_2026.xlsx'
 const ESTADOS_PIPELINE = new Set(['Efectivo', 'No Efectivo'])
 const ESTADOS_SENSIBILIDAD = new Set(['Efectivo', 'Adjudicado', 'Cancelado', 'Meta'])
@@ -82,6 +84,25 @@ function formatPercent(value) {
   return `${(Number(value) * 100).toLocaleString('es-CL', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}%`
 }
 
+// Trae todas las filas de una tabla paginando de a 1000 (límite por defecto de Supabase).
+// Lanza el error para que el caller lo maneje; evita truncamiento silencioso en agregaciones.
+async function fetchAllRows(table, columns, orderColumn) {
+  const PAGE = 1000
+  let all = []
+  let from = 0
+  while (true) {
+    let query = supabase.from(table).select(columns).range(from, from + PAGE - 1)
+    if (orderColumn) query = query.order(orderColumn, { ascending: true })
+    const { data, error } = await query
+    if (error) throw error
+    if (!data?.length) break
+    all = all.concat(data)
+    if (data.length < PAGE) break
+    from += PAGE
+  }
+  return all
+}
+
 
 function buildPdfDateLabel() {
   return new Date().toLocaleString('es-CL', {
@@ -126,15 +147,17 @@ function buildEmptyMetrics() {
 
 export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [lineas, setLineas] = useState([])
-  const [dataByLinea, setDataByLinea] = useState({})
   const [notas, setNotas] = useState('')
   const [notasSens, setNotasSens] = useState('')
+  const [notasHeatmap, setNotasHeatmap] = useState('')
   const editorRef = useRef(null)
   const editorSensRef = useRef(null)
+  const editorHeatmapRef = useRef(null)
   const reporteRef = useRef(null)
+  const [exportandoPDF, setExportandoPDF] = useState(false)
   const [notasCargadas, setNotasCargadas] = useState(false)
   const [notasSensCargadas, setNotasSensCargadas] = useState(false)
-  const [autoLoaded, setAutoLoaded] = useState(false)
+  const [notasHeatmapCargadas, setNotasHeatmapCargadas] = useState(false)
   const [pipeline, setPipeline] = useState([])
   const [oportunidadesRaw, setOportunidadesRaw] = useState([])
   const [loadingPipeline, setLoadingPipeline] = useState(false)
@@ -150,14 +173,24 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const [allProyectos, setAllProyectos] = useState([])     // todos los proyectos sin filtro de nulos
   const [ingresoRealMap, setIngresoRealMap] = useState({}) // normalizeKey(nombre) → monto ingreso real
   const [gastoRealMap, setGastoRealMap] = useState({})     // normalizeKey(nombre) → monto gasto real
+  const [pptoFecha, setPptoFecha] = useState({})           // normalizeLinea(linea) → { ingresos, hh, gasto, margen }
+  const [pptoIngresoProyectoMap, setPptoIngresoProyectoMap] = useState({}) // normalizeKey(nombre) → ingreso presupuestado (presupuesto_acumulado)
+  const [busquedaDesv, setBusquedaDesv] = useState('')
+  const [filtrosDesv, setFiltrosDesv] = useState({})
+  const [dropdownDesv, setDropdownDesv] = useState(null)
+  const [ordenDesvCol, setOrdenDesvCol] = useState('diferencia')
+  const [ordenDesvDir, setOrdenDesvDir] = useState('desc')
+  const [paginaDesv, setPaginaDesv] = useState(0)
 
   useEffect(() => {
     cargarLineas()
     cargarPipeline()
     cargarPresupuestoLineas()
+    cargarPptoFecha()
     cargarHeatmapNoEfectivos()
     cargarHHProyectadas()
     cargarRealMaps()
+    cargarPptoProyecto()
   }, [])
 
   useEffect(() => {
@@ -183,6 +216,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
     cargarNotas(NOTAS_TIPO_OPERACIONAL, setNotas, setNotasCargadas)
     cargarNotas(NOTAS_TIPO_SENSIBILIDAD, setNotasSens, setNotasSensCargadas)
+    cargarNotas(NOTAS_TIPO_HEATMAP, setNotasHeatmap, setNotasHeatmapCargadas)
   }, [perfil?.empresa, user?.id])
 
   useEffect(() => {
@@ -238,11 +272,44 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   }, [notasSens, notasSensCargadas, perfil?.empresa])
 
   useEffect(() => {
+    if (!editorHeatmapRef.current) return
+    if (editorHeatmapRef.current.innerHTML !== notasHeatmap) {
+      editorHeatmapRef.current.innerHTML = notasHeatmap
+    }
+  }, [notasHeatmap])
+
+  useEffect(() => {
+    if (!notasHeatmapCargadas || !perfil?.empresa) return
+    const timeout = setTimeout(() => {
+      supabase
+        .from('seguimiento_financiero_notas')
+        .upsert({
+          empresa: perfil.empresa,
+          tipo: NOTAS_TIPO_HEATMAP,
+          contenido_html: notasHeatmap,
+        }, { onConflict: 'empresa,tipo' })
+        .then(({ error }) => {
+          if (error) toast.error('Error guardando notas: ' + error.message)
+        })
+    }, 700)
+    return () => clearTimeout(timeout)
+  }, [notasHeatmap, notasHeatmapCargadas, perfil?.empresa])
+
+  useEffect(() => {
     if (!dropdownPipeline) return
     function cerrar() { setDropdownPipeline(null) }
     document.addEventListener('click', cerrar)
     return () => document.removeEventListener('click', cerrar)
   }, [dropdownPipeline])
+
+  useEffect(() => {
+    if (!dropdownDesv) return
+    function cerrar() { setDropdownDesv(null) }
+    document.addEventListener('click', cerrar)
+    return () => document.removeEventListener('click', cerrar)
+  }, [dropdownDesv])
+
+  useEffect(() => { setPaginaDesv(0) }, [busquedaDesv, filtrosDesv, ordenDesvCol, ordenDesvDir])
 
   const lineasUnicas = useMemo(() => {
     const seen = new Set()
@@ -256,33 +323,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     return unique
   }, [lineas])
 
-  useEffect(() => {
-    if (!lineas.length || autoLoaded) return
-
-    async function cargarExcelLocal() {
-      try {
-        setDataByLinea({})
-        const response = await fetch(`${DEFAULT_EXCEL_PATH}?t=${Date.now()}`, { cache: 'no-store' })
-        if (!response.ok) return
-        const arrayBuffer = await response.arrayBuffer()
-        const workbook = XLSX.read(arrayBuffer, { type: 'array' })
-        const sheetName = workbook.SheetNames[0]
-        const worksheet = workbook.Sheets[sheetName]
-        const data = XLSX.utils.sheet_to_json(worksheet)
-        if (!data.length) return
-        const parsed = buildDataFromRows(data)
-        if (Object.keys(parsed).length > 0) {
-          setDataByLinea(parsed)
-        }
-      } catch (error) {
-        toast.error('Error leyendo seguimiento_operacional.xlsx: ' + error.message)
-      } finally {
-        setAutoLoaded(true)
-      }
-    }
-
-    cargarExcelLocal()
-  }, [autoLoaded, lineasUnicas])
 
   async function cargarLineas() {
     const { data, error } = await supabase.from('lineas').select('id, linea').order('linea', { ascending: true })
@@ -323,9 +363,12 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     }
 
     // Meses con data real bloquean TODO lo proyectado de ese mes
-    const { data: reales } = await supabase
-      .from('hh_acumulado_real')
-      .select('nombre_proyecto, mes, monto_hh_real')
+    let reales = []
+    try {
+      reales = await fetchAllRows('hh_acumulado_real', 'nombre_proyecto, mes, monto_hh_real')
+    } catch (error) {
+      toast.error('Error cargando HH real: ' + error.message)
+    }
     const mesesCubiertos = new Set()
     const acumProyecto = {}
     for (const r of reales || []) {
@@ -347,12 +390,14 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
   async function cargarPipeline() {
     setLoadingPipeline(true)
-    const { data, error } = await supabase
-      .from('proyectos')
-      .select('id, ingresos, gastos, fecha_adjudicacion, nombre, ceco, estado, colaboradores:jefe_id(colaborador)')
-      .order('nombre', { ascending: true })
-
-    if (error) {
+    let data = []
+    try {
+      data = await fetchAllRows(
+        'proyectos',
+        'id, ingresos, gastos, fecha_adjudicacion, nombre, ceco, estado, colaboradores:jefe_id(colaborador)',
+        'nombre'
+      )
+    } catch (error) {
       toast.error('Error cargando proyectos: ' + error.message)
       setPipeline([])
       setLoadingPipeline(false)
@@ -388,10 +433,17 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   }
 
   async function cargarRealMaps() {
-    const [{ data: ing }, { data: gasto }] = await Promise.all([
-      supabase.from('ingreso_real_acumulado').select('nombre, ingreso'),
-      supabase.from('gasto_real_acumulado').select('nombre, gasto'),
-    ])
+    let ing = []
+    let gasto = []
+    try {
+      [ing, gasto] = await Promise.all([
+        fetchAllRows('ingreso_real_acumulado', 'nombre, ingreso'),
+        fetchAllRows('gasto_real_acumulado', 'nombre, gasto'),
+      ])
+    } catch (error) {
+      toast.error('Error cargando montos reales: ' + error.message)
+      return
+    }
     const iMap = {}
     for (const r of ing || []) {
       const k = normalizeKey(r.nombre)
@@ -404,6 +456,22 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     }
     setIngresoRealMap(iMap)
     setGastoRealMap(gMap)
+  }
+
+  async function cargarPptoProyecto() {
+    let datos = []
+    try {
+      datos = await fetchAllRows('presupuesto_acumulado', 'nombre, ingreso')
+    } catch (error) {
+      toast.error('Error cargando presupuesto acumulado: ' + error.message)
+      return
+    }
+    const map = {}
+    for (const r of datos || []) {
+      const k = normalizeKey(r.nombre)
+      if (k) map[k] = (map[k] || 0) + (parseFloat(r.ingreso) || 0)
+    }
+    setPptoIngresoProyectoMap(map)
   }
 
   async function cargarPresupuestoLineas() {
@@ -444,23 +512,43 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     }
   }
 
+  async function cargarPptoFecha() {
+    try {
+      const response = await fetch(PPTO_FECHA_PATH)
+      if (!response.ok) return
+      const arrayBuffer = await response.arrayBuffer()
+      const workbook = XLSX.read(arrayBuffer, { type: 'array' })
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]]
+      const data = XLSX.utils.sheet_to_json(worksheet)
+      const result = {}
+      data.forEach((rawRow) => {
+        const norm = {}
+        Object.keys(rawRow || {}).forEach((k) => { norm[normalizeKey(k)] = rawRow[k] })
+        const linea = String(norm['linea'] || '').trim()
+        if (!linea) return
+        const key = normalizeLinea(linea)
+        result[key] = {
+          ingresos: parseNumber(norm['ingreso_ppto']) ?? null,
+          hh:       parseNumber(norm['gasto_hh_ppto']) ?? null,
+          gasto:    parseNumber(norm['gasto_op_ppto']) ?? null,
+          margen:   parseNumber(norm['margen_ppto']) ?? null,
+        }
+      })
+      setPptoFecha(result)
+    } catch (error) {
+      toast.error('Error leyendo ppto_a_la_fecha.xlsx: ' + error.message)
+    }
+  }
+
   async function cargarHeatmapNoEfectivos() {
     setLoadingHeatmap(true)
     try {
-      const { data: proyectos, error: projErr } = await supabase
-        .from('proyectos')
-        .select('nombre, estado')
-
-      if (projErr) {
-        toast.error('Error cargando proyectos: ' + projErr.message)
-        setHeatmapRows([])
-        return
-      }
+      const proyectos = await fetchAllRows('proyectos', 'nombre, estado')
 
       const proyectosNoEfectivo = new Set(
         (proyectos || [])
           .filter((p) => ESTADOS_HEATMAP.has(normalizarEstadoProyecto(p.estado)))
-          .map((p) => p.nombre)
+          .map((p) => normalizeKey(p.nombre))
       )
 
       if (proyectosNoEfectivo.size === 0) {
@@ -485,7 +573,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       const acumulado = {}
 
       for (const f of todas) {
-        if (!proyectosNoEfectivo.has(f.proyecto)) continue
+        if (!proyectosNoEfectivo.has(normalizeKey(f.proyecto))) continue
         const [parte, añoCorto] = (f.mes || '').split('-')
         const añoFull = parseInt(añoCorto || '0') + (parseInt(añoCorto || '0') < 100 ? 2000 : 0)
         if (añoFull !== añoActual) continue
@@ -553,6 +641,18 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     setNotasSens(editorSensRef.current.innerHTML)
   }
 
+  function aplicarComandoTextoHeatmap(comando, valor = null) {
+    if (!editorHeatmapRef.current) return
+    editorHeatmapRef.current.focus()
+    document.execCommand(comando, false, valor)
+    setNotasHeatmap(editorHeatmapRef.current.innerHTML)
+  }
+
+  function onEditorHeatmapInput() {
+    if (!editorHeatmapRef.current) return
+    setNotasHeatmap(editorHeatmapRef.current.innerHTML)
+  }
+
   function setFiltroPipeline(col, valor) {
     setFiltrosPipeline((prev) => ({ ...prev, [col]: valor }))
   }
@@ -595,31 +695,6 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
     }
   }
 
-  function buildDataFromRows(data) {
-    const lineasOrdenadas = lineasUnicas.map((linea) => linea.linea)
-    const nuevaData = {}
-
-    data.forEach((rawRow, index) => {
-      const payload = buildRowPayload(rawRow)
-      let lineaNombre = payload.linea
-
-      if (!lineaNombre && lineasOrdenadas[index]) {
-        lineaNombre = lineasOrdenadas[index]
-      }
-
-      if (!lineaNombre) return
-
-      const key = normalizeLinea(lineaNombre)
-      nuevaData[key] = {
-        linea: lineaNombre,
-        real: payload.real,
-        ppto: payload.ppto
-      }
-    })
-
-    return nuevaData
-  }
-
   const hhRealPorLinea = useMemo(() => {
     const result = {}
     for (const p of allProyectos) {
@@ -659,19 +734,19 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   const rows = useMemo(() => {
     return lineasUnicas.map((linea) => {
       const key = normalizeLinea(linea.linea)
-      const payload = dataByLinea[key] || buildEmptyMetrics()
+      const ingresos = ingresoRealPorLinea[key] ?? null
+      const hh      = hhRealPorLinea[key] ?? null
+      const gasto   = gastoRealPorLinea[key] ?? null
+      const margen  = (ingresos !== null || hh !== null || gasto !== null)
+        ? (ingresos || 0) - (hh || 0) - (gasto || 0)
+        : null
       return {
         linea: linea.linea,
-        real: {
-          ...payload.real,
-          ingresos: ingresoRealPorLinea[key] ?? null,
-          hh: hhRealPorLinea[key] ?? null,
-          gasto: gastoRealPorLinea[key] ?? null,
-        },
-        ppto: payload.ppto
+        real: { ingresos, hh, gasto, margen },
+        ppto: pptoFecha[key] ?? buildEmptyMetrics().ppto
       }
     })
-  }, [lineasUnicas, dataByLinea, hhRealPorLinea, ingresoRealPorLinea, gastoRealPorLinea])
+  }, [lineasUnicas, hhRealPorLinea, ingresoRealPorLinea, gastoRealPorLinea, pptoFecha])
 
   const totales = useMemo(() => {
     const total = buildEmptyMetrics()
@@ -832,6 +907,84 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       { ingresos: 0, hh: 0, gastos: 0, margen: 0 }
     )
   }, [pipelineOrdenado, costoPorProyecto])
+
+  const desviacionesIngreso = useMemo(() => {
+    return allProyectos
+      .filter((p) => p.nombre)
+      .map((p) => {
+        const key = normalizeKey(p.nombre)
+        const ingresoReal = ingresoRealMap[key] ?? null
+        const ingresoPpto = pptoIngresoProyectoMap[key] ?? null
+        return {
+          linea: p.ceco || '',
+          proyecto: p.nombre,
+          ingresoReal: ingresoReal || 0,
+          ingresoPpto: ingresoPpto || 0,
+          diferencia: (ingresoReal || 0) - (ingresoPpto || 0),
+          estado: normalizarEstadoProyecto(p.estado) || '',
+          fechaAdjudicacion: obtenerFechaAdjudicacion({ fecha_adjudicacion: p.fecha_adjudicacion, proyectos: { estado: p.estado, fecha_adjudicacion: p.fecha_adjudicacion } }) || '',
+          tieneDatos: ingresoReal !== null || ingresoPpto !== null,
+        }
+      })
+      .filter((r) => r.tieneDatos && r.diferencia !== 0)
+  }, [allProyectos, ingresoRealMap, pptoIngresoProyectoMap])
+
+  const opcionesDesv = useMemo(() => {
+    const opcionesPorCampo = (campo) => [...new Set(
+      desviacionesIngreso.map((r) => r[campo]).filter((v) => v !== null && v !== undefined && v !== '')
+    )].sort((a, b) => (typeof a === 'number' && typeof b === 'number') ? a - b : String(a).localeCompare(String(b), 'es'))
+    return {
+      linea: opcionesPorCampo('linea'),
+      proyecto: opcionesPorCampo('proyecto'),
+      ingresoReal: opcionesPorCampo('ingresoReal'),
+      ingresoPpto: opcionesPorCampo('ingresoPpto'),
+      diferencia: opcionesPorCampo('diferencia'),
+      estado: opcionesPorCampo('estado'),
+      fechaAdjudicacion: opcionesPorCampo('fechaAdjudicacion'),
+    }
+  }, [desviacionesIngreso])
+
+  function setFiltroDesv(col, valor) { setFiltrosDesv((prev) => ({ ...prev, [col]: valor })) }
+
+  function toggleOrdenDesv(col) {
+    if (ordenDesvCol === col) setOrdenDesvDir((d) => (d === 'asc' ? 'desc' : 'asc'))
+    else { setOrdenDesvCol(col); setOrdenDesvDir('asc') }
+  }
+
+  const desviacionesFiltradas = useMemo(() => {
+    let result = desviacionesIngreso.filter((r) => {
+      const q = busquedaDesv.toLowerCase()
+      const matchBusqueda = !q || r.proyecto.toLowerCase().includes(q) || r.linea.toLowerCase().includes(q)
+      const matchLinea = !filtrosDesv.linea?.length || filtrosDesv.linea.includes(r.linea)
+      const matchProyecto = !filtrosDesv.proyecto?.length || filtrosDesv.proyecto.includes(r.proyecto)
+      const matchIngresoReal = !filtrosDesv.ingresoReal?.length || filtrosDesv.ingresoReal.includes(r.ingresoReal)
+      const matchIngresoPpto = !filtrosDesv.ingresoPpto?.length || filtrosDesv.ingresoPpto.includes(r.ingresoPpto)
+      const matchDiferencia = !filtrosDesv.diferencia?.length || filtrosDesv.diferencia.includes(r.diferencia)
+      const matchEstado = !filtrosDesv.estado?.length || filtrosDesv.estado.includes(r.estado)
+      const matchFechaAdjudicacion = !filtrosDesv.fechaAdjudicacion?.length || filtrosDesv.fechaAdjudicacion.includes(r.fechaAdjudicacion)
+      return matchBusqueda && matchLinea && matchProyecto && matchIngresoReal && matchIngresoPpto && matchDiferencia && matchEstado && matchFechaAdjudicacion
+    })
+    if (ordenDesvCol) {
+      const numCols = ['ingresoReal', 'ingresoPpto', 'diferencia']
+      result = [...result].sort((a, b) => {
+        if (numCols.includes(ordenDesvCol)) {
+          const vA = a[ordenDesvCol] ?? 0
+          const vB = b[ordenDesvCol] ?? 0
+          return ordenDesvDir === 'asc' ? vA - vB : vB - vA
+        }
+        const vA = String(a[ordenDesvCol] || '').toLowerCase()
+        const vB = String(b[ordenDesvCol] || '').toLowerCase()
+        return ordenDesvDir === 'asc' ? vA.localeCompare(vB, 'es') : vB.localeCompare(vA, 'es')
+      })
+    }
+    return result
+  }, [desviacionesIngreso, busquedaDesv, filtrosDesv, ordenDesvCol, ordenDesvDir])
+
+  const totalesDesv = useMemo(() => ({
+    ingresoReal: desviacionesFiltradas.reduce((a, r) => a + r.ingresoReal, 0),
+    ingresoPpto: desviacionesFiltradas.reduce((a, r) => a + r.ingresoPpto, 0),
+    diferencia: desviacionesFiltradas.reduce((a, r) => a + r.diferencia, 0),
+  }), [desviacionesFiltradas])
 
   // HH por línea = suma de costoPorProyecto de todos los proyectos de esa línea
   // Mismo dato que muestra la tabla de proyectos, agregado por ceco
@@ -1070,7 +1223,11 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
   async function exportarReportePDF() {
     if (!reporteRef.current) return
 
+    setExportandoPDF(true)
     try {
+      // Esperar a que React pinte la tabla completa (sin paginar) antes de medir/capturar
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+
       const { default: html2canvas } = await import('html2canvas')
       const doc = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'a4' })
       const fechaGeneracion = buildPdfDateLabel()
@@ -1112,7 +1269,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
 
       const canvas = await html2canvas(container, {
         backgroundColor: '#ffffff',
-        scale: 1,
+        scale: 2,
         useCORS: true,
         logging: false,
         ignoreElements: (el) => el?.dataset?.pdfIgnore === 'true',
@@ -1188,7 +1345,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           canvas, 0, rendered, canvas.width, sliceH, 0, 0, canvas.width, sliceH
         )
         const slicePt = sliceH * printableWidth / canvas.width
-        doc.addImage(sliceCanvas.toDataURL('image/jpeg', 0.85), 'JPEG', margin, curY, printableWidth, slicePt)
+        doc.addImage(sliceCanvas.toDataURL('image/jpeg', 0.8), 'JPEG', margin, curY, printableWidth, slicePt)
 
         rendered += sliceH
       }
@@ -1196,6 +1353,8 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
       doc.save(`seguimiento_financiero_${buildPdfFileTimestamp()}.pdf`)
     } catch (error) {
       toast.error('Error exportando PDF: ' + error.message)
+    } finally {
+      setExportandoPDF(false)
     }
   }
 
@@ -1220,7 +1379,7 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
           <div className="relative group">
             <span className="inline-flex items-center justify-center w-5 h-5 rounded-full border border-gray-400 text-gray-600 text-xs font-bold cursor-default">?</span>
             <div className="absolute left-1/2 -translate-x-1/2 mt-2 w-96 rounded-md bg-gray-800 text-white text-xs p-2 opacity-0 group-hover:opacity-100 pointer-events-none transition-opacity z-50">
-              Se carga desde /public/seguimiento_operacional.xlsx. Columnas: linea, ing_real, hh_real, ggoo_real, mg_real, ing_ppto, hh_ppto, ggoo_ppto, mg_ppto. Si falta la linea, se usa el orden de la tabla Lineas.
+              Real: Ing/HH/Gasto desde Supabase agrupados por línea. Mg = Ing - HH - Gasto. Ppto: desde /public/ppto_a_la_fecha.xlsx.
             </div>
           </div>
         </div>
@@ -1373,6 +1532,108 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
             className="w-full min-h-[160px] resize-y rounded-lg border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
           />
         </div>
+      </section>
+
+      <section className="bg-white rounded-xl shadow-lg p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+          <h3 className="text-lg font-bold text-gray-800">Desviaciones de Ingresos por Proyecto</h3>
+          <input
+            type="text"
+            placeholder="Buscar proyecto o línea..."
+            value={busquedaDesv}
+            onChange={(e) => setBusquedaDesv(e.target.value)}
+            className="px-4 py-2 rounded-lg bg-gray-100 border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500"
+          />
+        </div>
+
+        {desviacionesFiltradas.length === 0 ? (
+          <div className="text-center py-8 text-gray-500">No hay datos de ingreso real ni presupuestado por proyecto.</div>
+        ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="border-b-2 border-gray-300" style={{ backgroundColor: '#FFF5F0' }}>
+                    <FilterableTh col="linea" label="Línea" align="left" style={{ width: '160px' }}
+                      opciones={opcionesDesv.linea} filtro={filtrosDesv.linea || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'linea'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'linea'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="proyecto" label="Proyecto" align="left"
+                      opciones={opcionesDesv.proyecto} filtro={filtrosDesv.proyecto || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'proyecto'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'proyecto'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="ingresoReal" label="Ingreso Real" align="right" style={{ width: '140px' }}
+                      opciones={opcionesDesv.ingresoReal} filtro={filtrosDesv.ingresoReal || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'ingresoReal'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'ingresoReal'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="ingresoPpto" label="Ingreso Presupuestado" align="right" style={{ width: '160px' }}
+                      opciones={opcionesDesv.ingresoPpto} filtro={filtrosDesv.ingresoPpto || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'ingresoPpto'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'ingresoPpto'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="diferencia" label="Diferencia" align="right" style={{ width: '140px' }}
+                      opciones={opcionesDesv.diferencia} filtro={filtrosDesv.diferencia || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'diferencia'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'diferencia'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="estado" label="Estado" align="center" style={{ width: '130px' }}
+                      opciones={opcionesDesv.estado} filtro={filtrosDesv.estado || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'estado'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'estado'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                    <FilterableTh col="fechaAdjudicacion" label="Fecha de adjudicación" align="center" style={{ width: '170px' }}
+                      opciones={opcionesDesv.fechaAdjudicacion} filtro={filtrosDesv.fechaAdjudicacion || []}
+                      onFiltro={setFiltroDesv} dropdownAbierto={dropdownDesv === 'fechaAdjudicacion'} onToggleDropdown={setDropdownDesv}
+                      sortable ordenActiva={ordenDesvCol === 'fechaAdjudicacion'} ordenDir={ordenDesvDir} onOrdenar={toggleOrdenDesv} />
+                  </tr>
+                </thead>
+                <tbody>
+                  {(exportandoPDF
+                    ? desviacionesFiltradas
+                    : desviacionesFiltradas.slice(paginaDesv * FILAS_POR_PAGINA, (paginaDesv + 1) * FILAS_POR_PAGINA))
+                    .map((r, i) => (
+                      <tr key={`${r.proyecto}-${i}`} className="border-b border-gray-200 hover:bg-gray-50 transition-all">
+                        <td className="py-3 px-4 text-gray-600 text-sm max-w-[180px] truncate" title={r.linea}>
+                          {r.linea || <span className="text-gray-400 italic">-</span>}
+                        </td>
+                        <td className="py-3 px-4 text-gray-800 font-medium text-sm">{r.proyecto}</td>
+                        <td className="py-3 px-4 text-right">{formatNumber(r.ingresoReal)}</td>
+                        <td className="py-3 px-4 text-right">{formatNumber(r.ingresoPpto)}</td>
+                        <td className={`py-3 px-4 text-right font-bold ${r.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                          {formatNumber(r.diferencia)}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          {r.estado || <span className="text-gray-400 italic">-</span>}
+                        </td>
+                        <td className="py-3 px-4 text-center text-sm">
+                          {r.fechaAdjudicacion || '-'}
+                        </td>
+                      </tr>
+                    ))}
+                  <tr className="border-t-2 border-gray-400 font-bold" style={{ backgroundColor: '#FFF5F0' }}>
+                    <td colSpan={2} className="py-3 px-4 text-gray-800">TOTAL ({desviacionesFiltradas.length})</td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesDesv.ingresoReal)}</td>
+                    <td className="py-3 px-4 text-right">{formatNumber(totalesDesv.ingresoPpto)}</td>
+                    <td className={`py-3 px-4 text-right ${totalesDesv.diferencia >= 0 ? 'text-green-600' : 'text-red-600'}`}>
+                      {formatNumber(totalesDesv.diferencia)}
+                    </td>
+                    <td className="py-3 px-4"></td>
+                    <td className="py-3 px-4"></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            {desviacionesFiltradas.length > FILAS_POR_PAGINA && (
+              <div data-pdf-ignore="true" className="flex justify-between items-center py-2 text-sm text-gray-600">
+                <span>{paginaDesv * FILAS_POR_PAGINA + 1}–{Math.min((paginaDesv + 1) * FILAS_POR_PAGINA, desviacionesFiltradas.length)} de {desviacionesFiltradas.length}</span>
+                <div className="flex gap-2">
+                  <button onClick={() => setPaginaDesv((p) => Math.max(0, p - 1))} disabled={paginaDesv === 0}
+                    className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">← Anterior</button>
+                  <button onClick={() => setPaginaDesv((p) => p + 1)} disabled={(paginaDesv + 1) * FILAS_POR_PAGINA >= desviacionesFiltradas.length}
+                    className="px-3 py-1 rounded border border-gray-300 disabled:opacity-40 hover:bg-gray-100">Siguiente →</button>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </section>
 
       <section className="bg-white rounded-xl shadow-lg p-6">
@@ -1910,6 +2171,39 @@ export default function VistaSeguimientoFinanciero({ user, perfil }) {
             </table>
           </div>
         )}
+      </section>
+
+      <section className="bg-white rounded-xl shadow-lg p-6">
+        <h3 className="text-lg font-bold text-gray-800 mb-4">Observaciones</h3>
+        <div className="flex flex-wrap items-center gap-2 mb-2 text-xs">
+          <button type="button" onClick={() => aplicarComandoTextoHeatmap('bold')} className="px-2 py-1 rounded text-white" style={{ backgroundColor: '#00334A' }}>Negrita</button>
+          <button type="button" onClick={() => aplicarComandoTextoHeatmap('italic')} className="px-2 py-1 rounded text-white" style={{ backgroundColor: '#009ADE' }}>Italica</button>
+          <button type="button" onClick={() => aplicarComandoTextoHeatmap('underline')} className="px-2 py-1 rounded text-white" style={{ backgroundColor: '#86C300' }}>Subrayado</button>
+          <select
+            className="px-2 py-1 border border-gray-300 rounded bg-white"
+            onChange={(e) => aplicarComandoTextoHeatmap('fontSize', e.target.value)}
+            defaultValue=""
+          >
+            <option value="" disabled>Tamano</option>
+            <option value="2">Pequeno</option>
+            <option value="3">Normal</option>
+            <option value="4">Medio</option>
+            <option value="5">Grande</option>
+          </select>
+          <input
+            type="color"
+            aria-label="Color"
+            onChange={(e) => aplicarComandoTextoHeatmap('foreColor', e.target.value)}
+            className="h-8 w-10 border border-gray-300 rounded"
+          />
+        </div>
+        <div
+          ref={editorHeatmapRef}
+          contentEditable
+          suppressContentEditableWarning
+          onInput={onEditorHeatmapInput}
+          className="w-full min-h-[160px] resize-y rounded-lg border border-gray-300 p-3 focus:outline-none focus:ring-2 focus:ring-orange-400 bg-white"
+        />
       </section>
 
     </div>
