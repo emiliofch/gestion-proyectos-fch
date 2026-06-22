@@ -225,7 +225,15 @@ export default function VistaProyectosBase({ user, perfil }) {
 
     // Meses con data real: cualquier mes en hh_acumulado_real bloquea TODO lo proyectado
     // de ese mes, sin importar el nombre del proyecto
-    const { data: reales } = await supabase.from('hh_acumulado_real').select('nombre_proyecto, mes, monto_hh_real')
+    let reales = [], rfrom = 0
+    while (true) {
+      const { data, error } = await supabase.from('hh_acumulado_real').select('nombre_proyecto, mes, monto_hh_real').range(rfrom, rfrom + PAGE - 1)
+      if (error) { console.error('Error cargando hh_acumulado_real:', error); break }
+      if (!data?.length) break
+      reales = [...reales, ...data]
+      if (data.length < PAGE) break
+      rfrom += PAGE
+    }
     const costosReales = {}      // pKey → suma monto real
     const mesesCubiertos = new Set() // meses que tienen data real (ej: "ene-26")
     for (const r of reales || []) {
@@ -256,10 +264,19 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function cargarIngresoReal() {
-    const { data } = await supabase.from('ingreso_real_acumulado').select('nombre, ingreso')
+    const PAGE = 1000
+    let data = [], from = 0
+    while (true) {
+      const { data: page, error } = await supabase.from('ingreso_real_acumulado').select('nombre, ingreso').range(from, from + PAGE - 1)
+      if (error) { console.error('Error cargando ingreso_real_acumulado:', error); break }
+      if (!page?.length) break
+      data = [...data, ...page]
+      if (page.length < PAGE) break
+      from += PAGE
+    }
     const set = new Set()
     const map = {}
-    for (const r of data || []) {
+    for (const r of data) {
       const k = normalizar(r.nombre)
       if (!k) continue
       set.add(k)
@@ -270,9 +287,18 @@ export default function VistaProyectosBase({ user, perfil }) {
   }
 
   async function cargarGastoReal() {
-    const { data } = await supabase.from('gasto_real_acumulado').select('nombre, gasto')
+    const PAGE = 1000
+    let data = [], from = 0
+    while (true) {
+      const { data: page, error } = await supabase.from('gasto_real_acumulado').select('nombre, gasto').range(from, from + PAGE - 1)
+      if (error) { console.error('Error cargando gasto_real_acumulado:', error); break }
+      if (!page?.length) break
+      data = [...data, ...page]
+      if (page.length < PAGE) break
+      from += PAGE
+    }
     const map = {}
-    for (const r of data || []) {
+    for (const r of data) {
       const k = normalizar(r.nombre)
       if (!k) continue
       map[k] = (map[k] || 0) + (parseFloat(r.gasto) || 0)

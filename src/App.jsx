@@ -635,7 +635,7 @@ function App() {
         <div className="p-4 space-y-2">
 
           <div className="text-center pb-1">
-            <span className="text-xs text-gray-400 font-mono">v1.6.1</span>
+            <span className="text-xs text-gray-400 font-mono">v1.6.2</span>
           </div>
 
           {/* 1. Estimación de cierre (con submenú) */}
