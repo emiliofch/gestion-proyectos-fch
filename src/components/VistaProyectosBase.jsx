@@ -938,11 +938,11 @@ export default function VistaProyectosBase({ user, perfil }) {
     const margen = (ingReal + ing) - hh - (gastoReal + gastos)
     const tieneFinanciero = ingReal > 0 || ing > 0 || hh > 0 || gastoReal > 0 || gastos > 0
     const fmtIngReal = ingReal > 0 ? fmt(ingReal) : FILTRO_VACIO
-    const fmtIng = ing > 0 ? fmt(ing) : FILTRO_VACIO
+    const fmtIng = ing !== 0 ? fmt(ing) : FILTRO_VACIO
     const fmtTotalIngresos = (ingReal + ing) > 0 ? fmt(ingReal + ing) : FILTRO_VACIO
     const fmtHH = hh > 0 ? fmt(hh) : FILTRO_VACIO
     const fmtGgooReal = gastoReal > 0 ? fmt(gastoReal) : FILTRO_VACIO
-    const fmtGastos = gastos > 0 ? fmt(gastos) : FILTRO_VACIO
+    const fmtGastos = gastos !== 0 ? fmt(gastos) : FILTRO_VACIO
     const fmtTotalGgoo = (gastoReal + gastos) > 0 ? fmt(gastoReal + gastos) : FILTRO_VACIO
     const fmtMargen = tieneFinanciero ? fmt(margen) : FILTRO_VACIO
     const hpTxt = proyEnHP.has(normalizar(p.nombre)) ? 'Sí' : 'No'
@@ -992,11 +992,11 @@ export default function VistaProyectosBase({ user, perfil }) {
   )
   const opcionesCeco = opcionesPorColumna('ceco', p => p.ceco_codigo)
   const opcionesIngReal = opcionesPorColumna('ingReal', p => { const v = ingresoRealMap[normalizar(p.nombre)] || 0; return v > 0 ? fmt(v) : FILTRO_VACIO })
-  const opcionesIngresos = opcionesPorColumna('ingresos', p => (parseFloat(p.ingresos) || 0) > 0 ? fmt(parseFloat(p.ingresos)) : FILTRO_VACIO)
+  const opcionesIngresos = opcionesPorColumna('ingresos', p => (parseFloat(p.ingresos) || 0) !== 0 ? fmt(parseFloat(p.ingresos)) : FILTRO_VACIO)
   const opcionesTotalIngresos = opcionesPorColumna('totalIngresos', p => { const v = (ingresoRealMap[normalizar(p.nombre)] || 0) + (parseFloat(p.ingresos) || 0); return v > 0 ? fmt(v) : FILTRO_VACIO })
   const opcionesHH = opcionesPorColumna('hh', p => { const h = costoPorProyecto[normalizar(p.nombre)] || 0; return h > 0 ? fmt(h) : FILTRO_VACIO })
   const opcionesGgooReal = opcionesPorColumna('ggooReal', p => { const v = gastoRealMap[normalizar(p.nombre)] || 0; return v > 0 ? fmt(v) : FILTRO_VACIO })
-  const opcionesGastos = opcionesPorColumna('gastos', p => (parseFloat(p.gastos) || 0) > 0 ? fmt(parseFloat(p.gastos)) : FILTRO_VACIO)
+  const opcionesGastos = opcionesPorColumna('gastos', p => (parseFloat(p.gastos) || 0) !== 0 ? fmt(parseFloat(p.gastos)) : FILTRO_VACIO)
   const opcionesTotalGgoo = opcionesPorColumna('totalGgoo', p => { const v = (gastoRealMap[normalizar(p.nombre)] || 0) + (parseFloat(p.gastos) || 0); return v > 0 ? fmt(v) : FILTRO_VACIO })
   const opcionesMargen = opcionesPorColumna('margen', p => {
     const h = costoPorProyecto[normalizar(p.nombre)] || 0
@@ -1471,8 +1471,8 @@ export default function VistaProyectosBase({ user, perfil }) {
                       onClick={() => abrirModalEdicionFin(p, 'ingresos')}
                       title="Click para editar Por Ingresar"
                     >
-                      {ing > 0
-                        ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(ing)}</span>
+                      {ing !== 0
+                        ? <span className={`font-medium group-hover:text-orange-600 ${ing < 0 ? 'text-red-600' : 'text-gray-800'}`}>{fmt(ing)}</span>
                         : <span className="text-gray-300 group-hover:text-orange-400">—</span>
                       }
                     </td>
@@ -1491,8 +1491,8 @@ export default function VistaProyectosBase({ user, perfil }) {
                       onClick={() => abrirModalEdicionFin(p, 'gastos')}
                       title="Click para editar Por Gastar"
                     >
-                      {gastos > 0
-                        ? <span className="font-medium text-gray-800 group-hover:text-orange-600">{fmt(gastos)}</span>
+                      {gastos !== 0
+                        ? <span className={`font-medium group-hover:text-orange-600 ${gastos < 0 ? 'text-red-600' : 'text-gray-800'}`}>{fmt(gastos)}</span>
                         : <span className="text-gray-300 group-hover:text-orange-400">—</span>
                       }
                     </td>

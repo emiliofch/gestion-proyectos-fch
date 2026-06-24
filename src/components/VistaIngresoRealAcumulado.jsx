@@ -4,6 +4,7 @@ import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
 import FilterableTh from './FilterableTh'
 import ResizableTh from './ResizableTh'
+import { aplicarTraspaso, recuperarCrudos } from '../utils/traspasoMargen'
 
 const FILAS_POR_PAGINA = 10
 
@@ -164,7 +165,7 @@ export default function VistaIngresoRealAcumulado() {
       if (k) newMap[k] = (newMap[k] || 0) + (parseFloat(r.ingreso) || 0)
     }
 
-    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, ingresos')
+    const { data: proyData } = await supabase.from('proyectos').select('id, nombre, ingresos, gastos, traspaso_margen')
     const proyMap = {}
     for (const p of proyData || []) {
       const k = normalizeKey(p.nombre)
@@ -180,22 +181,37 @@ export default function VistaIngresoRealAcumulado() {
       if (delta === 0) continue
 
       const proy = proyMap[k]
-      const oldPorIngresar = proy ? (parseFloat(proy.ingresos) || 0) : null
-      const newPorIngresar = proy ? oldPorIngresar - delta : null
       const nombreDisplay = parsed.find(r => normalizeKey(r.nombre) === k)?.nombre
         || (oldData || []).find(r => normalizeKey(r.nombre) === k)?.nombre
         || k
 
+      if (!proy) {
+        ajustes.push({
+          nombre: nombreDisplay, proyectoNombre: null, proyectoId: null,
+          oldReal, newReal, delta,
+          oldPorIngresar: null, newPorIngresar: null,
+          oldPorGastar: null, newPorGastar: null, traspaso: 0,
+          sinMatch: true,
+        })
+        continue
+      }
+
+      // Deshago el traslado previo, aplico el delta del real al lado de ingreso,
+      // y recalculo el traslado para que ningún lado quede negativo (margen intacto).
+      const oldPorIngresar = parseFloat(proy.ingresos) || 0
+      const oldPorGastar = parseFloat(proy.gastos) || 0
+      const { rawIngresar, rawGastar } = recuperarCrudos(oldPorIngresar, oldPorGastar, parseFloat(proy.traspaso_margen) || 0)
+      const { porIngresar, porGastar, traspaso } = aplicarTraspaso(rawIngresar - delta, rawGastar)
+
       ajustes.push({
         nombre: nombreDisplay,
-        proyectoNombre: proy?.nombre || null,
-        proyectoId: proy?.id || null,
-        oldReal,
-        newReal,
-        delta,
-        oldPorIngresar,
-        newPorIngresar,
-        sinMatch: !proy,
+        proyectoNombre: proy.nombre,
+        proyectoId: proy.id,
+        oldReal, newReal, delta,
+        oldPorIngresar, newPorIngresar: porIngresar,
+        oldPorGastar, newPorGastar: porGastar,
+        traspaso,
+        sinMatch: false,
       })
     }
 
@@ -217,7 +233,11 @@ export default function VistaIngresoRealAcumulado() {
 
     const conMatch = ajustes.filter(a => !a.sinMatch)
     for (const a of conMatch) {
-      const { error } = await supabase.from('proyectos').update({ ingresos: a.newPorIngresar }).eq('id', a.proyectoId)
+      const { error } = await supabase.from('proyectos').update({
+        ingresos: a.newPorIngresar,
+        gastos: a.newPorGastar,
+        traspaso_margen: a.traspaso,
+      }).eq('id', a.proyectoId)
       if (error) toast.error(`Error ajustando ${a.proyectoNombre}: ${error.message}`)
     }
 
@@ -279,7 +299,7 @@ export default function VistaIngresoRealAcumulado() {
   const totalIngreso = filasFiltradas.reduce((a, r) => a + (r.ingreso || 0), 0)
   const filasEnPagina = filasFiltradas.slice(pagina * FILAS_POR_PAGINA, (pagina + 1) * FILAS_POR_PAGINA)
 
-  const hayNegativos = pendienteImportacion?.ajustes.some(a => !a.sinMatch && a.newPorIngresar < 0)
+  const hayTraslados = pendienteImportacion?.ajustes.some(a => !a.sinMatch && a.traspaso !== 0)
   const haySinMatch = pendienteImportacion?.ajustes.some(a => a.sinMatch)
 
   return (
@@ -291,7 +311,7 @@ export default function VistaIngresoRealAcumulado() {
             <div className="p-5 border-b border-gray-200">
               <h3 className="text-lg font-bold text-gray-800">Confirmar ajuste de "Por Ingresar"</h3>
               <p className="text-sm text-gray-500 mt-1">
-                Al confirmar, el campo <strong>Por Ingresar</strong> de cada proyecto se ajustará automáticamente para mantener el <strong>Total Ingresos constante</strong>.
+                Al confirmar se ajusta <strong>Por Ingresar</strong> de cada proyecto. Si quedara negativo, el monto se <strong>traslada a "Por Gastar"</strong> como positivo para que el <strong>margen no cambie</strong>.
               </p>
             </div>
 
@@ -310,9 +330,9 @@ export default function VistaIngresoRealAcumulado() {
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real anterior</th>
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Real nuevo</th>
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Δ</th>
-                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar actual</th>
                         <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Ingresar nuevo</th>
-                        <th className="px-3 py-2 text-center text-gray-600 font-semibold w-20"></th>
+                        <th className="px-3 py-2 text-right text-gray-600 font-semibold">Por Gastar nuevo</th>
+                        <th className="px-3 py-2 text-center text-gray-600 font-semibold w-40">Traslado</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -328,17 +348,17 @@ export default function VistaIngresoRealAcumulado() {
                           <td className={`px-3 py-2 text-right font-semibold ${a.delta > 0 ? 'text-green-700' : 'text-red-600'}`}>
                             {fmtDelta(a.delta)}
                           </td>
-                          <td className="px-3 py-2 text-right text-gray-500">
-                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.oldPorIngresar)}
-                          </td>
-                          <td className={`px-3 py-2 text-right font-semibold ${!a.sinMatch && a.newPorIngresar < 0 ? 'text-red-600' : 'text-gray-800'}`}>
+                          <td className="px-3 py-2 text-right font-medium text-gray-800">
                             {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.newPorIngresar)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-medium text-gray-800">
+                            {a.sinMatch ? <span className="text-gray-300">—</span> : fmtM(a.newPorGastar)}
                           </td>
                           <td className="px-3 py-2 text-center">
                             {a.sinMatch
                               ? <span className="text-orange-500 font-medium">Sin match</span>
-                              : a.newPorIngresar < 0
-                                ? <span className="text-red-500">⚠ negativo</span>
+                              : a.traspaso !== 0
+                                ? <span className="text-blue-600 font-medium" title={a.traspaso > 0 ? 'El negativo venía de Por Ingresar' : 'El negativo venía de Por Gastar'}>↔ {fmtM(Math.abs(a.traspaso))} {a.traspaso > 0 ? 'a Por Gastar' : 'a Por Ingresar'}</span>
                                 : <span className="text-green-600">✓</span>
                             }
                           </td>
@@ -347,9 +367,9 @@ export default function VistaIngresoRealAcumulado() {
                     </tbody>
                   </table>
 
-                  {hayNegativos && (
-                    <p className="mt-3 text-xs text-red-700 bg-red-50 border border-red-200 rounded p-2">
-                      ⚠ Algunos proyectos quedarán con "Por Ingresar" negativo: el ingreso real ya superó el estimado. Puedes confirmar igual o corregir manualmente después.
+                  {hayTraslados && (
+                    <p className="mt-3 text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded p-2">
+                      ↔ En algunos proyectos el ingreso real superó el estimado: el excedente se traslada a "Por Gastar" como positivo para no dejar negativos. El margen no cambia.
                     </p>
                   )}
                   {haySinMatch && (

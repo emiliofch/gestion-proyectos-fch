@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
+import { toast } from 'react-toastify'
 import { supabase } from '../supabaseClient'
 import FilterableTh from './FilterableTh'
 
@@ -21,9 +22,15 @@ export default function VistaConsolidado() {
   const [filas, setFilas] = useState([])
   const [loading, setLoading] = useState(true)
   const [proyectosLinea, setProyectosLinea] = useState({})
+  const [proyectoInfoMap, setProyectoInfoMap] = useState({}) // normProy → { id, nombre }
   const [colaboradoresCosto, setColaboradoresCosto] = useState({})
   const [colaboradoresRut, setColaboradoresRut] = useState({})
   const [añoValidator, setAñoValidator] = useState(new Date().getFullYear())
+
+  // Edición inline de lo proyectado (tabla "Horas por colaborador y proyecto")
+  const [editando, setEditando] = useState(null) // `${colab}|||${proy}|${mes}`
+  const [valorEdit, setValorEdit] = useState('')
+  const cancelarEdicion = useRef(false)
 
   // Real data maps
   const [horasRealesColabMap, setHorasRealesColabMap] = useState({})       // { normColab → { mes → monto } }
@@ -123,8 +130,13 @@ export default function VistaConsolidado() {
     for (const c of (cols || [])) rutMap[normalize(c.colaborador)] = c.rut || ''
     setColaboradoresRut(rutMap)
     const lineasMap = {}
-    for (const p of (proyectos || [])) lineasMap[normalize(p.nombre)] = p.ceco || ''
+    const infoMap = {}
+    for (const p of (proyectos || [])) {
+      lineasMap[normalize(p.nombre)] = p.ceco || ''
+      infoMap[normalize(p.nombre)] = { id: p.id, nombre: p.nombre }
+    }
     setProyectosLinea(lineasMap)
+    setProyectoInfoMap(infoMap)
 
     const PAGE = 1000
     let costos = [], from = 0
@@ -361,6 +373,63 @@ export default function VistaConsolidado() {
     const h = row[mes] || 0
     const costo = colaboradoresCosto[normalize(row.colaborador)]?.[`${mes}-${año2d}`] || 0
     return h * costo
+  }
+
+  // ── Edición inline de horas proyectadas ──
+  // Solo aplica a meses NO cubiertos por datos reales. Escribe en horas_proyectadas:
+  // si existe el registro (colaborador, proyecto, mes) lo actualiza; si no, lo crea.
+  async function guardarProyectado(row, mes) {
+    if (cancelarEdicion.current) { cancelarEdicion.current = false; setEditando(null); return }
+    const mesKey = `${mes}-${año2d}`
+    const nuevoValor = parseFloat((valorEdit || '').replace(',', '.')) || 0
+    const normC = normalize(row.colaborador)
+    const normP = normalize(row.proyecto)
+    const existentes = filas.filter(f =>
+      normalize(f.colaborador) === normC &&
+      normalize(f.proyecto) === normP &&
+      f.mes === mesKey
+    )
+    const actual = existentes.reduce((s, f) => s + (parseFloat(f.horas) || 0), 0)
+    if (nuevoValor === actual) { setEditando(null); return }
+
+    if (existentes.length > 1) {
+      const ok = window.confirm(
+        `Hay ${existentes.length} registros para ${row.colaborador} · ${row.proyecto} en este mes.\n\n` +
+        `Se consolidarán en uno solo con valor ${nuevoValor} y se eliminarán los ${existentes.length - 1} restantes. ¿Continuar?`
+      )
+      if (!ok) { setEditando(null); return }
+      const [principal, ...resto] = existentes
+      const idsBorrar = resto.map(f => f.id)
+      const { error: errUpd } = await supabase.from('horas_proyectadas').update({ horas: nuevoValor }).eq('id', principal.id)
+      if (errUpd) { toast.error('Error al consolidar: ' + errUpd.message); return }
+      const { error: errDel } = await supabase.from('horas_proyectadas').delete().in('id', idsBorrar)
+      if (errDel) { toast.error('Error al eliminar duplicados: ' + errDel.message); return }
+      setFilas(prev => prev
+        .filter(f => !idsBorrar.includes(f.id))
+        .map(f => f.id === principal.id ? { ...f, horas: nuevoValor } : f))
+      toast.success(`Consolidado: ${existentes.length} registros → 1`)
+      setEditando(null)
+      return
+    }
+
+    if (existentes.length === 1) {
+      const id = existentes[0].id
+      const { error } = await supabase.from('horas_proyectadas').update({ horas: nuevoValor }).eq('id', id)
+      if (error) { toast.error('Error al guardar: ' + error.message); return }
+      setFilas(prev => prev.map(f => f.id === id ? { ...f, horas: nuevoValor } : f))
+    } else {
+      const info = proyectoInfoMap[normP]
+      if (!info) { toast.error('No se encontró el proyecto para crear la asignación.'); setEditando(null); return }
+      const { data, error } = await supabase
+        .from('horas_proyectadas')
+        .insert({ colaborador: row.colaborador, proyecto_id: info.id, proyecto: info.nombre, mes: mesKey, horas: nuevoValor })
+        .select()
+        .single()
+      if (error) { toast.error('Error al crear: ' + error.message); return }
+      setFilas(prev => [...prev, data])
+    }
+    toast.success('Proyectado actualizado')
+    setEditando(null)
   }
 
   // ── Opciones de filtro ──
@@ -832,9 +901,41 @@ export default function VistaConsolidado() {
                     {MESES_ABREV.map(mes => {
                       const h = row[mes] || 0
                       const cubierto = mesesCubiertosAbrev.has(mes)
+                      if (cubierto) {
+                        return (
+                          <td key={mes} className="py-2 px-3 text-right tabular-nums bg-gray-100 text-gray-400">
+                            {h === 0 ? '—' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                          </td>
+                        )
+                      }
+                      const cellKey = `${row.colaborador}|||${row.proyecto}|${mes}`
+                      const enEdicion = editando === cellKey
                       return (
-                        <td key={mes} className={`py-2 px-3 text-right tabular-nums ${cubierto ? 'bg-gray-100 text-gray-400' : h === 0 ? 'text-gray-300' : 'text-gray-700'}`}>
-                          {h === 0 ? '—' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        <td key={mes} className="py-1 px-1 text-right tabular-nums">
+                          {enEdicion ? (
+                            <input
+                              type="text"
+                              inputMode="decimal"
+                              autoFocus
+                              value={valorEdit}
+                              onChange={e => setValorEdit(e.target.value)}
+                              onBlur={() => guardarProyectado(row, mes)}
+                              onKeyDown={e => {
+                                if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur() }
+                                else if (e.key === 'Escape') { cancelarEdicion.current = true; e.currentTarget.blur() }
+                              }}
+                              className="w-16 text-right border border-orange-400 rounded px-1 py-0.5 focus:outline-none focus:ring-1 focus:ring-orange-500"
+                            />
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => { setEditando(cellKey); setValorEdit(h ? String(h) : '') }}
+                              className={`w-full text-right px-2 py-0.5 rounded hover:bg-orange-100 cursor-pointer ${h === 0 ? 'text-gray-300' : 'text-gray-700'}`}
+                              title="Click para editar lo proyectado"
+                            >
+                              {h === 0 ? '—' : h.toLocaleString('es-CL', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </button>
+                          )}
                         </td>
                       )
                     })}
